@@ -385,7 +385,11 @@ let context, page, optionsPage, cdpSession, fixtureBase;
 
   // 5. Options page — configure API, verify saved.
   optionsPage = await context.newPage();
+  optionsPage.on('pageerror', error => console.log('OPTIONS_PAGE_ERROR', error.message));
+  await sw.evaluate(() => chrome.runtime.onMessage.addListener((m,s) => {globalThis.__smokeSender = {type:m.type,id:s.id,url:s.url,tabId:s.tab?.id,frameId:s.frameId};}));
   await optionsPage.goto(`chrome-extension://${extensionId}/options.html`);
+  await optionsPage.waitForTimeout(1000);
+  console.log('OPTIONS_DIAGNOSTIC', await optionsPage.locator('#status').textContent(), await sw.evaluate(() => globalThis.__smokeSender));
   await poll(
     async () => (await optionsPage.locator('#status').textContent()).includes('设置已读取'),
     'options page settings initialized',
