@@ -5,7 +5,7 @@ function createService(chrome,fetcher=fetch){
  const store=chrome.storage.local;
  const get=async k=>{try{return (await store.get(k))[k];}catch{throw new Error('读取本机存储失败，请重启扩展后重试');}};
  async function init(){await store.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});}
- function trusted(sender,file){return sender.id===chrome.runtime.id&&sender.url===chrome.runtime.getURL(file)&&!sender.tab;}
+ function trusted(sender,file){return sender.id===chrome.runtime.id&&sender.url===chrome.runtime.getURL(file)&&(sender.frameId===undefined||sender.frameId===0);}
  function page(sender){if(sender.id!==chrome.runtime.id||sender.frameId!==0||!Number.isInteger(sender.tab?.id))throw new Error('消息来源无效');const u=new URL(sender.url);if(!['https:','http:'].includes(u.protocol))throw new Error('页面不支持');u.hash='';return u;}
  let queue=Promise.resolve();
  function serial(task){const next=queue.then(task);queue=next.catch(()=>{});return next;}

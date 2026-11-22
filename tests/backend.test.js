@@ -45,4 +45,11 @@ test('disabled sites never replay saved records; HTTP websites remain opt-in',as
  await assert.rejects(()=>s.handle({type:'sites'},page));
  assert.deepEqual(await s.handle({type:'sites'},options),[]);
 });
+test('trusted options opened in a real tab can read settings, but child frames and page senders cannot', async()=>{
+ const c=fake(),s=backend.createService(c);await s.init();
+ c.data.config={model:'test-model'};
+ assert.equal((await s.handle({type:'settings'},{...options,frameId:0,tab:{id:4}})).model,'test-model');
+ await assert.rejects(()=>s.handle({type:'settings'},{...options,frameId:1,tab:{id:4}}));
+ await assert.rejects(()=>s.handle({type:'settings'},page));
+});
 module.exports={fake,page,options};
