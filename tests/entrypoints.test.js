@@ -80,3 +80,30 @@ test('options requests API permission from submit gesture and refuses unsafe end
   assert.equal(sent.find(m => m.type === 'configure').config.endpoint, 'https://api.test/v1');
   assert.equal(sent.some(m => m.type === 'enableSite'), false);
 });
+
+// ── Sender semantics under realistic MV3 conditions ──────────────────────
+const extDir = require('node:path').join(__dirname, '..', 'extension');
+const optionsJs = require('node:fs').readFileSync(path.join(extDir, 'options.js'), 'utf8');
+
+test('background rejects wrong-extension and non-tab openOptions messages', async () => {
+  const f = background();
+  for (const sender of [{...page,id:'other'}, {...page,frameId:2}, {id:'test',url:'chrome-extension://test/options.html'}, {...page,url:'chrome-extension://test/popup.html'}]) {
+    assert.equal((await f.send({type:'openOptions'},sender)).ok,false);
+  }
+  assert.equal(f.calls.includes('options'),false);
+});
+
+test('options.js must call chrome.permissions.request before sending config', () => {
+  assert.ok(optionsJs.includes("chrome.permissions.request"), 'options.js calls permissions.request');
+  const idxReq = optionsJs.indexOf("chrome.permissions.request");
+  const idxSend = optionsJs.indexOf("send({type: 'configure'");
+  assert.ok(idxReq >= 0 && idxSend > idxReq, 'Config send after permissions.request');
+});
+
+test('production manifest has no host_permissions and minimal declared permissions', () => {
+  const m = JSON.parse(require('node:fs').readFileSync(path.join(extDir, 'manifest.json'), 'utf8'));
+  assert.equal(m.host_permissions, undefined, 'No pre-granted hosts');
+  const ps = new Set(m.permissions);
+  assert.ok(ps.has('activeTab')); assert.ok(ps.has('scripting')); assert.ok(ps.has('storage'));
+  assert.ok(!ps.has('tabs'));
+});

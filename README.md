@@ -59,4 +59,6 @@ cd page-agent
 
 `.github/workflows/ci.yml` 在 GitHub Actions 运行 `npm ci --ignore-scripts`、扩展 JS 语法检查和 `npm test`，仅安装测试用依赖，不产出 ZIP 或 Release。测试使用 Node VM、linkedom 和 Chrome API doubles，覆盖来源验证、存储权限、选区、请求失败、忙碌状态、预览/应用、恢复/撤销、站点停用和入口文件。
 
-**这些是模拟测试，不是真实浏览器端到端验证。此次源码编辑没有在本机执行 node/npm/test/build 或浏览器，也没有验证实际权限弹窗或线上模型 API；请以 GitHub Actions 实际结果及人工浏览器验收为准。**
+**模拟测试（GitHub Actions `test` job）**：全部基于 Node.js + linkedom DOM + fake Chrome runtime doubles，无真实浏览器进程、无 chromium 安装、无 npm 构建步骤。测试 `trusted()` 来源校验、chrome.permissions.request 调用时序、chrome.scripting.executeScript 注入参数、contentSender 同标签页限制、模型任务提示词、错误响应脱敏及存储空间隔离。**这些是模拟测试，不等同于真实浏览器行为。**
+
+**端到端烟雾测试（GitHub Actions `smoke` job，新增）**：使用 xvfb-run 在 GitHub Actions Ubuntu runner 上安装 Playwright + Chromium，通过 `node scripts/browser-smoke.cjs` 克隆 `extension/` 并仅在临时副本的 manifest 中注入 `http://loopback/*` host_permissions（生产 manifest.json 完整保留未修改）。以 headed Chromium 加载真实 unpacked Manifest V3 扩展，使用 `chrome.scripting.executeScript` 向页面注入未修改的 content.js，通过 CDP `DOM.getDocument(pierce:true)` 穿透 closed Shadow DOM 观察 UI 节点，Playwright 鼠标坐标 click 发送 trusted click event。API 请求指向本机 HTTP OpenAI-compatible stub（非线上模型服务），所有选项页交互通过真实 form + chrome.permissions.request 完成。报告中的 **seeded-permission grant 不代表原生可选主机权限弹窗流程已被验证**（Chrome 对已 pre-grant 的 origin 直接返回 true，无弹窗）。**初始内容脚本注入来自 service worker 的 chrome.scripting.executeScript，而非工具栏图标点击路径；后者标记为 unverified。** 关闭 shadow root 保持 closed — 未改写 attachShadow 语义。模型输出含 `<img>` / `<script>` 标签经断言确认未被执行。截图与结构化 JSON report（含源 SHA、断言数、请求明细）上传至 GitHub Actions artifact。

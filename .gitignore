@@ -4,3 +4,5 @@ dist/
 .DS_Store
 .env
 .env.*
+tests/browser-output/*.png
+tests/browser-output/report.json

@@ -25,3 +25,28 @@ jobs:
           for file in extension/*.js; do node --check "$file"; done
       - name: Run simulated DOM and Chrome API tests
         run: npm test
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Real Chromium e2e smoke test
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+          export GITHUB_ACTIONS=true CI=true
+          xvfb-run -a node scripts/browser-smoke.cjs
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+      - name: Upload report & screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-results
+          path: tests/browser-output/
