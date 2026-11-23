@@ -412,7 +412,8 @@
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面连接或忙碌等待超时，未重复操作','timeout');return;}
           await update(tabId,token,t=>{t.status='waiting_page';t.waitDeadline=deadline;t.pending=null;t.phase=t.check?'verifying':'observe';event(t,'正在等待页面加载或上一操作结束，随后重新读取');});
-        } else if (/API (?:网络|请求超时|429|5\d\d)/.test(error.message)&&task.retries<2) {
+        } else if (['INPUT_CANCELLED','INVALID_FIELD_VALUE'].includes(error.code))await pause(task,error.message,'input');
+        else if (/API (?:网络|请求超时|429|5\d\d)/.test(error.message)&&task.retries<2) {
           await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'模型暂时不可用，稍后重试（'+t.retries+'/2）');});
         } else if(['PERMISSION_DENIED','UNSUPPORTED_PAGE','TAB_CLOSED'].includes(error.code))await pause(task,error.message,'access');
         else await pause(task, error.message || '任务失败，请检查页面与配置');

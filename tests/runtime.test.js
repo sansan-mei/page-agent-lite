@@ -573,3 +573,11 @@ test('stop and resume discard queued control scope',async()=>{
  await f.runtime.stop(1);assert.equal((await f.runtime.get(1)).nextObservation,null);
  await f.runtime.resume(1);assert.equal((await f.runtime.get(1)).nextObservation,null);
 });
+
+test('cancelled input pauses without automatic replay, including after worker reconstruction',async()=>{
+ let attempts=0;
+ const f=fixture({tools:{async execute(){attempts++;throw Object.assign(new Error('Input cancelled'),{code:'INPUT_CANCELLED'});}},model:async()=>({text:JSON.stringify({reply:'Fill',action:'fill',id:'t0',value:'new'})})});
+ await f.runtime.start(1,'Fill');await f.runtime.tick(1);
+ assert.equal((await f.runtime.get(1)).status,'paused');assert.equal((await f.runtime.get(1)).lastOutcome.code,'INPUT_CANCELLED');assert.equal((await f.runtime.get(1)).lastOutcome.dispatch,'unknown');
+ f.runtime=createRuntime(f.deps);await f.runtime.tick(1);assert.equal(attempts,1);
+});

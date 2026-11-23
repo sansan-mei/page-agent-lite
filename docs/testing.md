@@ -81,3 +81,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA1 控件分页/定位
 
 154 项 Node 模拟回归通过；新增 245 控件分页、字面筛选、隐藏/密码排除、缺失保持 unknown、重建 worker 后重新观察、同 URL 换文档、停止恢复与重连接传参。`scripts/page-read-smoke.cjs` 可用 PAGE_AGENT_CHROMIUM 指定本机 Chromium，验证实际 DOM 中后部离屏点击、旧快照/重复执行拒绝及参数边界；Edge 无窗口通过，Chrome 消息为 stub，非完整扩展或真实模型验收。脚本使用 Playwright 路由提供合成 HTTPS 页面，不访问外部网站。
+
+## PA2 原生字段输入兼容增量
+
+156 项 Node 测试通过，覆盖 beforeinput 取消、focus/beforeinput/input 替换节点不继续写入/change，以及取消后 worker 重建不重放。`scripts/form-input-smoke.cjs` 在本机 Edge 无窗口通过：真实原型 setter 绕过实例跟踪器、input/textarea 状态接受、InputEvent 数据与聚焦、取消保留值、异步回滚、节点替换及日期/数字格式清洗前拒绝。受控 fixture 模拟值跟踪，不是实际 React/Vue；Chrome 消息为 stub，未验证完整扩展、线上模型或真实网站。脚本以 Playwright 路由提供合成 HTTPS 内容，不访问外部网站；PAGE_AGENT_CHROMIUM 可指定浏览器。

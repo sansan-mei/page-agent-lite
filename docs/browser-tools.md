@@ -91,3 +91,11 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 `page.elementRange` 提供 start/end/total/nextOffset/query；total 是当前筛选下的匹配数，末页 nextOffset=null。按弹窗/视口优先顺序分页，每批 120 项；滚动、展开或 DOM 变化可能改变顺序，不能将偏移当稳定游标。筛选或非零偏移始终 elementsComplete=false，查无结果不是不存在证明；该请求不滚动页面。区域列表仍有原有预算。
 
 后台保存一次性的 nextObservation，下一 tick 重新捕获该范围并让模型使用当前快照 ID；不从旧结果列表直接点击。URL/documentId 改变则丢弃范围、重新默认观察。停止、补充指令、恢复及记忆管理造成代次变化时清空范围。内容脚本仍按 snapshotId/documentId/URL 和签名校验，快照仅能执行一次。旧整数 value 的正文读取协议不变；传输沿用 agent:observe.textOffset，接受整数或上述对象。
+
+## 原生字段事件兼容（PA2 增量）
+
+fill 仍只接受现有 input 类型及 textarea。使用原型 value setter 绕过实例 value 跟踪器，不注入主世界补丁。先以同类型脱离文档的 input 检查浏览器值清洗；若指定值不能原样保留，返回 INVALID_FIELD_VALUE、dispatch=not_sent，不修改原字段。该检查不验证 min/max、pattern 或业务保存，空字符串仍可清空。
+
+聚焦后重核对节点签名，再派发可取消 beforeinput；支持 InputEvent 时携带 data、inputType=insertReplacementText、isComposing=false 和 composed=true。网页 preventDefault 返回 INPUT_CANCELLED，不继续 setter/input/change；因处理器可能已有副作用，dispatch=unknown，不冒称撤销或自动重试。允许输入后使用原生 setter，再派发 input/change；select 保留普通 input/change。聚焦/事件处理器替换、隐藏、禁用节点或修改字段类型时返回 TARGET_CHANGED 并停止后续事件。InputEvent 不可用时降级普通 Event。
+
+现有稳定观察及字段 expected 仍核对实际值：异步回滚为 not_satisfied，替换后只能唯一语义匹配核对；不自动补写。控制器可能要求 isTrusted/键盘/IME 或特定框架协议，本增量不保证兼容，不支持组合输入、富文本或任意脚本。

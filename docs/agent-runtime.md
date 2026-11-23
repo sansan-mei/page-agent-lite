@@ -69,3 +69,5 @@ check 保存 operationId、expected、deadline、kind 及完成说明；条件�
 正文分段 observe 使用可选整数 value；只读结果写入普通 results 并进入下一轮上下文，仍按模型请求累计轮数。读取返回后检查运行代次、URL 与 documentId；停止或替换后的迟到结果不写回。下一 tick 重新观察后才规划动作，不将分段快照 ID 持久化。
 
 控件范围 observe 将受限对象 value 和当前 URL/documentId 写入 nextObservation；只读检查点可跨 worker 唤醒。下一 tick 读取后清空，文档边界变化时默认重读，模型只使用这轮新快照。范围不包含目标 ID，代次改变时清除；不改变累计请求预算或副作用恢复规则。
+
+INPUT_CANCELLED 与 INVALID_FIELD_VALUE 使用稳定 code 进入 reason=input 的暂停状态，不自动重放；前者处理器可能产生副作用，结果保持 unknown，后者在聚焦/事件前拒绝浏览器会清洗的值。worker 重建不会执行暂停任务。

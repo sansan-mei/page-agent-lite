@@ -238,8 +238,28 @@ function agentExecute(p,snap,doc){
  if(p.action==='select'&&(n.localName!=='select'||![...n.options].some(o=>o.value===p.value&&!o.disabled)))throw new Error('下拉选项无效');
  const proto=n.localName==='textarea'?win.HTMLTextAreaElement?.prototype:n.localName==='select'?win.HTMLSelectElement?.prototype:win.HTMLInputElement?.prototype;
  const setter=proto&&Object.getOwnPropertyDescriptor(proto,'value')?.set;
+ // Browser sanitization must not silently clear an existing date/number value.
+ if(p.action==='fill'&&n.localName==='input'&&setter){
+  const probe=doc.createElement('input');probe.type=n.type;setter.call(probe,p.value);
+  if(probe.value!==p.value)throw Object.assign(new Error('字段不接受此格式，未修改原值'),{code:'INVALID_FIELD_VALUE',beforeDispatch:true});
+ }
+ const inputType=n.type;
+ const intact=()=>{
+  if(!n.isConnected||n.disabled||n.readOnly||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType)throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
+  for(let parent=n;parent;parent=parent.parentElement){const style=win.getComputedStyle?.(parent);if(style&&(style.display==='none'||style.visibility==='hidden'))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});}
+ };
+ n.focus?.({preventScroll:true});intact();
+ if(agentSignature(n)!==ref.signature)throw Object.assign(new Error('聚焦期间字段变化，未继续写入'),{code:'TARGET_CHANGED'});
+ const inputEvent=(type,cancelable)=>new (win.InputEvent||win.Event)(type,{bubbles:true,composed:true,cancelable,inputType:'insertReplacementText',data:p.value,isComposing:false});
+ if(p.action==='fill'){
+  if(!n.dispatchEvent(inputEvent('beforeinput',true)))throw Object.assign(new Error('网页取消了输入，未写入指定值'),{code:'INPUT_CANCELLED'});
+  intact();
+  if(agentSignature(n)!==ref.signature)throw Object.assign(new Error('输入前字段变化，未继续写入'),{code:'TARGET_CHANGED'});
+ }
  if(setter)setter.call(n,p.value);else n.value=p.value;
- n.dispatchEvent(new win.Event('input',{bubbles:true}));n.dispatchEvent(new win.Event('change',{bubbles:true}));
+ n.dispatchEvent(p.action==='fill'?inputEvent('input',false):new win.Event('input',{bubbles:true,composed:true}));
+ intact();
+ n.dispatchEvent(new win.Event('change',{bubbles:true,composed:true}));
 }
 // Only current snapshot references reach these helpers; no selectors from the model.
 function agentScroll(p,n,doc,page){

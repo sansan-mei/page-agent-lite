@@ -58,3 +58,5 @@ worker 可能终止，必要状态写入 session。执行前保存 `executing`�
 参考：[Hermes 架构](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)、[Agent 循环](https://hermes-agent.nousresearch.com/docs/developer-guide/agent-loop)、[Chrome worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。不代表项目具备 Hermes 全部能力。
 
 页面内操作反馈由 `page-pointer.js` 管理，通过浏览器适配层随 core/content 注入；没有任务状态或模型访问。core 同步触发显示，动画与实际操作并行；后台运行器在停止/结束/非活动状态清理显示层。hover 复用当前快照目标校验、工具回执及观察核对流程。
+
+原生字段兼容逻辑保留在 core.js：原型 setter、受限合成输入事件与事件间目标检查。content.js 执行后的短观察及 conditions.js 值核对保持职责；runtime.js 依稳定输入 code 暂停，不在 DOM 层保存任务或运行循环。

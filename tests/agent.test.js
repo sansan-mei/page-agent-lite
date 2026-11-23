@@ -158,3 +158,20 @@ test('control paging and literal lookup expose late targets without inferring ab
  }
  const literal=C.agentSnapshot(document,{query:'Entry .*'});assert.equal(literal.page.elements.length,0);
 });
+
+test('fill honors cancelled beforeinput and stops when event handlers replace a target',()=>{
+ for(const mode of ['cancel','focus-replace','beforeinput-replace','input-replace']){
+  const {document,window}=parseHTML('<html><body><input type="text" value="original"></body></html>');
+  const n=document.querySelector('input');let inputs=0,changes=0;
+  n.addEventListener('input',()=>inputs++);n.addEventListener('change',()=>changes++);
+  const replace=()=>n.replaceWith(document.createElement('input'));
+  if(mode==='cancel')n.addEventListener('beforeinput',e=>e.preventDefault());
+  if(mode==='focus-replace')n.focus=replace;
+  if(mode==='beforeinput-replace')n.addEventListener('beforeinput',replace);
+  if(mode==='input-replace')n.addEventListener('input',replace);
+  const snap=C.agentSnapshot(document);
+  assert.throws(()=>C.agentExecute({action:'fill',id:'t0',value:'new'},snap,document),e=>e.code===(mode==='cancel'?'INPUT_CANCELLED':'TARGET_CHANGED'));
+  assert.equal(changes,0);assert.equal(inputs,mode==='input-replace'?1:0);
+  if(mode!=='input-replace')assert.equal(n.value,'original');
+ }
+});
