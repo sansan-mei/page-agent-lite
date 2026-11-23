@@ -17,7 +17,7 @@ Page Agent Lite：Chrome / Edge MV3 扩展，用自然语言在浏览器内读�
 | 测试 | `docs/testing.md` |
 | 下一步做什么 | `ROADMAP.md`，再读其链接的 `docs/plans/` |
 
-`changelog/` 是历史记录，不代表当前状态；只在追溯某次变更原因时查阅。`docs/plans/` 是设计与计划，其中未勾选内容不能写成已有能力。
+`CHANGELOG.md` 只是变更摘要，不代表当前状态；追溯原因用 `git log`。`docs/plans/` 是设计与计划，其中未勾选内容不能写成已有能力。
 
 ## 不可破坏的约束
 
@@ -38,7 +38,7 @@ Page Agent Lite：Chrome / Edge MV3 扩展，用自然语言在浏览器内读�
 
 - **一处一事实**：每个事实只写在负责它的文档里，其他地方放链接。README 只有介绍、安装、数据去向、边界；行为细节在 `docs/usage.md`；实现细节在模块文档；计划在 `docs/plans/`。
 - **改写，不追加**：更新时修改对应章节，让全文描述当前状态。不在文末追加“本次……”段落，删掉被替代的旧说法。
-- **测试数字只进 changelog**：README、ROADMAP、模块文档、`docs/testing.md` 都不写“N 项测试通过”。`docs/testing.md` 只写方法、覆盖范围和未验证项。
+- **测试数字只进提交信息/PR**：README、ROADMAP、CHANGELOG、模块文档、`docs/testing.md` 都不写“N 项测试通过”。`docs/testing.md` 只写方法、覆盖范围和未验证项。
 - **已实现与未实现分开**：未实现内容只出现在 ROADMAP、`docs/plans/` 或文档的“限制/未支持”小节。
 - 用短句、表格、字段名和稳定 code；同一限制在一份文档里只说一次。
 - 纯文档变更只需检查链接、命名及与代码一致，不必跑代码测试。
@@ -58,7 +58,7 @@ git diff --check
 
 ## Git 提交
 
-- 每完成一个可独立理解和回退的逻辑变更，验证并更新文档/changelog 后立即本地 commit；用户要求暂不提交时遵从。
+- 每完成一个可独立理解和回退的逻辑变更，验证并更新相关文档后立即本地 commit；用户要求暂不提交时遵从。
 - 按逻辑变更划分：无关修改分开提交，不拆出不可运行的半成品。
 - 提交前检查 `git status` 与 `git diff --cached`，只暂存本次变更；保留他人未提交修改，不带入密钥或测试产物。
 - 标题格式 `feat(scope): ...`、`fix(scope): ...`、`docs(scope): ...`；交付时报告提交哈希和验证结果。
@@ -66,7 +66,7 @@ git diff --check
 
 ## Changelog 与 Roadmap
 
-- 有意义的功能、修复、配置或文档变更新增 `changelog/YYYYMMDDHHmmss-简短功能名.md`（Asia/Singapore 实际时间，精确到秒；同一轮紧密相关修改可合并）。格式见 `changelog/README.md`。验证命令和数字写在这里。
-- 历史 changelog 不改写；事实错误另行标注更正。
+- 不再按提交新建 changelog 文件。用户能感知的变化（功能、行为、配置、限制、破坏性变更）在 `CHANGELOG.md` 的「未发布」段对应分类下加一行；纯重构、测试、内部修复不写。发版时把「未发布」改为版本号和日期。
+- 验证写在提交信息正文：实际执行的命令与结果、Node 模拟/浏览器 stub/真实模型各自是否执行、未验证范围。不要写进任何文档。
 - `ROADMAP.md` 只维护状态：交付时勾选并用一句话描述，不写测试数字、验证细节或日期承诺。
 - 用户可见用法或限制变化时同步 `docs/usage.md`；只有影响安装、数据去向或边界时才改 README。

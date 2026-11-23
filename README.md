@@ -67,7 +67,7 @@
 
 运行扩展不需要安装依赖；测试需要 Node.js 22+：`npm ci --ignore-scripts --no-audit --no-fund && npm test`。
 
-[贡献指南](CONTRIBUTING.md) · [架构](docs/architecture.md) · [测试](docs/testing.md) · [安全](SECURITY.md) · [Changelog](changelog/README.md) · [同类项目](docs/competitive-landscape.md)
+[贡献指南](CONTRIBUTING.md) · [架构](docs/architecture.md) · [测试](docs/testing.md) · [安全](SECURITY.md) · [Changelog](CHANGELOG.md) · [同类项目](docs/competitive-landscape.md)
 
 ## 许可与参考
 
