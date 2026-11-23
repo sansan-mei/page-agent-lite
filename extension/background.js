@@ -95,6 +95,8 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       if(m.type==='task:get')return runtime.get(m.tabId);
+      if(m.type==='task:members')return runtime.members(m.tabId,m.taskId);
+      if(m.type==='task:member-change')return runtime.changeMembers(m.tabId,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
       if(m.type==='task:scope-change')return runtime.changeOrigins(m.tabId,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});
       if(m.type==='task:diagnostics')return runtime.diagnostics(m.tabId,m.taskId);
       if(m.type==='task:history'||m.type==='task:history-get'){
@@ -108,7 +110,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:memory')return runtime.getMemory(m.tabId);
       if(m.type==='task:memory-clear')return runtime.clearMemory(m.tabId);
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
-      if(m.type==='task:start'||m.type==='task:submit'){await tools.inject(m.tabId);return runtime.submit(m.tabId,m.goal);}
+      if(m.type==='task:start'||m.type==='task:submit'){if((await store.owner?.(m.tabId))?.role==='member')throw new Error('该标签页已加入其他任务，请到任务所在标签页操作或先移出');await tools.inject(m.tabId);return runtime.submit(m.tabId,m.goal);}
       if(m.type==='task:finish')return runtime.finish(m.tabId);
       if(m.type==='task:resume')return runtime.resume(m.tabId);
       if(m.type==='task:stop')return runtime.stop(m.tabId);

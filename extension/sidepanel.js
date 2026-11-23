@@ -76,7 +76,7 @@
     $('history').setAttribute('aria-expanded',String(historyOpen));
     $('composer').hidden=historyOpen;
     const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
-    if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';}
+    if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
     $('scope-add').disabled=busy||!editableScope;$('scope-origin').disabled=busy||!editableScope;
     const scopeSignature=JSON.stringify([current?.taskId,current?.scopeRevision,current?.allowedOrigins,busy]);
@@ -271,6 +271,41 @@
     catch(error){$('scope-status').textContent=error.message;}
   });
   $('scope-origins').addEventListener('click',event=>{const origin=event.target.dataset?.origin;if(origin)editScope('remove',origin);});
+  let memberView=null,memberRequest=0;
+  const memberKinds={initial:'执行标签页',user_joined:'用户加入',task_created:'任务创建'};
+  function renderMembers(){
+    const list=$('member-list'),select=$('member-candidate');list.replaceChildren();select.replaceChildren();
+    const usable=memberView&&memberView.taskId===task?.taskId;$('member-form').hidden=!usable;if(!usable)return;
+    for(const member of memberView.members){
+      const li=document.createElement('li'),label=document.createElement('span');
+      label.textContent=[member.tabRef,memberKinds[member.kind]||member.kind,member.open?(member.title||'无标题')+' · '+(member.origin||'非网页'):'已关闭',member.open&&member.origin&&!member.authorized?'站点未授权':''].filter(Boolean).join(' · ');li.append(label);
+      if(member.kind==='user_joined'){const button=document.createElement('button');button.type='button';button.textContent='移出';button.dataset.tabRef=member.tabRef;button.disabled=busy;li.append(button);}
+      list.append(li);
+    }
+    for(const candidate of memberView.candidates){
+      const option=document.createElement('option');option.value=String(candidate.tabId);option.disabled=candidate.occupied;
+      option.textContent=(candidate.title||'无标题')+' · '+candidate.origin+(candidate.occupied?' · 已被其他任务占用':candidate.authorized?'':' · 站点未授权');select.append(option);
+    }
+    $('member-add').disabled=busy||!memberView.candidates.some(candidate=>!candidate.occupied);
+  }
+  async function loadMembers(){
+    if(tabId===null||!task?.taskId)return;
+    const target=tabId,taskId=task.taskId,view=selection,version=++memberRequest;
+    try{const value=await send('task:members',{tabId:target,taskId});if(view!==selection||target!==tabId||version!==memberRequest||task?.taskId!==taskId)return;memberView=value;renderMembers();}
+    catch(error){if(view===selection&&version===memberRequest)$('member-status').textContent=error.message;}
+  }
+  async function editMembers(extra,done){
+    if(busy||!memberView||memberView.taskId!==task?.taskId)return;
+    const target=tabId,view=selection;busy=true;render();renderMembers();$('member-status').textContent='';
+    try{
+      const value=await send('task:member-change',{tabId:target,taskId:memberView.taskId,expectedMembersRevision:memberView.membersRevision,...extra});
+      if(view===selection&&target===tabId){$('member-status').textContent=done;if(value?.taskId===task?.taskId)task=value;}
+    }catch(error){if(view===selection)$('member-status').textContent=error.message;}
+    finally{busy=false;render();if(view===selection&&target===tabId)await loadMembers();}
+  }
+  $('members-refresh').addEventListener('click',()=>void loadMembers());
+  $('member-form').addEventListener('submit',event=>{event.preventDefault();const id=Number($('member-candidate').value);if(Number.isInteger(id))void editMembers({action:'join',memberTabId:id},'标签页已加入任务。');});
+  $('member-list').addEventListener('click',event=>{const ref=event.target.dataset?.tabRef;if(ref)void editMembers({action:'remove',tabRef:ref},'标签页已移出任务，网页未关闭。');});
   $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim()},draft);});
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
   $('instruction').addEventListener('compositionend',()=>{composing=false;});

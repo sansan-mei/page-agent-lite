@@ -300,3 +300,17 @@ test('permission reply for a replaced task cannot add its origin to the new task
  current={...current,taskId:'replacement',scopeRevision:2,goal:'New'};delayed.updated(9,{status:'complete'});await flush();resolve(true);await flush();
  assert.equal(delayed.calls.some(c=>c[0]==='message'&&c[1].type==='task:scope-change'),false);assert.equal(delayed.document.getElementById('goal').textContent,'New');
 });
+test('task tab directory loads only on gesture, renders untrusted titles as text, and sends exact member revision',async()=>{
+ const task={taskId:'scope',scopeRevision:4,membersRevision:7,allowedOrigins:['https://example.test'],origin:'https://example.test',goal:'Scope',status:'running',steps:1,prefs:{maxSteps:50},events:[]};
+ const view={taskId:'scope',membersRevision:7,members:[{tabRef:'tab0',kind:'initial',tabId:9,active:true,open:true,origin:'https://example.test',title:'Homework',authorized:true},{tabRef:'tab1',kind:'user_joined',tabId:5,active:false,open:true,origin:'https://b.test',title:'<img src=x>',authorized:false}],candidates:[{tabId:6,origin:'https://c.test',title:'<b>busy</b>',authorized:false,occupied:true},{tabId:7,origin:'https://example.test',title:'Free',authorized:true,occupied:false}]};
+ const changes=[];const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:members'?{ok:true,value:view}:m.type==='task:member-change'?(changes.push(m),{ok:true,value:{...task,membersRevision:8}}):undefined);
+ const d=f.document;assert.equal(f.calls.some(c=>c[1]?.type==='task:members'),false);assert.equal(d.getElementById('member-form').hidden,true);
+ d.getElementById('members-refresh').dispatchEvent(new f.window.Event('click'));await flush();
+ assert.equal(d.querySelector('#member-list img'),null);assert.equal(d.querySelector('#member-candidate b'),null);assert.match(d.getElementById('member-list').textContent,/<img src=x>/);
+ const options=[...d.querySelectorAll('#member-candidate option')];assert.deepEqual(options.map(o=>[o.value,o.disabled]),[['6',true],['7',false]]);assert.match(options[0].textContent,/占用/);
+ assert.equal(d.querySelectorAll('#member-list button').length,1);
+ Object.defineProperty(d.getElementById('member-candidate'),'value',{value:'7',configurable:true});d.getElementById('member-form').dispatchEvent(new f.window.Event('submit',{cancelable:true}));await flush();await flush();await flush();
+ assert.equal(changes[0].action,'join');assert.equal(changes[0].memberTabId,7);assert.equal(changes[0].expectedMembersRevision,7);assert.equal(changes[0].taskId,'scope');assert.equal(changes[0].tabId,9);
+ d.querySelector('#member-list button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();
+ assert.equal(changes[1].action,'remove');assert.equal(changes[1].tabRef,'tab1');assert.match(d.getElementById('member-status').textContent,/未关闭/);
+});

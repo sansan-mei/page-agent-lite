@@ -39,7 +39,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 消息入口
 
-- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:diagnostics`、`task:scope-change`。
+- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`。
 - 设置页 → 后台：`task:memory`、`task:memory-clear`、`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`。
 - 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:clear-pointer`。
 

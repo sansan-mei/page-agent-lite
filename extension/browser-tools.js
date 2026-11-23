@@ -4,6 +4,8 @@
   function createBrowserTools(chrome) {
     // Trusted startup inventory contains IDs only and is never offered to the model.
     async function existingTabIds(){return (await chrome.tabs.query({})).map(t=>t.id).filter(Number.isInteger);}
+    // Trusted side-panel member picker only; tab titles and URLs are never offered to the model.
+    async function listTabs(){return (await chrome.tabs.query({})).filter(t=>Number.isInteger(t.id)).map(t=>({id:t.id,url:typeof t.url==='string'?t.url:'',title:typeof t.title==='string'?t.title:''}));}
     async function hasOriginAccess(origin){return chrome.permissions.contains({origins:[origin+'/*']});}
     async function tab(tabId){
       let t;try{t=await chrome.tabs.get(tabId);}catch{throw Object.assign(new Error('目标标签页已关闭，请切换到需要操作的网页'),{code:'TAB_CLOSED'});}
@@ -79,7 +81,7 @@
       }
     }
     async function clearPointer(tabId){try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }}
-    return {tab,existingTabIds,hasOriginAccess,inject,observe,execute,verify,clearPointer};
+    return {tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;
