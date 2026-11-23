@@ -1,10 +1,10 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(registered=[]){
- let listener,removed;const calls=[];
- const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async tick(){}};
+ let listener,removed,permissionRemoved;const calls=[];
+ const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async changeOrigins(id,p){calls.push(['scope-change',id,p]);return {status:'paused'};},async reviewPermissions(){calls.push(['review-permissions']);},async tick(){}};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
- storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
+ permissions:{onRemoved:{addListener(fn){permissionRemoved=fn;}}},storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
  scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
  alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},
  tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(fn){removed=fn;}}},action:{onClicked:{addListener(){}}}};
@@ -13,7 +13,7 @@ async function fixture(registered=[]){
   PageAgentTaskStore:{createTaskStore(){return {async migrate(){}};}},
   PageAgentBrowserTools:{createBrowserTools(){return {async inject(){calls.push(['tools.inject']);}};}},
   PageAgentRuntime:{createRuntime(){return runtime;}}});await flush();
- return {calls,removed,send:(m,s)=>new Promise(r=>listener(m,s,r))};
+ return {calls,removed,permissionRemoved,send:(m,s)=>new Promise(r=>listener(m,s,r))};
 }
 const panel={id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0};
 test('only trusted sidepanel owns runtime commands; content cannot create/read/stop tasks',async()=>{
@@ -72,4 +72,16 @@ test('global memory management works without a target tab only for trusted exten
 
 test('browser tab close routes to member lifecycle without clearing task history',async()=>{
  const f=await fixture();f.removed(7);await flush();assert.deepEqual(f.calls,[['member-closed',7]]);
+});
+
+
+test('only trusted sidepanel can change task origins and unrecognized mutation fields are dropped',async()=>{
+ const f=await fixture(),message={type:'task:scope-change',tabId:1,taskId:'scope',expectedRevision:2,action:'add',origin:'https://two.test',allowedOrigins:['https://evil.test'],token:'fake'};
+ for(const sender of [{...panel,url:'https://page.test',tab:{id:1}},{...panel,url:'chrome-extension://test/options.html'},{...panel,frameId:1}])assert.equal((await f.send(message,sender)).ok,false);
+ assert.equal((await f.send(message,panel)).ok,true);const call=f.calls.find(c=>c[0]==='scope-change');assert.equal(call[1],1);assert.equal(JSON.stringify(call[2]),JSON.stringify({taskId:'scope',expectedRevision:2,origin:'https://two.test',action:'add'}));
+});
+
+
+test('browser host revocation triggers task permission review without granting task scope',async()=>{
+ const f=await fixture();f.permissionRemoved({origins:['https://one.test/*']});await flush();assert.deepEqual(f.calls,[['review-permissions']]);
 });

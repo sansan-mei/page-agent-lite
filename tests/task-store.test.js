@@ -98,3 +98,34 @@ test('interrupted close intent finishes only storage cleanup at startup without 
   const archive=data['conversation:1:closing'];assert.equal(archive.status,'ended');assert.equal(archive.updatedAt,500);assert.equal(archive.steps,49);assert.deepEqual(archive.check,task.check);assert.deepEqual(archive.pending,task.pending);assert.equal(archive.token,undefined);
  }
 });
+
+
+test('only revision-checked scope mutations change exact origin grants, while checkpoints preserve authority',async()=>{
+ const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}}),task={taskId:'scope',tabId:1,origin:'https://one.test',status:'running',phase:'executing',steps:28,token:'old',pending:{plan:{action:'click'}},check:{kind:'action',deadline:12345,dispatch:'unknown'}};
+ await store.set(1,{...task,allowedOrigins:['https://evil.test']});let current=await store.get(1);assert.deepEqual(current.allowedOrigins,[task.origin]);
+ await store.set(1,{...current,allowedOrigins:['https://evil.test'],initialOrigin:'https://evil.test'});current=await store.get(1);assert.deepEqual(current.allowedOrigins,[task.origin]);assert.equal(current.initialOrigin,task.origin);
+ const operation={taskId:task.taskId,expectedRevision:current.scopeRevision,action:'add',origin:'https://one.test:8443',token:'new',updatedAt:100};
+ const changed=await store.changeOrigins(1,operation);assert.deepEqual(changed.allowedOrigins,[task.origin,operation.origin]);assert.ok(changed.scopeRevision>current.scopeRevision);assert.equal(changed.status,'paused');assert.equal(changed.reason,'scope_changed');assert.equal(changed.steps,28);assert.equal(changed.token,'new');assert.deepEqual(changed.check,task.check);assert.deepEqual(changed.pending,task.pending);
+ await assert.rejects(()=>store.changeOrigins(1,operation),e=>e.code==='TASK_SCOPE_INCONSISTENT');await store.set(1,{...changed,allowedOrigins:[]});assert.deepEqual((await store.get(1)).allowedOrigins,changed.allowedOrigins);
+ const removed=await store.changeOrigins(1,{...operation,action:'remove',origin:task.origin,expectedRevision:changed.scopeRevision});assert.deepEqual(removed.allowedOrigins,[operation.origin]);
+ for(const origin of ['https://one.test/path','https://one.test/','https://user:secret@one.test','https://*.one.test','file:///tmp','https://one.test#x'])await assert.rejects(()=>store.changeOrigins(1,{...operation,origin,expectedRevision:removed.scopeRevision}));
+ await assert.rejects(()=>store.set(1,{...removed,origin:'https://elsewhere.test'}),e=>e.code==='TASK_SCOPE_INCONSISTENT');
+});
+
+test('scope publication interruption reconciles to a paused old or new scope and keeps original check deadline',async()=>{
+ for(const rootWritten of [false,true]){
+  const data={};let fail=false;const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){if(fail&&Object.keys(v).some(k=>k.startsWith('taskRoot:'))){if(rootWritten)Object.assign(data,structuredClone(v));throw Error('interrupted');}Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+  const store=createTaskStore({storage:{session:area}}),task={taskId:'scope',tabId:1,origin:'https://one.test',status:'running',phase:'executing',steps:49,token:'old',check:{kind:'action',deadline:321,dispatch:'unknown'},pending:{plan:{action:'click'}}};
+  await store.set(1,task);const current=await store.get(1);fail=true;await assert.rejects(()=>store.changeOrigins(1,{taskId:'scope',expectedRevision:current.scopeRevision,action:'add',origin:'https://two.test',token:'new',updatedAt:100}),/interrupted/);await assert.rejects(()=>store.get(1),e=>e.code==='TASK_SCOPE_INCONSISTENT');fail=false;
+  const restarted=createTaskStore({storage:{session:area}});await restarted.migrate();const recovered=await restarted.get(1);assert.equal(recovered.status,'paused');assert.equal(recovered.reason,'scope_reconciled');assert.equal(recovered.check.deadline,321);assert.equal(recovered.steps,49);assert.deepEqual(recovered.allowedOrigins,rootWritten?[task.origin,'https://two.test']:[task.origin]);
+ }
+});
+
+
+test('task origin scope is bounded without evicting earlier explicit grants',async()=>{
+ const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});await store.set(1,{taskId:'scope-limit',tabId:1,origin:'https://initial.test',status:'paused',token:'old'});
+ for(let i=1;i<16;i++){const task=await store.get(1);await store.changeOrigins(1,{taskId:task.taskId,expectedRevision:task.scopeRevision,action:'add',origin:'https://site'+i+'.test',token:'new',updatedAt:100});}
+ const before=await store.get(1);await assert.rejects(()=>store.changeOrigins(1,{taskId:before.taskId,expectedRevision:before.scopeRevision,action:'add',origin:'https://overflow.test',token:'new',updatedAt:101}),/16/);assert.deepEqual(await store.get(1),before);
+});

@@ -86,7 +86,7 @@ metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/complet
 
 ## V3 单成员根记录（已实现基础）
 
-任务主记录为 session taskRoot:taskId，version=3；taskRegistry={version:1,revision,bindings:{tabId:{taskId,revision}},pending?} 为单成员归属权威。根记录 scopeRevision 须与 binding 对应；同一 taskId 不可归属两个标签。当前 root 固定 initialTabId=activeTabId=tabId、initialOrigin=activeOrigin=origin、allowedOrigins=[origin]，members 只有 kind=initial/tabRef=tab0 一项，写入不会接受调用方扩大范围。
+任务主记录为 session taskRoot:taskId，version=3；taskRegistry={version:1,revision,bindings:{tabId:{taskId,revision}},pending?} 为单成员归属权威。根记录 scopeRevision 须与 binding 对应；同一 taskId 不可归属两个标签。当前 root 固定 initialTabId=activeTabId=tabId、initialOrigin=activeOrigin=origin，members 只有 kind=initial/tabRef=tab0 一项；新任务 allowedOrigins=[origin]。普通 set 保留已有授权集合、initialOrigin 与成员，不接受调用方扩大范围或修改 origin；任务范围只能经专用可信 changeOrigins 修改。
 
 现有 store.get/set/history/list(tabId) 接口保留；task:tabId 仅为旧版迁移输入，不再双写整份任务。侧栏监听根记录/归属索引作为失效信号，通过可信 task:get 读取当前任务，忽略旧键事件内容；pending 归属期间暂停刷新，取消迟到读取。外部直接改旧键不覆盖已有 binding 的根记录；生产后台统一经 store 写。临时记忆及 conversation 历史键仍不变。
 
@@ -103,3 +103,9 @@ V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保�
 浏览器成员关闭走 closeMember(tabId,expectedTaskId,closedAt)，不复用用户清空任务。当前严格要求唯一 initial 成员，不接受多成员数据。先写 taskRegistry.pending={kind:member_closed,tabId,binding,closedAt}；再写 ended/reason=member_closed、members=[]、activeTabId/activeOrigin=null 的终态根及 conversation 归档，去掉 token，保留 steps、phase、pending/check 和原 deadline/dispatch 作为未知动作证据；清该标签旧键/临时记忆后释放 binding，最后清理无绑定根。归档在本浏览器会话保留，不提供跨标签恢复或关闭后历史检索入口；historyGet 仍不向侧栏暴露 pending/check/token。
 
 pending 期间读取拒绝执行；启动 reconcile 识别关闭意图，只读校验原 taskId/revision 后继续存储清理，不执行页面/模型，不把终态任务恢复运行。归档、临时记忆清理或索引提交失败保留意图；已释放 binding 的残留根由既有归档清理处理。重复或过期 taskId 关闭无操作，其他任务/历史/长期笔记不变。
+
+## 任务站点范围修改
+
+changeOrigins 仅供可信后台调用，按 taskId/expectedRevision 核对当前 binding；HTTP/HTTPS canonical 完整 origin（无路径/查询/片段/凭据/通配符），最多 16 项，协议、子域和端口各自独立。模型和普通 set 不可扩大集合。增删改 scopeRevision/token，使用同一 pending→root→binding 协议；失败由启动 reconcile 采用旧或新完整范围并暂停，不自动执行。初始 origin 不变，当前仍为单成员同源运行器。
+
+修改成功置 paused/reason=scope_changed，清一次观察范围、摘要、usage 锚点、任务计划及问题缓存，保留原结果/归档和 executing/pending/check/deadline/steps；这些仍属于同 origin，不自动携带到其他来源。撤销允许空集合，重新添加当前 origin 才能继续；新任务重新从初始 origin 授权，不沿用旧对话集合。浏览器主机权限不写入 allowedOrigins；权限撤销不改用户范围，但禁止运行并以 permission_denied 暂停。跨 origin 的上下文分区/历史筛选尚待接入。

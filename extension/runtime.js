@@ -149,6 +149,30 @@
         t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
+    const inScope=t=>(t.allowedOrigins||[t.origin]).includes(t.origin);
+    async function scopePause(task,reason){
+      return update(task.tabId,task.token,t=>{t.token=uuid();t.status='paused';t.reason=reason;t.nextObservation=null;t.contextUsage=null;event(t,reason==='permission_denied'?'浏览器网站权限已撤销，任务暂停；已发出的操作不会撤销或重做。':'当前网站已不在任务授权范围，任务暂停。');});
+    }
+    async function changeOrigins(tabId,operation){
+      return serial(tabId,async()=>{
+        const task=await store.get(tabId);
+        if(!task||task.taskId!==operation.taskId||task.scopeRevision!==operation.expectedRevision||['ended','completed'].includes(task.status))throw new Error('任务范围已变化，请刷新后重试');
+        let url;try{url=new URL(operation.origin);}catch{throw new Error('请输入完整 HTTP/HTTPS 站点来源');}
+        if(!['http:','https:'].includes(url.protocol)||url.origin!==operation.origin||url.username||url.password||url.hostname.includes('*')||!['add','remove'].includes(operation.action)||operation.origin.length>300)throw new Error('站点来源或范围操作无效');
+        const exists=(task.allowedOrigins||[task.origin]).includes(operation.origin);
+        if(operation.action==='add'&&exists||operation.action==='remove'&&!exists)return task;
+        if(operation.action==='add'&&(!tools.hasOriginAccess||!await tools.hasOriginAccess(operation.origin)))throw new Error('请先从任务范围面板授权该网站');
+        controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
+        return store.changeOrigins(tabId,{...operation,token:uuid(),updatedAt:now()});
+      });
+    }
+    async function reviewPermissions(){
+      if(!tools.hasOriginAccess)return;
+      for(const task of await store.list()){
+        if(['ended','completed','stopped','failed'].includes(task.status)||await tools.hasOriginAccess(task.origin))continue;
+        controllers.get(task.taskId)?.abort();await cancelSchedule(task.tabId);await scopePause(task,'permission_denied');
+      }
+    }
     async function start(tabId, goal) {
       if (typeof goal !== 'string' || !goal.trim() || goal.length > 2000) throw new Error('请输入不超过 2000 字的任务');
       const page = await tools.tab(tabId), prefs = await preferences();
@@ -163,6 +187,8 @@
       const saved=await serial(tabId,async()=>{
         let task=await store.get(tabId);
         if(task&&!['completed','ended'].includes(task.status)){
+          if(!inScope(task))throw new Error('当前网站不在任务授权范围，请先添加后继续');
+          if(['scope_changed','permission_denied'].includes(task.reason)&&(task.phase==='executing'||task.check))throw new Error('请先点击继续核对未确定操作，再补充指令');
           if(new URL(page.url).origin!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
@@ -222,13 +248,15 @@
     async function resume(tabId) {
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
+      if(!inScope(task))throw new Error('当前网站不在任务授权范围，请先添加后继续');
+      if(tools.hasOriginAccess&&!await tools.hasOriginAccess(task.origin))throw new Error('请先授权当前网站后继续');
       if (ACTIVE.has(task.status)) return task;
       const tab = await tools.tab(tabId);
       if (new URL(tab.url).origin !== task.origin) throw new Error('请回到任务原站点继续，跨站任务尚未支持');
       const prefs = await preferences();
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
-        const recovery=['global_memory_changed','scope_reconciled'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
+        const recovery=['global_memory_changed','scope_reconciled','scope_changed','permission_denied'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
         t.question=null;t.helpAttempts=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
@@ -255,10 +283,13 @@
       let call=null;
       const controller = new AbortController(); controllers.set(task.taskId,controller);controllerTasks.set(tabId,task.taskId);
       const live = async () => {
+        const permitted=!tools.hasOriginAccess||await tools.hasOriginAccess(task.origin);
         const current = await store.get(tabId);
-        return !globalEditing && epoch===globalEpoch && !controller.signal.aborted && current?.token===token && ACTIVE.has(current.status);
+        return permitted&&!globalEditing && epoch===globalEpoch && !controller.signal.aborted && current?.token===token && ACTIVE.has(current.status)&&inScope(current);
       };
       try {
+        if(!inScope(task)){await scopePause(task,'scope_changed');return;}
+        if(tools.hasOriginAccess&&!await tools.hasOriginAccess(task.origin)){await scopePause(task,'permission_denied');return;}
         const tab = await tools.tab(tabId);
         if (!await live()) return;
         if (new URL(tab.url).origin !== task.origin) {await pause(task,'已离开原站点，任务暂停。返回后可继续。','origin');return;}
@@ -628,7 +659,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,changeOrigins,reviewPermissions,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

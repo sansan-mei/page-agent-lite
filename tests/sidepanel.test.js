@@ -275,3 +275,28 @@ test('a root update during a command is reread after its older response',async()
  current={...task,goal:'New checkpoint'};f.storageChanged({'taskRoot:root':{newValue:current}},'session');resolve({ok:true,value:task});await flush();
  assert.equal(f.document.getElementById('goal').textContent,'New checkpoint');
 });
+
+
+test('task scope grant starts on gesture, sends exact origin and revision, and renders untrusted labels as text',async()=>{
+ const task={taskId:'scope',scopeRevision:4,allowedOrigins:['https://example.test','<img src=x>'],origin:'https://example.test',goal:'Scope',status:'running',steps:3,prefs:{maxSteps:50},events:[]};let mutation;
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:scope-change'?(mutation=m,{ok:true,value:{...task,status:'paused',scopeRevision:5,allowedOrigins:[...task.allowedOrigins,m.origin]}}):undefined);
+ const d=f.document;assert.equal(d.getElementById('task-scope').hidden,false);assert.equal(d.querySelector('#scope-origins img'),null);f.calls.length=0;
+ d.getElementById('scope-origin').value='https://other.test:8443';d.getElementById('scope-form').dispatchEvent(new f.window.Event('submit',{cancelable:true}));assert.equal(f.calls[0][0],'permission');assert.equal(f.calls[0][1].origins[0],'https://other.test:8443/*');await flush();
+ assert.equal(mutation.origin,'https://other.test:8443');assert.equal(mutation.taskId,'scope');assert.equal(mutation.expectedRevision,4);assert.equal(mutation.action,'add');assert.equal(d.getElementById('scope-origin').value,'');assert.match(d.getElementById('scope-status').textContent,/暂停/);
+ f.calls.length=0;d.querySelector('#scope-origins button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();assert.equal(f.calls[0][0],'message');assert.equal(f.calls[0][1].action,'remove');assert.equal(f.calls[0][1].expectedRevision,5);
+});
+
+test('denied or invalid scope grants never change the task and keep the origin draft',async()=>{
+ const task={taskId:'scope',scopeRevision:1,allowedOrigins:['https://example.test'],goal:'Scope',status:'paused',steps:0,prefs:{maxSteps:50},events:[]};
+ const f=await fixture(false,m=>m.type==='task:get'?{ok:true,value:task}:undefined);const input=f.document.getElementById('scope-origin'),form=f.document.getElementById('scope-form');
+ for(const value of ['https://other.test/path','https://user:secret@other.test','https://*.other.test','file:///tmp']){f.calls.length=0;input.value=value;form.dispatchEvent(new f.window.Event('submit',{cancelable:true}));await flush();assert.equal(f.calls.length,0);}
+ f.calls.length=0;input.value='https://other.test';form.dispatchEvent(new f.window.Event('submit',{cancelable:true}));await flush();assert.equal(f.calls.filter(c=>c[0]==='message').length,0);assert.equal(input.value,'https://other.test');assert.match(f.document.getElementById('scope-status').textContent,/取消/);
+});
+
+test('permission reply for a replaced task cannot add its origin to the new task',async()=>{
+ let resolve,current={taskId:'scope',scopeRevision:1,allowedOrigins:['https://example.test'],goal:'Old',status:'paused',steps:0,prefs:{maxSteps:50},events:[]};
+ const delayed=await fixture(new Promise(r=>resolve=r),m=>m.type==='task:get'?{ok:true,value:current}:undefined);
+ delayed.document.getElementById('scope-origin').value='https://other.test';delayed.document.getElementById('scope-form').dispatchEvent(new delayed.window.Event('submit',{cancelable:true}));
+ current={...current,taskId:'replacement',scopeRevision:2,goal:'New'};delayed.updated(9,{status:'complete'});await flush();resolve(true);await flush();
+ assert.equal(delayed.calls.some(c=>c[0]==='message'&&c[1].type==='task:scope-change'),false);assert.equal(delayed.document.getElementById('goal').textContent,'New');
+});

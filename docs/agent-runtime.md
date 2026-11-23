@@ -119,3 +119,9 @@ tick(tabId,expectedTaskId?) 对指定身份再次核对，过期调度不执行�
 ## 单成员关闭生命周期
 
 memberClosed(tabId) 先同步 abort 该标签对应 taskId 的请求，再在发布/任务队列内取消 timer/alarm 并按当前权威 taskId 归档关闭。不同于 stop/remove，不抹除未确定 executing/pending/check，也不读取已关闭网页或尝试撤销；没有成员后终态 ended，迟到模型/执行回执不能回写或重新派发。没有绑定时只清该标签临时记忆。启动 recover 先取只含 ID 的浏览器标签清单，确认缺失后用同一路径清理，即使任务此前 paused/completed；清单请求失败向上传递并阻止本次恢复，不凭页面权限或 URL 读取异常推断关闭。当前单成员约束由 store 校验，多成员选择/暂停尚未开放。
+
+## 任务范围与主机权限门禁
+
+changeOrigins 可信请求匹配 taskId/scopeRevision，增加来源时确认浏览器已有主机权限；不由后台弹窗。有效变更先 abort/取消调度，再交存储提交新 token/范围版本并暂停。普通 set 无授权能力。turn 在观察前核对当前 origin 属任务范围且有主机权限；每次 live 检查也核对权限，迟到模型/摘要不能继续执行。resume/补充指令不绕过已移除的当前来源。
+
+浏览器 permissions.onRemoved 触发 reviewPermissions，只暂停缺少当前主机权限的任务，不修改授权集合。scope_changed/permission_denied 的暂停保留 executing/check；恢复沿用原条件/期限仅核对，不重放。此类未知操作须先点击继续核对，不能用补充指令清掉。当前仍不允许跨站导航；后续需要专门 origin 切换与上下文隔离，不能仅放宽 URL 检查。

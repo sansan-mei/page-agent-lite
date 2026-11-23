@@ -75,6 +75,15 @@
     $('conversation').hidden=historyOpen;$('history-view').hidden=!historyOpen;
     $('history').setAttribute('aria-expanded',String(historyOpen));
     $('composer').hidden=historyOpen;
+    const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
+    if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';}
+    $('task-scope').hidden=historyOpen||!editableScope;
+    $('scope-add').disabled=busy||!editableScope;$('scope-origin').disabled=busy||!editableScope;
+    const scopeSignature=JSON.stringify([current?.taskId,current?.scopeRevision,current?.allowedOrigins,busy]);
+    if($('scope-origins').dataset.signature!==scopeSignature){
+      $('scope-origins').dataset.signature=scopeSignature;$('scope-origins').replaceChildren();
+      for(const origin of current?.allowedOrigins||[]){const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');label.textContent=origin;button.type='button';button.textContent='移出任务';button.dataset.origin=origin;button.disabled=busy||!editableScope;li.append(label,button);$('scope-origins').append(li);}
+    }
     const list=$('conversation-list');list.replaceChildren();
     const items=historyIndex.map(item=>item.taskId===current?.taskId?current:item);
     if(current?.taskId&&current.origin===tabOrigin&&!items.some(t=>t.taskId===current.taskId))items.unshift(current);
@@ -240,6 +249,28 @@
     catch(e){$('status').textContent=e.message;}
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
+  function editScope(action,origin){
+    if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;
+    const target=tabId,taskId=task.taskId,expectedRevision=task.scopeRevision,view=selection,draft=$('scope-origin').value;
+    let permission;
+    try{permission=action==='add'?chrome.permissions.request({origins:[origin+'/*']}):Promise.resolve(true);}catch(error){$('scope-status').textContent=error.message;return;}
+    busy=true;render();$('scope-status').textContent='';
+    void (async()=>{
+      try{
+        if(!await permission)throw new Error('网站授权已取消，任务范围未修改');
+        if(view!==selection||target!==tabId||task?.taskId!==taskId||task.scopeRevision!==expectedRevision)throw new Error('任务已变化，授权未加入新任务');
+        const value=await send('task:scope-change',{tabId:target,taskId,expectedRevision,origin,action});
+        if(view===selection&&target===tabId){task=value;$('scope-status').textContent='任务范围已更新，任务已暂停；核对后点击继续。';if(action==='add'&&$('scope-origin').value===draft)$('scope-origin').value='';}
+      }catch(error){if(view===selection)$('scope-status').textContent=error.message;}
+      finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}void refreshPermissions();}
+    })();
+  }
+  $('scope-form').addEventListener('submit',event=>{
+    event.preventDefault();const raw=$('scope-origin').value.trim();
+    try{const url=new URL(raw);if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.hostname.includes('*')||url.pathname!=='/'||url.search||url.hash||raw.length>300)throw new Error('请输入不带路径、参数或凭据的 HTTP/HTTPS 站点来源');editScope('add',url.origin);}
+    catch(error){$('scope-status').textContent=error.message;}
+  });
+  $('scope-origins').addEventListener('click',event=>{const origin=event.target.dataset?.origin;if(origin)editScope('remove',origin);});
   $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim()},draft);});
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
   $('instruction').addEventListener('compositionend',()=>{composing=false;});

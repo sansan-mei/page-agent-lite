@@ -804,3 +804,34 @@ test('closing during dispatch preserves its executing checkpoint and cannot repl
  resolve({version:2,status:'unknown',dispatch:'unknown',scope:'dispatch',code:'REPLY_LOST'});await tick;await f.runtime.recover();await f.runtime.tick(1,started.taskId);
  assert.equal(dispatches,1);assert.equal(await store.get(1),null);assert.deepEqual(data['conversation:1:'+started.taskId],archive);
 });
+
+
+test('scope changes require a host grant, abort late model actions, and gate revoked current origins',async()=>{
+ const {createTaskStore}=require('../extension/task-store.js');const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});let granted=false,resolve,signal;
+ const f=fixture({store,tools:{async hasOriginAccess(origin){return origin==='https://example.test'||granted;}},model:async(text,s)=>{signal=s;return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'Scope');const initial=await store.get(1),op={taskId:initial.taskId,expectedRevision:initial.scopeRevision,origin:'https://two.test',action:'add'};
+ await assert.rejects(()=>f.runtime.changeOrigins(1,op),/授权/);assert.equal((await store.get(1)).status,'running');assert.deepEqual((await store.get(1)).allowedOrigins,[initial.origin]);
+ const tick=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));granted=true;const changed=await f.runtime.changeOrigins(1,op);assert.equal(signal.aborted,true);assert.equal(changed.status,'paused');assert.equal(changed.steps,1);
+ resolve({text:'{"reply":"Old click","action":"click","id":"t0"}'});await tick;assert.equal(f.executed.length,0);
+ await assert.rejects(()=>f.runtime.changeOrigins(1,op),/已变化/);
+ const removed=await f.runtime.changeOrigins(1,{...op,action:'remove',origin:initial.origin,expectedRevision:changed.scopeRevision});await assert.rejects(()=>f.runtime.resume(1),/授权范围/);await assert.rejects(()=>f.runtime.submit(1,'Continue'),/授权范围/);assert.equal(f.executed.length,0);assert.deepEqual(removed.allowedOrigins,[op.origin]);
+ await store.set(1,{...removed,status:'running'});const observations=(await store.get(1)).metrics.observations;await f.runtime.tick(1);assert.equal((await store.get(1)).reason,'scope_changed');assert.equal((await store.get(1)).metrics.observations,observations);
+});
+
+test('scope and browser permission revocation preserve unknown checkpoints for read-only continuation',async()=>{
+ const {createTaskStore}=require('../extension/task-store.js');const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});let granted=true;
+ const f=fixture({store,tools:{async hasOriginAccess(){return granted;}}});await f.runtime.start(1,'Unknown');let current=await store.get(1);const check={kind:'action',deadline:99999,dispatch:'unknown',expected:[]};await store.set(1,{...current,phase:'executing',check,pending:{plan:{action:'click'}}});
+ granted=false;await f.runtime.reviewPermissions();current=await store.get(1);assert.equal(current.status,'paused');assert.equal(current.reason,'permission_denied');assert.deepEqual(current.check,check);assert.equal(current.phase,'executing');await assert.rejects(()=>f.runtime.resume(1),/授权/);
+ granted=true;const resumed=await f.runtime.resume(1);assert.deepEqual(resumed.check,check);assert.equal(resumed.phase,'executing');assert.equal(f.executed.length,0);
+ const removed=await f.runtime.changeOrigins(1,{taskId:current.taskId,expectedRevision:current.scopeRevision,origin:current.origin,action:'remove'});
+ const restored=await f.runtime.changeOrigins(1,{taskId:current.taskId,expectedRevision:removed.scopeRevision,origin:current.origin,action:'add'});assert.deepEqual(restored.check,check);assert.equal((await f.runtime.resume(1)).phase,'executing');
+});
+
+
+test('stop while an asynchronous host access check is pending cannot dispatch a returned model action',async()=>{
+ let returned=false,resolveAccess;
+ const f=fixture({tools:{async hasOriginAccess(){if(returned&&!resolveAccess)return new Promise(r=>resolveAccess=r);return true;}},model:async()=>{returned=true;return {text:'{"reply":"Click","action":"click","id":"t0"}'};}});
+ await f.runtime.start(1,'Work');const tick=f.runtime.tick(1);while(!resolveAccess)await new Promise(r=>setImmediate(r));await f.runtime.stop(1);resolveAccess(true);await tick;assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).status,'stopped');
+});

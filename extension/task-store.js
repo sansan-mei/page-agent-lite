@@ -30,9 +30,10 @@
       try{await area.remove(rootKey(task.taskId));}catch{ /* Archived unbound root is cleaned at startup. */ }
       return ended;
     }
-    function rooted(id,task,revision){
+    function rooted(id,task,revision,previous=null){
       if(!Number.isInteger(id)||id<0||task.tabId!==id||typeof task.taskId!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(task.taskId))throw new Error('任务根记录身份无效');
-      return {...task,version:3,scopeRevision:revision,initialTabId:id,initialOrigin:task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:[task.origin],members:[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}]};
+      if(previous&&task.origin!==previous.origin)throw scopeError();
+      return {...task,version:3,scopeRevision:revision,initialTabId:id,initialOrigin:previous?.initialOrigin||task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:previous?.allowedOrigins||[task.origin],members:previous?.members||[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}]};
     }
     return {
       get,
@@ -43,7 +44,7 @@
         if(Object.entries(registry.bindings).some(([tab,b])=>Number(tab)!==id&&b.taskId===task.taskId))throw new Error('任务已归属其他标签页');
         const same=binding?.taskId===task.taskId,revision=same?binding.revision:registry.revision+1;
         if(same&&task.scopeRevision!==undefined&&task.scopeRevision!==revision)throw scopeError();
-        const record=rooted(id,task,revision),values={[rootKey(task.taskId)]:record};
+        const record=rooted(id,task,revision,same?previous:null),values={[rootKey(task.taskId)]:record};
         if(previous?.taskId&&previous.taskId!==task.taskId){const {token,pending,check,...view}=previous;values['conversation:'+id+':'+previous.taskId]={...view,archived:true};}
         if(same){await area.set(values);return;}
         // Journal membership before root publication; a pending intent blocks execution.
@@ -53,6 +54,23 @@
         await area.set({taskRegistry:{version:1,revision,bindings:{...registry.bindings,[id]:next}}});
         try{await area.remove(key(id));}catch{ /* The committed root remains authoritative; startup retries legacy cleanup. */ }
         if(previous?.taskId&&previous.taskId!==task.taskId)try{await area.remove(rootKey(previous.taskId));}catch{ /* Unbound roots cannot execute; cleanup retries at startup. */ }
+      });},
+      async changeOrigins(id,{taskId,expectedRevision,origin,action,token,updatedAt}){return serial(async()=>{
+        const registry=await readRegistry();if(registry.pending)throw scopeError();
+        const task=await get(id),binding=registry.bindings[id];
+        if(!task||task.taskId!==taskId||!binding||binding.revision!==expectedRevision||['ended','completed'].includes(task.status))throw scopeError();
+        let url;try{url=new URL(origin);}catch{throw new Error('请输入完整 HTTP/HTTPS 站点来源');}
+        if(!['http:','https:'].includes(url.protocol)||url.origin!==origin||url.username||url.password||url.hostname.includes('*')||origin.length>300||!['add','remove'].includes(action))throw new Error('站点来源或范围操作无效');
+        const origins=task.allowedOrigins||[task.origin],exists=origins.includes(origin);
+        if(action==='add'&&exists||action==='remove'&&!exists)return task;
+        const allowedOrigins=action==='add'?[...origins,origin]:origins.filter(value=>value!==origin);
+        if(allowedOrigins.length>16)throw new Error('每个任务最多授权 16 个站点来源');
+        const revision=registry.revision+1,next={taskId,revision};
+        const record={...task,token,updatedAt,scopeRevision:revision,allowedOrigins,status:'paused',reason:'scope_changed',nextObservation:null,contextSummary:null,contextUsage:null,contextPressure:null,compactionGuard:false,taskPlan:null,question:null,memoryReview:null,completionEvidence:null};
+        await area.set({taskRegistry:{...registry,pending:{kind:'origins_changed',tabId:id,binding:next,previousTaskId:taskId}}});
+        await area.set({[rootKey(taskId)]:record});
+        await area.set({taskRegistry:{version:1,revision,bindings:{...registry.bindings,[id]:next}}});
+        return record;
       });},
       async history(id,origin){
         const all=await area.get(null),current=await get(id);
