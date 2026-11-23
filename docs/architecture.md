@@ -47,6 +47,10 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 worker 可能终止，必要状态写入 session。执行前保存 `executing`；恢复后有预期条件则仅核对，无条件则暂停，不重复点击。等待 deadline 不因恢复延长，详情见 [运行器](agent-runtime.md)。侧边栏关闭后继续运行；浏览器关闭后不运行。
 
+## 后续能力吸收（未实现）
+
+[Page Agent 能力吸收计划](page-agent-integration-plan.md) 记录 DOM/控件兼容、任务与标签页、工具/hooks、模型协议及可选外部集成的来源与适配边界。当前模块和信任边界保持现状，后期可选 MCP 评估不代表当前依赖 MCP。
+
 ## 取舍
 
 不引入服务端、Python、向量库、MCP 或子 Agent。保留非流式 OpenAI 兼容接口和严格 JSON 工具协议。近期顺序见 [Roadmap](../ROADMAP.md)，网站与全局长期笔记已接入，技能和跨会话任务恢复尚未实现。
