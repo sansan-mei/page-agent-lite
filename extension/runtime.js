@@ -12,11 +12,12 @@
   }
   function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
-    const locks = new Map(), jobs = new Map(), controllers = new Map();
-    function serial(tabId, fn) {
-      const p = (locks.get(tabId) || Promise.resolve()).catch(() => {}).then(fn);
-      locks.set(tabId, p); p.finally(() => {if (locks.get(tabId) === p) locks.delete(tabId);}).catch(() => {});
-      return p;
+    const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
+    const controllerForTab=id=>controllers.get(controllerTasks.get(id));
+    function enqueue(map,key,fn){const operation=(map.get(key)||Promise.resolve()).catch(()=>{}).then(fn);map.set(key,operation);operation.finally(()=>{if(map.get(key)===operation)map.delete(key);}).catch(()=>{});return operation;}
+    function serial(tabId,fn){
+      // A tab publication gate protects replacement; taskId is the execution lock.
+      return enqueue(bindingLocks,tabId,async()=>{const task=await store.get(tabId);return enqueue(locks,task?.taskId||'new:'+tabId,fn);});
     }
     function update(tabId, token, fn) {
       return serial(tabId, async () => {
@@ -79,7 +80,7 @@
           for(const controller of controllers.values())controller.abort();
           for(const old of await store.list())await serial(old.tabId,async()=>{
             const t=await store.get(old.tabId);if(!t)return;
-            controllers.get(t.tabId)?.abort();t.token=uuid();t.nextObservation=null;forgetGlobalContext(t);t.memoryReview=null;
+            controllerForTab(t.tabId)?.abort();t.token=uuid();t.nextObservation=null;forgetGlobalContext(t);t.memoryReview=null;
             // Keep uncertain side effects and existing deadlines for read-only recovery.
             if(t.phase!=='executing'&&!t.check){t.pending=null;t.phase='observe';}
             if(!['completed','ended','stopped','failed'].includes(t.status)){t.status='paused';t.reason='global_memory_changed';}
@@ -101,7 +102,7 @@
             result=note?{version:current.version,note}:{version:current.version,error:'没有此全局长期记忆'};
           }else{
             const saved=await globalMemory.change(null,{action:plan.action.slice('global_memory_'.length),id:plan.id,text:plan.value,expectedVersion:version,source:'model',signal});
-            globalEpoch++;for(const [id,controller] of controllers)if(id!==t.tabId)controller.abort();forgetGlobalContext(t);t.globalMemoryVersion=saved.version;
+            globalEpoch++;for(const [id,controller] of controllers)if(id!==t.taskId)controller.abort();forgetGlobalContext(t);t.globalMemoryVersion=saved.version;
             result={version:saved.version,saved:plan.id||null,action:plan.action};if(plan.action==='global_memory_write')t.memoryReview=null;
           }
         }catch(e){result={error:e.message,code:e.code||'GLOBAL_MEMORY_ERROR'};}
@@ -119,11 +120,11 @@
       if(operation.origin!==origin)throw new Error('网页已切换，请刷新网站长期记忆后重试');
       if(!siteMemory)throw new Error('长期记忆服务不可用，请重新加载扩展');
       const affected=(await store.list()).filter(t=>t.origin===origin);
-      for(const t of affected)controllers.get(t.tabId)?.abort();
+      for(const t of affected)controllerForTab(t.tabId)?.abort();
       const saved=await siteMemory.change(origin,{...operation,source:'user'});
       for(const old of affected)await serial(old.tabId,async()=>{
         const t=await store.get(old.tabId);if(!t||t.origin!==origin)return;
-        controllers.get(t.tabId)?.abort();t.token=uuid();t.nextObservation=null;forgetSiteContext(t);t.siteMemoryVersion=saved.version;
+        controllerForTab(t.tabId)?.abort();t.token=uuid();t.nextObservation=null;forgetSiteContext(t);t.siteMemoryVersion=saved.version;
         t.check=null;t.waitDeadline=null;t.pending=null;t.memoryReview=null;t.phase='observe';
         if(!['completed','ended','stopped','failed'].includes(t.status)){t.status='paused';t.reason='site_memory_changed';}
         event(t,'用户已修改网站长期记忆，旧请求失效；继续任务将重新读取');await store.set(t.tabId,t);
@@ -151,7 +152,7 @@
     async function start(tabId, goal) {
       if (typeof goal !== 'string' || !goal.trim() || goal.length > 2000) throw new Error('请输入不超过 2000 字的任务');
       const page = await tools.tab(tabId), prefs = await preferences();
-      controllers.get(tabId)?.abort();
+      controllerForTab(tabId)?.abort();
       const task = {version:2, taskId:uuid(), token:uuid(), tabId, origin:new URL(page.url).origin, goal:goal.trim(), status:'running', phase:'observe', steps:0, prefs, results:[], events:[], pending:null, updatedAt:Date.now(), retries:0};
       event(task, '任务已开始');
       await serial(tabId, () => store.set(tabId, task)); schedule(tabId); return task;
@@ -165,12 +166,12 @@
           if(new URL(page.url).origin!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
-          controllers.get(tabId)?.abort();
+          controllerForTab(tabId)?.abort();
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
           task.question=null;task.helpAttempts=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           event(task,'你（补充指令）：'+text.trim());
         }else{
-          controllers.get(tabId)?.abort();
+          controllerForTab(tabId)?.abort();
           task={version:2,taskId:uuid(),token:uuid(),tabId,origin:new URL(page.url).origin,goal:text.trim(),instructions:[],status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
           event(task,'你：'+text.trim());event(task,'任务已开始');
         }
@@ -187,27 +188,27 @@
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
         if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限');
-        controllers.get(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
       await tools.clearPointer?.(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
-        controllers.get(tabId)?.abort();task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
+        controllerForTab(tabId)?.abort();task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
       await cancelSchedule(tabId);return saved;
     }
     async function stop(tabId) {
       await tools.clearPointer?.(tabId);
-      controllers.get(tabId)?.abort();
+      controllerForTab(tabId)?.abort();
       const task = await store.get(tabId); if (!task) return null;
       const saved = await update(tabId, task.token, t => {t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
       await cancelSchedule(tabId); return saved;
     }
     async function takeover(tabId){
-      controllers.get(tabId)?.abort();
+      controllerForTab(tabId)?.abort();
       const saved=await serial(tabId,async()=>{
         const t=await store.get(tabId);if(!t||['completed','ended'].includes(t.status))throw new Error('没有可接管的进行中任务');
         const uncertain=t.phase==='executing'?t.pending:null;
@@ -246,13 +247,13 @@
     async function pause(task, text, reason = 'error') {
       await update(task.tabId, task.token, t => {t.status=reason==='error'?'failed':'paused';t.reason=reason;t.pending=null;t.check=null;t.waitDeadline=null;event(t,text);});
     }
-    async function turn(tabId) {
+    async function turn(tabId,expectedTaskId) {
       if(globalEditing)return;
       const epoch=globalEpoch;
-      let task = await store.get(tabId); if (!task || !ACTIVE.has(task.status)) return;
-      const token = task.token;
+      let task = await store.get(tabId); if (!task || task.taskId!==expectedTaskId || !ACTIVE.has(task.status)) return;
+      const token=task.token,runningTaskId=task.taskId;
       let call=null;
-      const controller = new AbortController(); controllers.set(tabId, controller);
+      const controller = new AbortController(); controllers.set(task.taskId,controller);controllerTasks.set(tabId,task.taskId);
       const live = async () => {
         const current = await store.get(tabId);
         return !globalEditing && epoch===globalEpoch && !controller.signal.aborted && current?.token===token && ACTIVE.has(current.status);
@@ -467,7 +468,7 @@
         } else if(['PERMISSION_DENIED','UNSUPPORTED_PAGE','TAB_CLOSED'].includes(error.code))await pause(task,error.message,'access');
         else await pause(task, error.message || '任务失败，请检查页面与配置');
       } finally {
-        if (controllers.get(tabId)===controller) controllers.delete(tabId);
+        if(controllers.get(runningTaskId)===controller){controllers.delete(runningTaskId);if(controllerTasks.get(tabId)===runningTaskId)controllerTasks.delete(tabId);}
       }
     }
     async function delayCheck(task){
@@ -566,7 +567,7 @@
         await store.setMemory(tabId,origin,[]);
         const task=await store.get(tabId);
         if(task?.origin===origin){
-          controllers.get(tabId)?.abort();task.token=uuid();task.nextObservation=null;forgetPlanContext(task);task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
+          controllerForTab(tabId)?.abort();task.token=uuid();task.nextObservation=null;forgetPlanContext(task);task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
           if(!['completed','ended','stopped','failed'].includes(task.status)){task.status='paused';task.reason='memory_cleared';}
           task.phase='observe';event(task,'用户已清空临时记忆；继续任务将重新读取');await store.set(tabId,task);
         }
@@ -595,17 +596,18 @@
         }
       });
     }
-    async function tick(tabId) {
-      if (jobs.has(tabId)) return jobs.get(tabId);
-      const job=turn(tabId);jobs.set(tabId,job);
-      try {await job;} finally {
-        jobs.delete(tabId);
+    async function tick(tabId,expectedTaskId){
+      const initial=await store.get(tabId);if(!initial||expectedTaskId&&initial.taskId!==expectedTaskId)return;
+      const taskId=initial.taskId;if(jobs.has(taskId))return jobs.get(taskId);
+      const job=turn(tabId,taskId);jobs.set(taskId,job);
+      try{await job;}finally{
+        if(jobs.get(taskId)===job)jobs.delete(taskId);
         const task=await store.get(tabId);
         if(task&&ACTIVE.has(task.status))schedule(tabId,task.retries?2000:task.status==='waiting_page'?1000:100);
         else {await tools.clearPointer?.(tabId);await cancelSchedule(tabId);}
       }
     }
-    async function remove(tabId) {controllers.get(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
+    async function remove(tabId) {controllerForTab(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
     async function recover() {for(const task of await store.list())if(ACTIVE.has(task.status))schedule(task.tabId);}
     return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }

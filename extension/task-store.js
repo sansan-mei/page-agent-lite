@@ -21,6 +21,7 @@
     }
     return {
       get,
+      async getByTaskId(taskId){const registry=await readRegistry();const entry=Object.entries(registry.bindings).find(([,binding])=>binding.taskId===taskId);if(!entry)return null;const task=await get(Number(entry[0]));return task?.taskId===taskId?task:null;},
       async set(id,task){return serial(async()=>{
         const registry=await readRegistry();if(registry.pending)throw scopeError();
         const binding=registry.bindings[id],previous=await get(id);

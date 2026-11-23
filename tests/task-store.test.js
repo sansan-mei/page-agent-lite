@@ -62,3 +62,9 @@ test('separate store instances serialize single-member ownership claims',async()
  const first=createTaskStore(chrome),second=createTaskStore(chrome),task={taskId:'shared',tabId:1,origin:'https://one.test',goal:'Work',status:'paused',steps:1,results:[],events:[]};
  const results=await Promise.allSettled([first.set(1,task),second.set(2,{...task,tabId:2})]);assert.equal(results[0].status,'fulfilled');assert.equal(results[1].status,'rejected');assert.equal(Object.keys(data.taskRegistry.bindings).length,1);assert.equal((await first.list()).length,1);
 });
+
+test('task identity lookup follows only committed current ownership',async()=>{
+ const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}}),task={taskId:'first',tabId:7,origin:'https://one.test',goal:'Work',status:'paused',steps:3};
+ await store.set(7,task);assert.equal((await store.getByTaskId('first')).tabId,7);await store.set(7,{...task,taskId:'second'});assert.equal(await store.getByTaskId('first'),null);assert.equal((await store.getByTaskId('second')).taskId,'second');await store.remove(7);assert.equal(await store.getByTaskId('second'),null);
+});

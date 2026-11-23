@@ -751,3 +751,18 @@ test('scope reconciliation continuation preserves action deadline and only verif
  await f.runtime.start(1,'Work');let task=await f.runtime.get(1);task.status='paused';task.reason='scope_reconciled';task.phase='executing';task.steps=17;task.check={kind:'action',action:'navigate',dispatch:'unknown',deadline:Date.now()+10000,expected:[{kind:'url_equals',value:'https://example.test/1'}]};const deadline=task.check.deadline;await f.store.set(1,task);
  await f.runtime.resume(1);task=await f.runtime.get(1);assert.equal(task.check.deadline,deadline);assert.equal(task.phase,'executing');await f.runtime.tick(1);task=await f.runtime.get(1);assert.equal(task.lastOutcome.status,'success');assert.equal(task.lastOutcome.dispatch,'unknown');assert.equal(task.steps,17);assert.equal(models,0);assert.equal(f.executed.length,0);
 });
+
+test('stale task scheduling cannot execute a replacement task on the same tab',async()=>{
+ let calls=0;const f=fixture({model:async()=>{calls++;return {text:JSON.stringify({reply:'Done',action:'done'})};}});
+ const first=await f.runtime.start(1,'First'),second=await f.runtime.start(1,'Second');
+ await f.runtime.tick(1,first.taskId);assert.equal(calls,0);assert.equal((await f.runtime.get(1)).steps,0);
+ await f.runtime.tick(1,second.taskId);assert.equal(calls,1);assert.equal((await f.runtime.get(1)).status,'completed');
+});
+
+test('replacement task runs without waiting for an aborted old task request to settle',async()=>{
+ let resolve,started;const ready=new Promise(r=>started=r);let calls=0;
+ const f=fixture({model:async()=>{if(++calls===1){started();return new Promise(r=>resolve=r);}return {text:JSON.stringify({reply:'New task done',action:'done'})};}});
+ const first=await f.runtime.start(1,'First');const old=f.runtime.tick(1,first.taskId);await ready;
+ const second=await f.runtime.start(1,'Second');await f.runtime.tick(1,second.taskId);assert.equal((await f.runtime.get(1)).status,'completed');
+ resolve({text:JSON.stringify({reply:'Old click',action:'click',id:'t0'})});await old;assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).taskId,second.taskId);
+});

@@ -27,13 +27,29 @@ const store=PageAgentTaskStore.createTaskStore(chrome);
 const tools=PageAgentBrowserTools.createBrowserTools(chrome);
 const siteMemory=PageAgentSiteMemory.createSiteMemory();
 const globalMemory=PageAgentSiteMemory.createSiteMemory({scope:'global'});
-const timers=new Map();
+const timers=new Map(),scheduledTasks=new Map(),scheduleVersions=new Map(),scheduleQueues=new Map();
+function queueSchedule(tabId,operation){const job=(scheduleQueues.get(tabId)||Promise.resolve()).catch(()=>{}).then(operation);scheduleQueues.set(tabId,job);job.finally(()=>{if(scheduleQueues.get(tabId)===job)scheduleQueues.delete(tabId);}).catch(()=>{});return job;}
 function schedule(tabId,delay=0){
-  void chrome.alarms.create('task:'+tabId,{delayInMinutes:0.5,periodInMinutes:0.5});
-  if(timers.has(tabId))clearTimeout(timers.get(tabId));
-  timers.set(tabId,setTimeout(()=>{timers.delete(tabId);void runtime.tick(tabId).catch(()=>{});},delay));
+  const version=(scheduleVersions.get(tabId)||0)+1;scheduleVersions.set(tabId,version);
+  void queueSchedule(tabId,async()=>{
+    const task=await store.get(tabId);if(scheduleVersions.get(tabId)!==version||!task||!['running','waiting_page'].includes(task.status))return;
+    const previous=scheduledTasks.get(tabId);
+    if(previous&&previous!==task.taskId){clearTimeout(timers.get(previous));timers.delete(previous);await chrome.alarms.clear('task-id:'+previous);}
+    if(scheduleVersions.get(tabId)!==version)return;
+    const taskId=task.taskId;scheduledTasks.set(tabId,taskId);
+    await chrome.alarms.create('task-id:'+taskId,{delayInMinutes:0.5,periodInMinutes:0.5});
+    if(scheduleVersions.get(tabId)!==version){await chrome.alarms.clear('task-id:'+taskId);return;}
+    clearTimeout(timers.get(taskId));timers.set(taskId,setTimeout(()=>{timers.delete(taskId);void runtime.tick(tabId,taskId).catch(()=>{});},delay));
+  }).catch(()=>{});
 }
-async function cancelSchedule(tabId){clearTimeout(timers.get(tabId));timers.delete(tabId);await chrome.alarms.clear('task:'+tabId);}
+async function cancelSchedule(tabId){
+  scheduleVersions.set(tabId,(scheduleVersions.get(tabId)||0)+1);
+  return queueSchedule(tabId,async()=>{
+    const taskId=scheduledTasks.get(tabId)||(await store.get(tabId))?.taskId;scheduledTasks.delete(tabId);
+    if(taskId){clearTimeout(timers.get(taskId));timers.delete(taskId);await chrome.alarms.clear('task-id:'+taskId);}
+    await chrome.alarms.clear('task:'+tabId);
+  });
+}
 const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemory,schedule,cancelSchedule,
   preferences:()=>service.preferences(),
   model:(text,signal)=>service.generateAgent(text,signal),
@@ -120,8 +136,11 @@ chrome.action.onClicked.addListener(tab=>{
   })();
 });
 chrome.alarms.onAlarm.addListener(alarm=>{
+  if(alarm.name.startsWith('task-id:')){
+    const taskId=alarm.name.slice(8);void ready.then(async ok=>{if(!ok)return;const task=await store.getByTaskId(taskId);if(task)await runtime.tick(task.tabId,taskId);else await chrome.alarms.clear(alarm.name);}).catch(()=>{});return;
+  }
   if(!alarm.name.startsWith('task:'))return;
-  const id=Number(alarm.name.slice(5));if(Number.isInteger(id))void ready.then(ok=>ok&&runtime.tick(id)).catch(()=>{});
+  const id=Number(alarm.name.slice(5));if(Number.isInteger(id))void ready.then(async ok=>{await chrome.alarms.clear(alarm.name);if(ok)schedule(id);}).catch(()=>{});
 });
 chrome.tabs.onUpdated.addListener((id,change)=>{
   if(change.status==='complete')void ready.then(async ok=>{

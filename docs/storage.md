@@ -94,4 +94,6 @@ metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/complet
 
 同一成员普通检查点更新不改变 scopeRevision，根记录始终权威；镜像写失败不会让旧镜像取得执行权。当前 worker 同一 session 对象的存储实例共享短写队列。成功替换后删除旧活动 root；未绑定 root 不进入 list/调度，启动只清理存在归档凭据的旧 root。remove 先清镜像再释放归属，避免旧镜像变回运行任务。
 
-V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。未改变按 tabId 的调度/锁/页面关闭处理，跨站和多标签仍未实现。
+V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。单成员页面关闭处理及 tabId API 保留，任务级调度见下文；跨站和多标签仍未实现。
+
+任务级调度仅由 taskRegistry 已提交 binding 的 getByTaskId 解析，不扫描未绑定 root 或历史对话作为运行任务。alarm 名为 task-id:taskId，旧 task:tabId alarm 只作清理/升级；timer/控制器/运行锁为 worker 内存资源，不新增持久任务键，恢复仍使用根记录原检查点/deadline。

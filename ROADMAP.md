@@ -194,4 +194,5 @@
 
 - [x] PA7/PA8 实施前置设计：明确任务根记录/成员索引一致性、逐任务 origin 授权、用户标签保护、取消/恢复与 V2 迁移矩阵，见 [设计](docs/task-scope-v3.md)。本次仅文档核对，不代表跨站/多标签已实现。
 - [x] PA7/PA8 存储第一步：taskId 根记录、单成员 registry、写入意图与只读对账；旧 tabId API/侧栏镜像兼容，保留单成员/同源。197 项 Node 回归通过，真实 MV3 stub 范围见 changelog。
-- [ ] PA7/PA8 下一步：将控制器/锁/alarm/关闭事件迁至 taskId，并移除 UI 对旧主键的依赖；之后再开放用户范围 UI/跨已授权 origin 导航与标签成员工具。
+- [x] PA7/PA8 任务级运行资源：控制器/运行锁/jobs、timer/alarm 按 taskId，旧任务唤醒身份校验，保留标签发布队列防替换竞态；200 项 Node 及完整 MV3 stub 范围见 changelog。
+- [ ] PA7/PA8 下一步：移除 UI 对旧 task:tabId 镜像的依赖，完善成员关闭路由，再开放用户范围 UI/跨已授权 origin 导航与标签成员工具。

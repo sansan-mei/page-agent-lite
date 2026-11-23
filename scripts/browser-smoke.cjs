@@ -702,6 +702,10 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal((await command('task:submit',{goal:'General wait'})).ok,true);
   await poll(async()=>!!((await command('task:get')).value?.check),'wait checkpoint persisted',10000);
   const beforeRestart=(await command('task:get')).value;
+  const taskAlarms=await panel.evaluate(async()=> (await chrome.alarms.getAll()).map(alarm=>alarm.name));
+  assert.ok(taskAlarms.includes('task-id:'+beforeRestart.taskId));assert.ok(!taskAlarms.includes('task:'+tabId));
+  pass('worker recovery alarm is keyed by task identity instead of the mutable tab association');
+
   const lifecycle=await context.newCDPSession(panel);
   await lifecycle.send('ServiceWorker.enable');await lifecycle.send('ServiceWorker.stopAllWorkers');
   const afterRestart=(await command('task:get')).value;
