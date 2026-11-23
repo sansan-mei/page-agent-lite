@@ -99,6 +99,12 @@ const agentToolRegistry=(()=>{
 })();
 function agentTool(name){return typeof name==='string'&&Object.prototype.hasOwnProperty.call(agentToolRegistry,name)?agentToolRegistry[name]:null;}
 function agentToolNames(){return Object.keys(agentToolRegistry);}
+const agentSensitiveSelector=['current-password','new-password','one-time-code','cc-number','cc-csc'].map(token=>'[autocomplete~="'+token+'" i]').concat(['input[type="password"]','input[type="file"]','input[type="hidden"]']).join(',');
+function agentText(n){
+ if(!n||n.closest(agentSensitiveSelector+',script,style,noscript,[hidden],[aria-hidden="true"],[data-page-agent]'))return '';
+ const copy=n.cloneNode(true);for(const child of copy.querySelectorAll(agentSensitiveSelector+',script,style,noscript,[hidden],[aria-hidden="true"],[data-page-agent]'))child.remove();
+ return copy.textContent||'';
+}
 // Agent targets are ephemeral references, never model-provided selectors or scripts.
 const agentNodeKeys=new WeakMap();let agentNodeCounter=0;
 function agentNodeKey(node){if(!agentNodeKeys.has(node))agentNodeKeys.set(node,'node'+(++agentNodeCounter));return agentNodeKeys.get(node);}
@@ -125,12 +131,12 @@ function agentPopup(n){
  const popup=n.closest('[role="listbox"]');if(!popup)return null;
  const owners=popup.id?[...n.ownerDocument.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')].filter(c=>{if(c.closest('[hidden],[aria-hidden="true"],[data-page-agent],input[type="password"],input[type="hidden"]'))return false;for(let p=c;p;p=p.parentElement){const style=n.ownerDocument.defaultView?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;}).filter(c=>[c.getAttribute('aria-controls'),c.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/).includes(popup.id)):[];
  const owner=owners.length===1?owners[0]:null;
- const label=owner?(owner.getAttribute('aria-label')||owner.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>n.ownerDocument.getElementById(id)?.textContent||'').join(' ')||owner.getAttribute('title')||owner.getAttribute('placeholder')||owner.getAttribute('name')||'').trim().slice(0,180):'';
+ const label=owner?(owner.getAttribute('aria-label')||owner.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(n.ownerDocument.getElementById(id))).join(' ')||owner.getAttribute('title')||owner.getAttribute('placeholder')||owner.getAttribute('name')||'').trim().slice(0,180):'';
  return {popup,label,signature:[label,agentNodeKey(popup),popup.id,popup.getAttribute('aria-label'),popup.getAttribute('aria-labelledby'),owners.map(c=>[agentNodeKey(c),c.getAttribute('aria-label'),c.getAttribute('aria-controls'),c.getAttribute('aria-owns')])]};
 }
 function agentContext(n){
  const doc=n.ownerDocument,win=doc.defaultView;
- const blocked='[hidden],[aria-hidden="true"],[data-page-agent],script,style,noscript,input,textarea,select,[contenteditable]';
+ const blocked=agentSensitiveSelector+',[hidden],[aria-hidden="true"],[data-page-agent],script,style,noscript,input,textarea,select,[contenteditable]';
  const readable=e=>{if(!e||e.closest(blocked)||e.closest('dialog:not([open])'))return false;for(let p=e;p;p=p.parentElement){const style=win?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;};
  const text=e=>{
   let value='',visited=0;
@@ -157,7 +163,7 @@ function agentSnapshot(doc, textOffset=0){
  const elementOffset=reading.elementOffset||0;let matchedElements=0;
  if(!Number.isSafeInteger(textOffset)||textOffset<0)throw new Error("Invalid text offset");
  const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let semanticBudget=4000;let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
- const blocked='[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"],input[type="password"],input[type="file"],input[type="hidden"]';
+ const blocked=agentSensitiveSelector+',[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"]';
  const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;const win=doc.defaultView;for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))return false;}return true;};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
  const inDialog=n=>!!n.closest(dialogSelector);
@@ -188,8 +194,8 @@ function agentSnapshot(doc, textOffset=0){
   const associated=[...(n.labels||[])];
   if(n.closest('label'))associated.push(n.closest('label'));
   if(n.id)for(const l of doc.querySelectorAll('label[for]'))if(l.htmlFor===n.id||l.getAttribute('for')===n.id)associated.push(l);
-  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ').trim();
-  const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>l.textContent).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(n.type)?n.value:'')||(editable?'':n.textContent)||n.getAttribute('placeholder')||n.name||'').trim().slice(0,180);
+  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ').trim();
+  const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>agentText(l)).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(n.type)?n.value:'')||(editable?'':agentText(n))||n.getAttribute('placeholder')||n.name||'').trim().slice(0,180);
   if(reading.query&&!label.toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase())&&!(n.name||'').toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase()))continue;
   if(matchedElements++<elementOffset)continue;
   if(elements.length>=120)continue;
@@ -209,12 +215,12 @@ function agentSnapshot(doc, textOffset=0){
     const c=container.cloneNode(true);for(const x of c.querySelectorAll(blocked))x.remove();
     const context=(c.textContent||'').replace(/\s+/g,' ').trim().slice(0,Math.min(500,contextBudget));contextBudget-=context.length;
     const heading=container.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
-    const groupLabel=(container.getAttribute('aria-label')||container.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ')||heading?.textContent||popup?.label||(inDialog(container)?context:'')).trim().slice(0,180);
+    const groupLabel=(container.getAttribute('aria-label')||container.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ')||agentText(heading)||popup?.label||(inDialog(container)?context:'')).trim().slice(0,180);
     group={id:'g'+groups.length,label:groupLabel,context,optionIds:[]};groupNodes.set(container,group);groups.push(group);
    }
    group.optionIds.push(id);
   }
-  const options=n.localName==='select'?[...n.options].map(o=>({value:o.value,label:o.textContent.slice(0,100)})).slice(0,40):undefined;
+  const options=n.localName==='select'?[...n.options].filter(o=>!o.closest(agentSensitiveSelector)).map(o=>({value:o.value,label:agentText(o).slice(0,100)})).slice(0,40):undefined;
   const role=n.getAttribute('role')||(editable?'textbox':null)||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
   const ariaChecked=n.getAttribute('aria-checked');
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
@@ -231,8 +237,8 @@ function agentSnapshot(doc, textOffset=0){
  for(const n of prioritize(doc.querySelectorAll('main,section,article,fieldset,form,dialog,[role="status"],[role="alert"],[role="dialog"],[role="alertdialog"],[role="region"],[role="list"],[role="table"],[role="listbox"]'))){
   if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
   const heading=n.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
-  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ');
-  const id='r'+regions.length,label=(n.getAttribute('aria-label')||labelled||heading?.textContent||agentPopup(n)?.label||'').trim().slice(0,180);
+  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ');
+  const id='r'+regions.length,label=(n.getAttribute('aria-label')||labelled||agentText(heading)||agentPopup(n)?.label||'').trim().slice(0,180);
   if(reading.regionQuery&&!label.toLocaleLowerCase().includes(reading.regionQuery.trim().toLocaleLowerCase()))continue;
   if(matchedRegions++<regionOffset)continue;
   if(regions.length>=40||regionBudget<=0)continue;
@@ -246,18 +252,20 @@ function agentSnapshot(doc, textOffset=0){
  const regionRange={start:Math.min(regionOffset,matchedRegions),end:Math.min(regionOffset,matchedRegions)+regions.length,total:matchedRegions,nextOffset:regionOffset+regions.length<matchedRegions?regionOffset+regions.length:null,query:reading.regionQuery||null};
  elementsComplete=!reading.query&&elementOffset===0&&matchedElements<=120;
  const elementRange={start:Math.min(elementOffset,matchedElements),end:Math.min(elementOffset,matchedElements)+elements.length,total:matchedElements,nextOffset:elementOffset+elements.length<matchedElements?elementOffset+elements.length:null,query:reading.query||null};
- const hiddenExcluded=cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
- return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
+ const sensitiveExcluded=!!doc.querySelector(agentSensitiveSelector);
+ const hiddenExcluded=sensitiveExcluded||cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
+ return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{sensitiveExcluded,elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
  const n=snap.nodes.get(plan.id)?.node;
+ if(n?.closest(agentSensitiveSelector))return {verified:false,message:'敏感字段已排除，无法核对'};
  if(!n?.isConnected)return {verified:false,message:'操作后目标被替换，尚未核实结果，需重新读取页面'};
  const editor=agentEditable(n),actual=plan.action==='check'?n.checked:editor?editor.value:n.value;
  const verified=actual===plan.value;
  return {verified,actual,message:verified?'已核对目标字段状态与本次指定值一致':'实际字段状态与指定值不一致，操作未生效；需重新读取并修正'};
 }
-function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),agentEditable(n)]);}
+function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),n.getAttribute('autocomplete'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
  if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals'].includes(k)))throw new Error('模型操作格式无效');
@@ -299,6 +307,7 @@ function agentExecute(p,snap,doc){
  if(agentTool(p.action)?.route!=='content')throw Object.assign(new Error('该工具不能在网页执行'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
  if(p.action==='scroll'&&p.id===undefined){return agentScroll(p,doc.scrollingElement||doc.documentElement,doc,true);}
  const ref=snap.nodes.get(p.id),n=ref?.node;
+ if(n?.closest(agentSensitiveSelector))throw Object.assign(new Error('目标已变为敏感字段，未执行'),{code:'STALE',beforeDispatch:true});
  if(!n?.isConnected||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
  const win=doc.defaultView;
  for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});}
@@ -327,7 +336,7 @@ function agentExecute(p,snap,doc){
  }
  const inputType=n.type;
  const intact=()=>{
-  if(!n.isConnected||n.disabled||n.readOnly||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
+  if(!n.isConnected||n.disabled||n.readOnly||n.closest(agentSensitiveSelector)||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
   for(let parent=n;parent;parent=parent.parentElement){const style=win.getComputedStyle?.(parent);if(style&&(style.display==='none'||style.visibility==='hidden'))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});}
  };
  n.focus?.({preventScroll:true});intact();

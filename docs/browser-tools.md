@@ -159,3 +159,11 @@ navigate 使用绝对 HTTP/HTTPS 字符串 value（最多 2000 字符），不�
 导航使用既有 executing/action 检查点和原等待 deadline，worker 重建后仅验证；任务 ID/轮数不重置。跳转或重定向越过原 origin 会被既有站点边界暂停，不读取跨站页面；不支持指定额外标签页、跨站任务授权集合或任意 URL 执行脚本。
 
 工具动作目录与策略由 core.js 的静态冻结注册表提供，模型/网页不能注册或更改。注册表统一必需目标、超时许可与防重放分类；内容执行器拒绝 runtime/browser 路由的动作，不因提供当前元素 ID 就执行后台记忆或可信导航。值类型/URL/条件仍按各工具规则严格校验。
+
+## 标准敏感字段排除（PA11）
+
+除既有 password/file/hidden 外，含 autocomplete token current-password、new-password、one-time-code、cc-number、cc-csc 的元素及子树从快照排除。按空白 token、不区分大小写匹配，支持 section-/billing 等前缀。正文/分组/区域克隆和控件过滤使用同一排除集合；aria-labelledby、label、标题及选项文字提取同时过滤敏感子树，避免 textarea/select/简单编辑区内容经标签或区域再次出现。
+
+coverage.sensitiveExcluded 表明页面存在此类排除，absenceComplete=false，不将敏感目标未出现当作缺失证明。autocomplete 纳入目标签名；执行前及输入事件间重新检查，快照后新标记敏感的目标拒绝操作，agentVerify 不回传实际值。已发送的旧请求/历史不追溯删除。
+
+这不是凭据检测或全面脱敏：无标准标记、普通段落中的复制值、业务自定义组件及其他个人信息可能遗漏。普通字段、用户目标/指令与页面标题/URL 沿用既有行为，不提供任意 JS 过滤或自动处理支付/验证码的专用工具。

@@ -262,3 +262,12 @@ test('static tool policy cannot be mutated or expanded and backend tools never e
  const prompt=require('../extension/prompts.js').agentSystem('English');
  for(const name of C.agentToolNames())assert.ok(prompt.includes(name));
 });
+
+test('sensitive autocomplete fields are excluded from values, labels, regions and model input',()=>{
+ const {document}=parseHTML('<html><body><form><h2>Payment</h2><textarea id="otp" autocomplete="SECTION-auth ONE-TIME-CODE">PRIVATE_OTP</textarea><input autocomplete="billing cc-number" aria-label="Card" value="PRIVATE_CARD"><div contenteditable="true" autocomplete="new-password">PRIVATE_PASSWORD</div><select autocomplete="cc-csc"><option value="PRIVATE_CSC">PRIVATE_CSC</option></select><label>Normal <textarea autocomplete="current-password">PRIVATE_CURRENT</textarea><input type="text" aria-label="Public" value="safe"></label><button aria-labelledby="otp">Save</button><section aria-labelledby="otp">Normal result</section></form></body></html>');
+ const snap=C.agentSnapshot(document);assert.doesNotMatch(JSON.stringify(snap.page),/PRIVATE_/);assert.equal(snap.page.elements.some(e=>e.label==='Public'&&e.value==='safe'),true);assert.equal(snap.page.coverage.sensitiveExcluded,true);assert.equal(snap.page.coverage.absenceComplete,false);
+ const P=require('../extension/prompts.js');assert.doesNotMatch(P.agentInput({goal:'Read',steps:1,results:[]},snap.page),/PRIVATE_/);
+ const G=require('../extension/conditions.js');assert.equal(G.evaluate([{kind:'element_absent',target:{category:'element',label:'Card'}}],snap).status,'unknown');
+ const input=document.querySelector('[aria-label="Public"]'),before=C.agentSnapshot(document),target=before.page.elements.find(e=>e.label==='Public');input.setAttribute('autocomplete','one-time-code');
+ assert.throws(()=>C.agentExecute({action:'fill',id:target.id,value:'changed'},before,document),e=>e.code==='STALE');assert.equal(input.value,'safe');assert.equal(C.agentVerify({action:'fill',id:target.id,value:'safe'},before).actual,undefined);
+});

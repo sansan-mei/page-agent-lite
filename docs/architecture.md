@@ -82,3 +82,5 @@ PA6 子目标由 core.js 校验响应结构，runtime.js 在现有模型轮次�
 core.js 内部持有冻结的 agentToolRegistry，每项只含 route（runtime/content/browser）、effect（read/control/page/storage）、target（none/required/optional）、timeout 和 guard。agentTool/agentToolNames 只读查询，拒绝未知及对象原型名称，不暴露注册/回调入口；工具只能由受信任源码修改。
 
 agentPlan 的动作、必需目标与 timeout 白名单，prompts.js 的动作目录及 runtime.js 的未确定目标防重放读取同一策略。agentExecute 明确拒绝运行器/浏览器专属动作，done 保留既有空操作兼容。类型/值及条件的专门校验仍在现有模块，V2 结果协议不变。尚未统一全部参数 schema、处理器注册或生命周期 hooks，不等于模型能扩展工具。
+
+PA11 标准敏感字段策略固定于 core.js，抽取正文/控件/引用文字共用排除集合，执行与字段核对再次检查目标。没有模型可配置过滤代码、额外权限或后台/网页密钥交换。

@@ -131,3 +131,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA9 静态可信工具策略
 
 184 项 Node 测试通过，新增未知/原型动作拒绝、冻结策略/返回目录不可扩展、runtime-only 动作送入内容执行器时在副作用前拒绝且原字段不变。保留已有停止、恢复、未知派发/防重放、权限和参数回归。完整 MV3 + 本机 stub 结果见本次 changelog；真实模型未验收。
+
+## PA11 标准敏感字段排除
+
+185 项 Node 测试通过，新增大小写/section/billing autocomplete、textarea/input/select/contenteditable、label/aria-labelledby/区域文字及模型输入无 fixture 私密标记，普通字段保留，敏感目标缺失仍 unknown，后置敏感标记拒绝旧 fill 且核对不回值。Edge page-read-smoke 使用真实 DOM + 消息 stub 验证一次性验证码 textarea 不进入快照且缺失覆盖标记保守。未为本增量重跑完整扩展或真实模型，也不验证所有隐私泄漏模式。
