@@ -9,7 +9,7 @@
     "linkedom": "0.18.12"
   },
   "license": "MIT",
-  "description": "轻量 Chrome / Edge 网页助手：自选模型、持续执行、结果核对与本机网站记忆。",
+  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事物",
   "repository": {
     "type": "git",
     "url": "https://github.com/sansan-mei/page-agent-lite.git"

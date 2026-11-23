@@ -85,22 +85,36 @@ function byteSize(text){return encodeURIComponent(text).replace(/%[0-9A-F]{2}/g,
 // Agent targets are ephemeral references, never model-provided selectors or scripts.
 const agentNodeKeys=new WeakMap();let agentNodeCounter=0;
 function agentNodeKey(node){if(!agentNodeKeys.has(node))agentNodeKeys.set(node,'node'+(++agentNodeCounter));return agentNodeKeys.get(node);}
+function agentGeometry(n,win){
+ const r=n.getBoundingClientRect?.();
+ if(!r||!Number.isFinite(win?.innerHeight)||!Number.isFinite(win?.innerWidth))return null;
+ let left=Math.max(0,r.left),top=Math.max(0,r.top),right=Math.min(win.innerWidth,r.right),bottom=Math.min(win.innerHeight,r.bottom);
+ for(let p=n.parentElement;p;p=p.parentElement){const style=win.getComputedStyle?.(p),box=p.getBoundingClientRect?.();if(!box)continue;if(/auto|scroll|hidden|clip/.test(style?.overflowX)){left=Math.max(left,box.left);right=Math.min(right,box.right);}if(/auto|scroll|hidden|clip/.test(style?.overflowY)){top=Math.max(top,box.top);bottom=Math.min(bottom,box.bottom);}}
+ return {inViewport:r.width>0&&r.height>0&&right>left&&bottom>top};
+}
+function agentScrollInfo(n){
+ const x=Math.max(0,(n.scrollWidth||0)-(n.clientWidth||0)),y=Math.max(0,(n.scrollHeight||0)-(n.clientHeight||0));
+ return {x:n.scrollLeft||0,y:n.scrollTop||0,maxX:x,maxY:y};
+}
 function agentSnapshot(doc){
  const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
  const blocked='[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"],input[type="password"],input[type="file"],input[type="hidden"]';
  const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;const win=doc.defaultView;for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))return false;}return true;};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
  const inDialog=n=>!!n.closest(dialogSelector);
- const prioritize=items=>[...items].sort((a,b)=>Number(inDialog(b))-Number(inDialog(a)));
+ const geometry=new Map(),scrollables=new Set();
+ const inViewport=n=>{if(!geometry.has(n))geometry.set(n,agentGeometry(n,doc.defaultView));return geometry.get(n)?.inViewport;};
+ for(const n of doc.querySelectorAll('*')){const info=agentScrollInfo(n);if(n===doc.body||n===doc.documentElement||(!info.maxX&&!info.maxY))continue;const style=doc.defaultView?.getComputedStyle?.(n);if((info.maxX&&/auto|scroll/.test(style?.overflowX))||(info.maxY&&/auto|scroll/.test(style?.overflowY)))scrollables.add(n);}
+ const prioritize=items=>[...items].sort((a,b)=>Number(inDialog(b))-Number(inDialog(a))||Number(!!inViewport(b))-Number(!!inViewport(a)));
  const copy=doc.body.cloneNode(true);for(const n of copy.querySelectorAll(blocked))n.remove();
  const text=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim().slice(0,16000);
  // Include custom controls without relying on site-specific classes or executing handlers.
- const controls='button,a[href],input,textarea,select,[role="button"],[role="radio"],[role="checkbox"],[role="link"],[role="menuitem"],[role="switch"],[onclick],[tabindex]';
+ const controls='button,a[href],input,textarea,select,[role="button"],[role="radio"],[role="checkbox"],[role="link"],[role="menuitem"],[role="switch"],[role="combobox"],[role="option"],[role="tab"],[onclick],[tabindex]';
  const explicit=n=>n.matches(controls)&&(n.getAttribute('tabindex')===null||Number(n.getAttribute('tabindex'))>=0||n.matches(controls.replace(',[tabindex]','')));
  const cursors=new Map();
  const pointer=n=>{if(!n)return false;if(!cursors.has(n))cursors.set(n,doc.defaultView?.getComputedStyle?.(n)?.cursor);return cursors.get(n)==='pointer';};
  for(const n of prioritize(doc.querySelectorAll('*'))){
-  const direct=explicit(n);
+  const direct=explicit(n)||scrollables.has(n);
   if(!direct){
    // A pointer cursor is inherited: expose its boundary, not every icon/count child.
    if(!pointer(n)||n===doc.body||n===doc.documentElement||pointer(n.parentElement)||n.closest(controls)||n.querySelector(controls))continue;
@@ -133,9 +147,12 @@ function agentSnapshot(doc){
    group.optionIds.push(id);
   }
   const options=n.localName==='select'?[...n.options].map(o=>({value:o.value,label:o.textContent.slice(0,100)})).slice(0,40):undefined;
-  const role=n.getAttribute('role')||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
+  const role=n.getAttribute('role')||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
   const ariaChecked=n.getAttribute('aria-checked');
-  elements.push({id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),value:n.value?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
+  const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
+  const controlled=related?.split(/\s+/).slice(0,5).map(id=>doc.getElementById(id)).filter(Boolean);
+  const expanded=n.getAttribute('aria-expanded'),selected=n.getAttribute('aria-selected');
+  elements.push({inViewport:inViewport(n),expanded:expanded===null?undefined:expanded==='true',selected:selected===null?undefined:selected==='true',haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),value:n.value?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  let regionBudget=5000;
@@ -150,8 +167,8 @@ function agentSnapshot(doc){
   regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textTruncated:raw.length>limit,visible:visible(n)});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
- const hiddenExcluded=cssHiddenExcluded||!!doc.querySelector('[hidden],[aria-hidden="true"]');
- return {nodes,page:{title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,truncated:text.length===16000||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:text.length<16000,absenceComplete:!hiddenExcluded}}};
+ const hiddenExcluded=cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
+ return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,truncated:text.length===16000||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:text.length<16000,absenceComplete:!hiddenExcluded}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
@@ -161,34 +178,43 @@ function agentVerify(plan,snap){
  const verified=actual===plan.value;
  return {verified,actual,message:verified?'已核对目标字段状态与本次指定值一致':'实际字段状态与指定值不一致，操作未生效；需重新读取并修正'};
 }
-function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled]);}
+function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls')]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','fill','check','select','scroll','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
+ if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
+ if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
+ if(p.choices!==undefined&&(p.action!=='pause'||!Array.isArray(p.choices)||p.choices.length<2||p.choices.length>8||p.choices.some(v=>typeof v!=='string'||!v.trim()||v.length>120)||new Set(p.choices).size!==p.choices.length))throw new Error('用户选项无效');
  if(p.expected!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;G.validate(p.expected);}
  if(['verify','wait'].includes(p.action)&&!p.expected)throw new Error('等待或验证需要明确条件');
- if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','fill','check','select','scroll'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
+ if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','hover','fill','check','select','scroll'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
  if(['memory_write','memory_delete','site_memory_write','site_memory_delete','site_memory_read'].includes(p.action)&&(typeof p.id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(p.id)))throw new Error('记忆名称无效');
  if(p.action==='history_read'&&(typeof p.id!=='string'||!/^h[0-9]+$/.test(p.id)||(p.value!==undefined&&(!Number.isSafeInteger(p.value)||p.value<0))))throw new Error('历史记录读取参数无效');
  if(['memory_write','site_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
- if(['click','fill','check','select'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
+ if(['click','hover','fill','check','select'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
  if(p.action==='check'&&typeof p.value!=='boolean')throw new Error('勾选状态无效');
- if(p.action==='scroll'&&!['up','down'].includes(p.value))throw new Error('滚动方向无效');
+ if(p.action==='scroll'){
+  if(!['up','down','left','right'].includes(p.value))throw new Error('滚动方向无效');
+  if(p.id!==undefined&&!snap.nodes.has(p.id))throw new Error('滚动目标无效');
+ }
  return p;
 }
 function agentExecute(p,snap,doc){
  if(p.action==='done')return;
- if(p.action==='scroll'){doc.defaultView.scrollBy(0,p.value==='up'?-600:600);return;}
+ if(p.action==='scroll'&&p.id===undefined){return agentScroll(p,doc.scrollingElement||doc.documentElement,doc,true);}
  const ref=snap.nodes.get(p.id),n=ref?.node;
  if(!n?.isConnected||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
  const win=doc.defaultView;
  for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});}
- if(p.action==='click'){n.click();return;}
+ if(p.action==='scroll')return agentScroll(p,n,doc,false);
+ // Visual feedback never gates or changes the actual operation.
+ try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,doc);}catch{}
+ if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover');return;}
  if(p.action==='check'){
   if(n.localName!=='input'||!['checkbox','radio'].includes(n.type))throw new Error('目标不是可勾选选项');
   if(n.type==='radio'&&!p.value)throw new Error('不能直接取消单选项');
-  if(n.checked!==p.value)n.click();return;
+  if(n.checked!==p.value){n.click();try{root.PageAgentPointer?.click();}catch{}}return;
  }
  if(n.readOnly)throw new Error('目标为只读字段');
  if(p.action==='fill'&&!(n.localName==='textarea'||n.localName==='input'&&['text','search','email','tel','url','number','date','time','datetime-local','month','week'].includes(n.type)))throw new Error('目标不是支持的文本字段');
@@ -197,6 +223,44 @@ function agentExecute(p,snap,doc){
  const setter=proto&&Object.getOwnPropertyDescriptor(proto,'value')?.set;
  if(setter)setter.call(n,p.value);else n.value=p.value;
  n.dispatchEvent(new win.Event('input',{bubbles:true}));n.dispatchEvent(new win.Event('change',{bubbles:true}));
+}
+// Only current snapshot references reach these helpers; no selectors from the model.
+function agentScroll(p,n,doc,page){
+ const before=agentScrollInfo(n),horizontal=['left','right'].includes(p.value),axis=horizontal?'x':'y';
+ const max=horizontal?before.maxX:before.maxY;
+ if(!page&&!max)throw Object.assign(new Error('目标在指定方向不可滚动，请重新读取'),{code:'STALE'});
+ const amount=(['up','left'].includes(p.value)?-1:1)*600;
+ const x=horizontal?amount:0,y=horizontal?0:amount;
+ if(page)doc.defaultView.scrollBy(x,y);else n.scrollBy({left:x,top:y,behavior:'instant'});
+ const after=agentScrollInfo(n),delta=after[axis]-before[axis];
+ return {axis,before:before[axis],after:after[axis],delta,atStart:after[axis]<=0,atEnd:after[axis]>=max};
+}
+function agentClick(n,doc,hover=false){
+ const win=doc.defaultView;
+ n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
+ const r=n.getBoundingClientRect?.();
+ let target=n,x=0,y=0;
+ if(r&&doc.elementFromPoint){
+  x=(Math.max(0,r.left)+Math.min(win.innerWidth,r.right))/2;
+  y=(Math.max(0,r.top)+Math.min(win.innerHeight,r.bottom))/2;
+  const hit=doc.elementFromPoint(x,y);
+  if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡或不在可点击区域，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+  target=hit;
+ }
+ const send=(type,pointer=false,bubbles=true)=>{
+  const EventClass=pointer?win.PointerEvent:win.MouseEvent;
+  if(!EventClass)return true;
+  return target.dispatchEvent(new EventClass(type,{bubbles,cancelable:true,clientX:x,clientY:y,button:0,buttons:type.endsWith('down')?1:0,pointerId:1,pointerType:'mouse',isPrimary:true}));
+ };
+ send('pointerover',true);send('pointerenter',true,false);send('mouseover');send('mouseenter',false,false);
+ if(hover){send('pointermove',true);send('mousemove');return;}
+ const pointer=send('pointerdown',true),mouse=pointer?send('mousedown'):false;
+ if(mouse)n.focus?.({preventScroll:true});
+ send('pointerup',true);if(pointer)send('mouseup');
+ // Hover/focus handlers can replace a node or open an overlay. Never click through it.
+ if(!n.isConnected||!target.isConnected||(r&&doc.elementFromPoint&&!n.contains(doc.elementFromPoint(x,y))))throw Object.assign(new Error('交互期间目标发生变化，尚未派发 click，请重新观察'),{code:'TARGET_CHANGED'});
+ target.click();
+ try{root.PageAgentPointer?.click();}catch{}
 }
 const api={endpoint,siteOrigin,byteSize,safe,cleanText,collect,validStyle,proposal,apply,describe,resolve,validRecord,restore,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;

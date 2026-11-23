@@ -3,7 +3,7 @@
 | 位置 | 内容 | 生命周期 |
 |---|---|---|
 | local config | API、模型、密钥、语言 | 本机保留，不同步 |
-| local agentPreferences | maxSteps、autoFill、autoClick、contextTokens、compressionThreshold | 默认 50 / true / false / 32768 / 80，保留原配置 |
+| local agentPreferences | maxSteps、contextTokens、compressionThreshold | 默认 50 / 100000 / 80，保留已有预算；旧 autoFill/autoClick 忽略，下次保存移除 |
 | local sites | 文章持久化站点 | 本机保留 |
 | local savedPages | 文章记录 | origin + pathname + search，忽略 hash |
 | IndexedDB page-agent-memory / sites | 按完整 origin 保存长期笔记和版本 | 本机跨重启；用户删除或卸载/清理存储后消失 |
@@ -20,7 +20,7 @@ session 可能在浏览器重启、扩展更新、重载或禁用后清除。它
 
 任务内摘要使用可选 contextSummary={content,through,updatedAt}，旧任务缺省为空，无需重置或改版本。摘要成功后与 results 裁剪一起写入同一 task key；compacting 中断保留旧结果，可重新整理。摘要不跨任务或浏览器会话。
 
-contextArchive 同任务保存压缩前结果，含 id/from/to/results；上限 100 万字符，任务替换/清空删除。contextUsage 保存 API token 用量、估算基准及服务路由配置散列，不含密钥明文。contextPressure 是最近判断值，compactionGuard 防止无效连续压缩。旧任务缺省字段为空。
+contextArchive 同任务保存压缩前结果，含 id/from/to/results；上限 100 万字符，当前任务清空时删除；任务替换时随旧对话保存为只读历史。contextUsage 保存 API token 用量、估算基准及服务路由配置散列，不含密钥明文。contextPressure 是最近判断值，compactionGuard 防止无效连续压缩。旧任务缺省字段为空。
 
 ## 旧版迁移
 
@@ -39,3 +39,11 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 手动更新前取消同站模型请求，成功后清理同站任务摘要、site_memory_* 与 history_read 缓存，更新代次并暂停运行任务。执行模型回复前重新核对网站笔记版本；其他标签页修改后旧回复丢弃。模型写入携带当轮读取版本并支持 AbortSignal。source 标注 user 或 model，仅表示写入来源，不代表事实已验证。
 
 侧栏导出仅导出当前 origin 的笔记和 schema 标识，不包含 API 配置；导出不自动触发上传。无导入、加密、跨浏览器同步、账号级隔离、向量检索或自动记忆去重。
+
+## 会话内对话历史（已实现）
+
+替换不同 taskId 时，task-store 在同一次 session.set 中保存 `conversation:tabId:taskId` 并写入新的 `task:tabId`；存储失败则不主动删除旧记录。归档移除 token、pending、check，不参与 runtime.list/recover，也不提供恢复执行入口。相同 taskId 的更新不额外生成对话，停止/暂停后的补充指令仍属于原对话。
+
+历史目录只返回标题、状态、更新时间和 taskId；正文按需读取。后台仅接受可信侧栏的 task:history / task:history-get，按当前标签页完整 origin 校验。查看记录不请求模型、不改变活动任务，也不自动继承原任务上下文。关闭标签页删除其所有对话；清空当前任务不删除其他归档。继承 session 的生命周期与容量限制，配额不足时创建新任务可能失败，不静默裁剪旧历史。
+
+保留的是任务已有的滚动消息、工具结果、摘要与 contextArchive；不补齐此前已被裁剪的状态消息，不是完整无限轨迹，也不能恢复功能上线前已被覆盖的对话。暂不支持跨标签页历史列表、跨重启保存、搜索、导入或逐条删除归档。

@@ -3,11 +3,14 @@ const C=require('../extension/core.js');
 test('page exposes tools without chat UI, uses one-shot snapshots and rejects stale documents',async()=>{
  const {window,document}=parseHTML('<html><body><p>Question</p><input type="text"></body></html>');
  let listener;const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async sendMessage(){return {ok:true};}}};
+ let cleared=0;const PageAgentPointer={clear(){cleared++;}};
  let time=0;const clock={now:()=>time+=700};
- vm.runInNewContext(fs.readFileSync('extension/content.js','utf8'),{PageAgentCore:C,PageAgentConditions:require('../extension/conditions.js'),PageAgentProtocol:require('../extension/tool-protocol.js'),chrome,document,location:{href:'https://example.test/'},crypto,Date:clock,setTimeout:fn=>setImmediate(fn)});
+ vm.runInNewContext(fs.readFileSync('extension/content.js','utf8'),{PageAgentPointer,PageAgentCore:C,PageAgentConditions:require('../extension/conditions.js'),PageAgentProtocol:require('../extension/tool-protocol.js'),chrome,document,location:{href:'https://example.test/'},crypto,Date:clock,setTimeout:fn=>setImmediate(fn)});
  const sender={id:'test',url:'chrome-extension://test/background.js'};
  const send=(m)=>new Promise(r=>listener(m,sender,r));
  assert.equal(document.querySelector('[data-page-agent]'),null);
+ assert.equal(listener({type:'agent:clear-pointer'},{...sender,url:'https://example.test',tab:{id:1}},()=>{}),undefined);
+ assert.equal(cleared,0);await send({type:'agent:clear-pointer'});assert.equal(cleared,1);
  assert.equal(listener({type:'agent:observe'},{...sender,url:'https://example.test',tab:{id:1}},()=>{}),undefined);
  const snap=(await send({type:'agent:observe'})).value;
  const command={type:'agent:execute',snapshotId:snap.snapshotId,url:snap.url,plan:{reply:'填写',action:'fill',id:'t0',value:'4'}};

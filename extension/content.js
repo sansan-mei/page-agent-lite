@@ -20,6 +20,7 @@
     if(sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('background.js')){
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
+    if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
     if(!['agent:observe','agent:execute','agent:verify'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
@@ -40,17 +41,17 @@
       if(expected.length)G.validate(expected);
       snapshot=null;snapshotId=null;executing=true;
       try{
-        dispatched=true;C.agentExecute(plan,captured,document);
+        dispatched=true;const interaction=C.agentExecute(plan,captured,document);
         const changed=await settle(before),verification=C.agentVerify(plan,captured);
         const current=capture();
         const check=expected.length?G.evaluate(expected,current):null;
         const r=T.result({operationId:message.operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
-          evidence:check?.evidence||[],observed:verification?{actual:verification.actual??null}:null,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
+          evidence:check?.evidence||[],observed:verification?{actual:verification.actual??null}:interaction||null,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
           message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'页面未观察到变化':'页面已更新，尚未验证业务结果'});
         return {...r,verification,navigation:false};
       }finally{executing=false;}
     })().then(value=>respond({ok:true,value}),error=>{
-      const result=T.failure(error,{operationId:message.operationId,documentId,dispatch:dispatched&&error.code!=='STALE'?'unknown':'not_sent'});
+      const result=T.failure(error,{operationId:message.operationId,documentId,dispatch:dispatched&&error.code!=='STALE'&&!error.beforeDispatch?'unknown':'not_sent'});
       respond({ok:false,error:result.message,code:result.code,result});
     });
     return true;

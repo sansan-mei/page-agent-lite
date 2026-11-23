@@ -16,7 +16,7 @@
 
 原目标和全部已接受的用户补充独立保留，补充序列化上限 12000 字符，超限明确拒绝。每轮新页面替换旧快照。稳定目标、指令、摘要正文、归档目录及追加的结果置于请求前部；变化的记忆目录、轮数、状态、条件、最后结果及页面置于后部。摘要更新时间不发给模型，不使用服务商专用缓存标记。
 
-默认 contextTokens=32768、compressionThreshold=80，输出预留 2000 token。只有上下文达到 `(contextTokens-2000)*compressionThreshold/100` 才触发，不按条数或固定历史字符数触发。窗口配置范围 8192～262144，阈值 50～95%。接口 usage.prompt_tokens 为锚点，加上全请求估算值的前后差异；无 usage 时全量估算，ASCII 每 4 字符约 1 token，非 ASCII 每字符约 1 token。系统提示估算也计入，但消息封装、语言和 tokenizer 差异仍有误差，不能称为精确计量。
+默认 contextTokens=100000、compressionThreshold=80，输出预留 2000 token。只有上下文达到 `(contextTokens-2000)*compressionThreshold/100` 才触发，不按条数或固定历史字符数触发。窗口配置范围 8192～262144，阈值 50～95%。接口 usage.prompt_tokens 为锚点，加上全请求估算值的前后差异；无 usage 时全量估算，ASCII 每 4 字符约 1 token，非 ASCII 每字符约 1 token。系统提示估算也计入，但消息封装、语言和 tokenizer 差异仍有误差，不能称为精确计量。
 
 锚点仅匹配同一 endpoint/model/language/key 的 SHA-256 标识；配置改变或压缩、记忆清理后失效。接口缓存 token 仅用于展示，不从容量扣除。没有 usage 的请求不会沿用旧锚点。
 

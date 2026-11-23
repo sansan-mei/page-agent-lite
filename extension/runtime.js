@@ -67,7 +67,7 @@
           }
         }catch(e){result={error:e.message,code:e.code||'SITE_MEMORY_ERROR'};}
         if(signal.aborted)return;
-        t.phase='observe';t.pending=null;t.results=t.results.concat({action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
+        t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan,time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
     async function start(tabId, goal) {
@@ -89,7 +89,7 @@
           if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllers.get(tabId)?.abort();
           task.token=uuid();task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
-          task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          task.question=null;task.helpAttempts=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           event(task,'你（补充指令）：'+text.trim());
         }else{
           controllers.get(tabId)?.abort();
@@ -100,7 +100,20 @@
       });
       schedule(tabId);return saved;
     }
+    async function choose(tabId,taskId,questionId,indices){
+      const tab=await tools.tab(tabId);
+      const saved=await serial(tabId,async()=>{
+        const t=await store.get(tabId),q=t?.question;
+        if(!t||!q||t.taskId!==taskId||t.status!=='paused'||t.reason!=='question'||q?.id!==questionId||new URL(tab.url).origin!==t.origin)throw new Error('选项已过期，请重新读取任务');
+        if(!Array.isArray(indices)||!indices.length||indices.length>q.options.length||new Set(indices).size!==indices.length||indices.some(i=>!Number.isInteger(i)||i<0||i>=q.options.length))throw new Error('请选择有效选项');
+        const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
+        const instructions=(t.instructions||[]).concat({text,time:now()});
+        if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限');
+        controllers.get(tabId)?.abort();t.token=uuid();t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+      });schedule(tabId);return saved;
+    }
     async function finish(tabId){
+      await tools.clearPointer?.(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
         controllers.get(tabId)?.abort();task.token=uuid();task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
@@ -109,6 +122,7 @@
       await cancelSchedule(tabId);return saved;
     }
     async function stop(tabId) {
+      await tools.clearPointer?.(tabId);
       controllers.get(tabId)?.abort();
       const task = await store.get(tabId); if (!task) return null;
       const saved = await update(tabId, task.token, t => {t.token=uuid();t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
@@ -123,7 +137,7 @@
       const prefs = await preferences();
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
-        t.token=uuid();t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
+        t.question=null;t.helpAttempts=0;t.token=uuid();t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
@@ -143,6 +157,7 @@
     async function turn(tabId) {
       let task = await store.get(tabId); if (!task || !ACTIVE.has(task.status)) return;
       const token = task.token;
+      let call=null;
       const controller = new AbortController(); controllers.set(tabId, controller);
       const live = async () => {
         const current = await store.get(tabId);
@@ -258,21 +273,28 @@
         }
         if(!await live())return;
         const plan = C.agentPlan(result.text, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
-        if(plan.action==='pause'){await pause(task,plan.reply,'model');return;}
+        if(!['done','pause'].includes(plan.action))call={request:plan,time:Date.now()};
+        if(plan.action==='pause'){
+          if(plan.choices){await update(tabId,token,t=>{t.status='paused';t.reason='question';t.pending=null;t.check=null;t.waitDeadline=null;t.question={id:uuid(),text:plan.reply,options:plan.choices};event(t,plan.reply);});return;}
+          if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<3){
+            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索；禁止重复结果不确定的操作。自主恢复 '+t.helpAttempts+'/3'});event(t,'正在尝试其他方法（'+t.helpAttempts+'/3）');});return;
+          }
+          await pause(task,plan.reply,'model');return;
+        }
         if(plan.action==='history_read'){
           const archive=task.contextArchive?.find(a=>a.id===plan.id),offset=plan.value||0;
           const text=archive?JSON.stringify(archive.results):null;
           const result=text?{id:archive.id,offset,text:text.slice(offset,offset+4000),nextOffset:offset+4000<text.length?offset+4000:null}:{error:'历史归档不存在'};
-          await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({action:'history_read',result});event(t,'读取任务历史：'+plan.id);});return;
+          await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'history_read',result});event(t,'读取任务历史：'+plan.id);});return;
         }
         if(plan.action.startsWith('site_memory_')){await siteMemoryAction(task,plan,durable.version,controller.signal);return;}
         if(plan.action.startsWith('memory_')){await memoryAction(task,plan);return;}
         if(plan.action==='observe'){
-          await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({action:'observe',outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
+          await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'observe',outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
         }
         if(['wait','verify'].includes(plan.action)){
           const expected=G.bind(plan.expected,snap);
-          task=await update(tabId,token,t=>{t.phase='verifying';t.recoveryCount=0;t.check={operationId:uuid(),expected,deadline:now()+(plan.action==='verify'?0:plan.timeoutMs||10000),kind:plan.action};event(t,plan.reply);});
+          task=await update(tabId,token,t=>{t.phase='verifying';t.recoveryCount=0;t.check={operationId:uuid(),expected,deadline:now()+(plan.action==='verify'?0:plan.timeoutMs||10000),kind:plan.action,request:plan,time:call.time};event(t,plan.reply);});
           if(task&&await live())await verifyCheck(task,live);return;
         }
         if (plan.action==='done') {
@@ -293,18 +315,15 @@
             await pause(task,'该点击的结果仍不确定，已阻止重复点击同一目标；请核实当前状态或选择新的确认控件','uncertain');return;
           }
         }
-        const pending={targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,operationId:uuid(),expected};
-        task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;event(t,plan.reply);});
+        const pending={targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,operationId:uuid(),expected,time:call.time};
+        task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;event(t,plan.reply);const notice=plan.notice||(/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i.test(pending.label)?'即将执行：'+pending.label:null);if(notice){t.notice=notice;event(t,'重要操作：'+notice);}});
         if (!task || !await live()) return;
-        if (plan.action==='click' ? !task.prefs.autoClick : (!task.prefs.autoFill && plan.action!=='scroll')) {
-          await update(tabId,token,t=>{t.status='waiting_confirmation';t.phase='confirm';event(t,'等待确认：'+pending.label);});return;
-        }
         await execute(task,pending,live);
       } catch (error) {
         if (!await live()) return;
-        await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error);});
+        await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error);if(call)t.results=t.results.concat({...call,action:call.request.action,label:t.pending?.label,outcome:t.lastOutcome,result:t.lastOutcome.message});});
         if(!await live())return;
-        if (error.code==='STALE') {
+        if (['STALE','TARGET_BLOCKED'].includes(error.code)) {
           if((task.recoveryCount||0)>=2){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}
           await update(tabId,token,t=>{t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.check=null;event(t,'目标已变化，重新读取后规划');});
         } else if (['NAVIGATION','PAGE_BUSY'].includes(error.code)) {
@@ -339,7 +358,7 @@
         t.lastOutcome=finalOutcome;
         if(pending){t.status='waiting_page';t.phase='verifying';return;}
         t.check=null;t.waitDeadline=null;t.phase='observe';t.recoveryCount=0;
-        t.results=t.results.concat({action:check.kind,outcome:finalOutcome,result:finalOutcome.message});
+        t.results=t.results.concat({action:check.kind,request:check.request,time:check.time||Date.now(),outcome:finalOutcome,result:finalOutcome.message});
         if(reobserve){
           t.verificationRecoveries=(t.verificationRecoveries||0)+1;
           t.uncertainClicks=(t.uncertainClicks||[]).concat({url:check.url,documentId:check.documentId,key:check.key,target:check.target}).slice(-2);
@@ -393,7 +412,7 @@
       // Checkpoint BEFORE emitting a side effect. On worker restart this phase
       // pauses for inspection rather than silently duplicating a click.
       await update(task.tabId,task.token,t=>{t.phase='executing';t.metrics={...t.metrics,actions:(t.metrics?.actions||0)+1};
-        t.check=pending.expected?.length?{operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',action:pending.plan.action,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
+        t.check=pending.expected?.length?{operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
       });
       if (!await live()) return;
       const result = T.normalize(await tools.execute(task.tabId,pending),{operationId:pending.operationId,documentId:pending.documentId});
@@ -402,7 +421,7 @@
         t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
         else if(t.check){t.phase='verifying';t.status='waiting_page';}
-        const entry={action:pending.plan.action,label:pending.label,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
+        const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
         t.results=t.results.concat(entry);event(t,entry.result);
         if(result.legacy&&result.verification?.verified===false){t.status='paused';t.reason='verification';t.check=null;event(t,'字段结果尚未核实，已暂停，不能声称按指定答案完成');}
         if(t.results.length>=3&&t.results.slice(-3).every(r=>r.outcome?.code==='NO_CHANGE'&&r.label===entry.label&&r.action===entry.action)){
@@ -417,12 +436,12 @@
         jobs.delete(tabId);
         const task=await store.get(tabId);
         if(task&&ACTIVE.has(task.status))schedule(tabId,task.retries?2000:task.status==='waiting_page'?1000:100);
-        else await cancelSchedule(tabId);
+        else {await tools.clearPointer?.(tabId);await cancelSchedule(tabId);}
       }
     }
     async function remove(tabId) {controllers.get(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
     async function recover() {for(const task of await store.list())if(ACTIVE.has(task.status))schedule(task.tabId);}
-    return {start,submit,finish,stop,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

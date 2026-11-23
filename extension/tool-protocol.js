@@ -26,7 +26,7 @@
   }
   function failure(error,meta={}){
     const code=error?.code||'TOOL_ERROR';
-    const known={STALE:['unknown','not_sent','relocate'],PAGE_BUSY:['pending','not_sent','wait'],NAVIGATION:['pending','not_sent','wait'],PERMISSION_DENIED:['error','not_sent','pause'],UNSUPPORTED_PAGE:['unsupported','not_sent','pause'],TAB_CLOSED:['error','not_sent','pause']};
+    const known={TARGET_BLOCKED:['unknown','not_sent','relocate'],TARGET_CHANGED:['unknown','unknown','pause'],STALE:['unknown','not_sent','relocate'],PAGE_BUSY:['pending','not_sent','wait'],NAVIGATION:['pending','not_sent','wait'],PERMISSION_DENIED:['error','not_sent','pause'],UNSUPPORTED_PAGE:['unsupported','not_sent','pause'],TAB_CLOSED:['error','not_sent','pause']};
     const [status,dispatch,recovery]=known[code]||['error','unknown','pause'];
     return result({status,dispatch,recovery,code:/^[A-Z][A-Z0-9_]{0,60}$/.test(code)?code:'TOOL_ERROR',message:error?.message,...meta});
   }

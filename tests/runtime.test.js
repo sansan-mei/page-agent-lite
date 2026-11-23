@@ -6,33 +6,31 @@ function fixture(overrides={}){
  const data=new Map(),memories=new Map(),scheduled=[],executed=[];let seq=0,observed=0;
  const store={async get(id){return structuredClone(data.get(id)||null);},async set(id,t){data.set(id,structuredClone(t));},async remove(id){data.delete(id);},async list(){return [...data.values()].map(t=>structuredClone(t));},async getMemory(id,origin){return structuredClone(memories.get(id+origin)||[]);},async setMemory(id,origin,notes){memories.set(id+origin,structuredClone(notes));},async removeMemory(id){for(const key of memories.keys())if(key.startsWith(String(id)))memories.delete(key);}};
  const tools={async tab(id){return {id,url:'https://example.test/1',status:'complete'};},async observe(){observed++;return {url:'https://example.test/1',snapshotId:'snap'+observed,page:{text:'Question',elements:[{id:'t0',label:'Answer',tag:'input'}]}};},async execute(id,p){executed.push(p);return {version:2,status:'success',dispatch:'sent',scope:'ui',code:'CONDITIONS_MATCH',recovery:'none',message:'Matched'};},...overrides.tools};
- const deps={store,tools,summarize:async()=>({text:JSON.stringify({completed:['已核实的字段状态'],remaining:[],facts:[],failed:[],uncertain:[]})}),schedule:(id,delay)=>scheduled.push({id,delay}),cancelSchedule:async()=>{},uuid:()=>String(++seq),preferences:async()=>({maxSteps:50,autoFill:true}),model:async()=>({text:'{"reply":"完成","action":"done"}'}),...overrides,tools};
+ const deps={store,tools,summarize:async()=>({text:JSON.stringify({completed:['已核实的字段状态'],remaining:[],facts:[],failed:[],uncertain:[]})}),schedule:(id,delay)=>scheduled.push({id,delay}),cancelSchedule:async()=>{},uuid:()=>String(++seq),preferences:async()=>({maxSteps:50,contextTokens:32768}),model:async()=>({text:'{"reply":"完成","action":"done"}'}),...overrides,tools};
  return {data,store,tools,deps,scheduled,executed,runtime:createRuntime(deps)};
 }
 
-test('auto click executes without confirmation independently of auto fill',async()=>{
- const f=fixture({preferences:async()=>({maxSteps:50,autoFill:false,autoClick:true}),model:async()=>({text:'{"reply":"翻页","action":"click","id":"t0"}'})});
- await f.runtime.start(1,'翻页');await f.runtime.tick(1);
- assert.equal(f.executed.length,1);assert.equal((await f.runtime.get(1)).status,'running');
- const g=fixture({preferences:async()=>({maxSteps:50,autoFill:false,autoClick:true}),model:async()=>({text:'{"reply":"填写","action":"fill","id":"t0","value":"4"}'})});
- await g.runtime.start(1,'填表');await g.runtime.tick(1);
- assert.equal(g.executed.length,0);assert.equal((await g.runtime.get(1)).status,'waiting_confirmation');
+test('click and fill execute even when legacy task preferences disable automation',async()=>{
+ for(const plan of [{reply:'Click',action:'click',id:'t0'},{reply:'Fill',action:'fill',id:'t0',value:'4'}]){
+  const f=fixture({preferences:async()=>({maxSteps:50,autoFill:false,autoClick:false}),model:async()=>({text:JSON.stringify(plan)})});
+  await f.runtime.start(1,'Work');await f.runtime.tick(1);
+  assert.equal(f.executed.length,1);assert.equal((await f.runtime.get(1)).status,'running');
+ }
 });
 
-test('resuming pending confirmation applies newly enabled auto click and replans',async()=>{
- let enabled=false;const f=fixture({preferences:async()=>({maxSteps:50,autoFill:true,autoClick:enabled}),model:async()=>({text:'{"reply":"翻页","action":"click","id":"t0"}'})});
- await f.runtime.start(1,'翻页');await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).status,'waiting_confirmation');
- enabled=true;await f.runtime.resume(1);await f.runtime.tick(1);assert.equal(f.executed.length,1);assert.equal((await f.runtime.get(1)).prefs.autoClick,true);
+test('resuming a legacy confirmation discards the old action and replans automatically',async()=>{
+ const f=fixture({model:async()=>({text:'{"reply":"New click","action":"click","id":"t0"}'})});
+ await f.runtime.start(1,'Work');const old=await f.runtime.get(1);
+ old.status='waiting_confirmation';old.phase='confirm';old.pending={plan:{action:'click',id:'old-target'}};await f.store.set(1,old);
+ await f.runtime.resume(1);assert.equal((await f.runtime.get(1)).pending,null);
+ await f.runtime.tick(1);assert.equal(f.executed.length,1);assert.equal(f.executed[0].plan.id,'t0');
 });
 
-test('runtime owns task independent of document, confirms clicks and consumes same budget',async()=>{
- let calls=0;const f=fixture({model:async()=>({text:JSON.stringify(++calls===1?{reply:'填写',action:'fill',id:'t0',value:'4'}:calls===2?{reply:'下一页',action:'click',id:'t0'}:{reply:'完成',action:'done'})})});
- const task=await f.runtime.start(1,'做题');assert.equal(task.prefs.maxSteps,50);
- await f.runtime.tick(1);assert.equal(f.executed.length,1);
- await f.runtime.tick(1);let state=await f.runtime.get(1);assert.equal(state.status,'waiting_confirmation');assert.equal(f.executed.length,1);
- await assert.rejects(()=>f.runtime.approve(1,'wrong'));
- await f.runtime.approve(1,task.taskId);await f.runtime.tick(1);assert.equal(f.executed.length,2);assert.equal(calls,2);
- await f.runtime.tick(1);state=await f.runtime.get(1);assert.equal(state.status,'completed');assert.equal(state.steps,3);
+test('runtime automatically fills and clicks within one cumulative budget',async()=>{
+ let calls=0;const f=fixture({model:async()=>({text:JSON.stringify(++calls===1?{reply:'Fill',action:'fill',id:'t0',value:'4'}:calls===2?{reply:'Click',action:'click',id:'t0'}:{reply:'Done',action:'done'})})});
+ await f.runtime.start(1,'Work');await f.runtime.tick(1);await f.runtime.tick(1);
+ assert.equal(f.executed.length,2);assert.equal((await f.runtime.get(1)).status,'running');
+ await f.runtime.tick(1);const state=await f.runtime.get(1);assert.equal(state.status,'completed');assert.equal(state.steps,3);
 });
 
 test('stop aborts model and late results cannot write or execute, including after replacement',async()=>{
@@ -52,10 +50,12 @@ test('worker restart never replays ambiguous operations; thinking recovers with 
  await createRuntime(f.deps).tick(1);assert.equal((await f.runtime.get(1)).steps,50);
 });
 
-test('navigation invalidates confirmation and cross-origin destination pauses task',async()=>{
- let url='https://example.test/1';const f=fixture({tools:{async tab(){return {url,status:'complete'};}},model:async()=>({text:'{"reply":"下一页","action":"click","id":"t0"}'})});
- const t=await f.runtime.start(1,'翻页');await f.runtime.tick(1);url='https://example.test/2';
- await f.runtime.approve(1,t.taskId);await f.runtime.tick(1);assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).phase,'observe');
+test('navigation invalidates legacy approval and cross-origin destination pauses task',async()=>{
+ let url='https://example.test/1';const f=fixture({tools:{async tab(){return {url,status:'complete'};}}});
+ const t=await f.runtime.start(1,'Work');const old=await f.runtime.get(1);
+ old.status='waiting_confirmation';old.phase='confirm';old.pending={url,plan:{action:'click',id:'old'}};await f.store.set(1,old);
+ url='https://example.test/2';await f.runtime.approve(1,t.taskId);await f.runtime.tick(1);
+ assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).phase,'observe');
  url='https://other.test/';await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).reason,'origin');
  await assert.rejects(()=>f.runtime.resume(1),/原站点/);
 });
@@ -157,7 +157,7 @@ test('memory capacity returns tool feedback so model can consolidate; tab close 
 });
 
 test('model reporting incomplete work pauses and preserves task identity for followups',async()=>{
- const f=fixture({model:async()=>({text:'{"reply":"仍有错题，请提供回顾页面","action":"pause"}'})});
+ const f=fixture({model:async()=>({text:'{"reply":"仍有错题，请提供回顾页面","action":"pause","pauseReason":"user"}'})});
  const first=await f.runtime.submit(1,'订正所有错题');await f.runtime.tick(1);
  const task=await f.runtime.get(1);assert.equal(task.status,'paused');assert.equal(task.reason,'model');
  assert.equal((await f.runtime.submit(1,'已经打开回顾，继续')).taskId,first.taskId);
@@ -388,4 +388,60 @@ test('correction review persists across unrelated steps, clears only after a suc
  assert.equal(payload.memoryReview.pending,true);assert.equal((await f.runtime.get(1)).memoryReview.pending,true);
  await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).memoryReview,null);
  assert.match((await siteMemory.read('https://example.test')).notes[0].text,/User correction/);
+});
+
+
+test('blocked click replans with current page evidence, bounded retries never claim dispatch',async()=>{
+ const T=require('../extension/tool-protocol.js');let attempts=0;
+ const f=fixture({preferences:async()=>({maxSteps:50,autoClick:true}),tools:{async execute(){attempts++;const error=Object.assign(new Error('Covered'),{code:'TARGET_BLOCKED'});error.result=T.failure(error);throw error;}},model:async()=>({text:JSON.stringify({reply:'Save',action:'click',id:'t0'})})});
+ await f.runtime.start(1,'Save');const id=(await f.runtime.get(1)).taskId;
+ await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).phase,'observe');assert.equal((await f.runtime.get(1)).lastOutcome.dispatch,'not_sent');
+ await f.runtime.tick(1);await f.runtime.tick(1);
+ const task=await f.runtime.get(1);assert.equal(task.status,'paused');assert.equal(task.reason,'recovery');assert.equal(task.taskId,id);assert.equal(attempts,3);
+});
+
+
+test('tool requests survive success and errors with canonical dispatch outcomes',async()=>{
+ const plan={reply:'Fill',action:'fill',id:'t0',value:'4'};
+ for(const fails of [false,true]){
+  const f=fixture({model:async()=>({text:JSON.stringify(plan)}),...(fails?{tools:{async execute(){throw Object.assign(new Error('Covered'),{code:'TARGET_BLOCKED'});}}}:{})});
+  await f.runtime.start(1,'Work');await f.runtime.tick(1);
+  const t=await f.runtime.get(1),record=t.results.at(-1);
+  assert.deepEqual(record.request,plan);assert.equal(typeof record.time,'number');
+  assert.equal(record.outcome.code,fails?'TARGET_BLOCKED':'CONDITIONS_MATCH');
+  if(fails)assert.equal(record.outcome.dispatch,'not_sent');
+ }
+});
+
+test('tool request checkpoint is visible while executing and stop drops late return',async()=>{
+ let resolve;const f=fixture({model:async()=>({text:'{"reply":"Click","action":"click","id":"t0"}'}),tools:{async execute(){return new Promise(r=>resolve=r);}}});
+ await f.runtime.start(1,'Work');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));
+ const running=await f.runtime.get(1);assert.equal(running.pending.plan.action,'click');assert.equal(typeof running.pending.time,'number');
+ await f.runtime.stop(1);const stopped=await f.runtime.get(1);resolve({status:'success'});await job;
+ assert.deepEqual(await f.runtime.get(1),stopped);assert.equal(stopped.results.length,0);
+});
+
+
+test('explicit verification records its actual request with returned evidence',async()=>{
+ const plan={reply:'Verify',action:'verify',expected:[{kind:'url_equals',value:'https://example.test/1'}]};
+ const f=fixture({model:async()=>({text:JSON.stringify(plan)})});await f.runtime.start(1,'Work');await f.runtime.tick(1);
+ const record=(await f.runtime.get(1)).results.at(-1);assert.deepEqual(record.request,plan);assert.equal(record.outcome.status,'success');assert.equal(typeof record.time,'number');
+});
+
+test('blocked model pauses get three replans but essential user decisions pause immediately',async()=>{
+ const f=fixture({model:async()=>({text:JSON.stringify({action:'pause',reply:'入口尚未找到'})})});await f.runtime.start(1,'查找');
+ for(let i=0;i<3;i++){await f.runtime.tick(1);assert.equal(f.data.get(1).status,'running');}
+ await f.runtime.tick(1);assert.equal(f.data.get(1).status,'paused');assert.equal(f.data.get(1).helpAttempts,3);
+ const g=fixture({model:async()=>({text:JSON.stringify({action:'pause',pauseReason:'user',reply:'需要提供账号信息'})})});await g.runtime.start(1,'查找');await g.runtime.tick(1);assert.equal(g.data.get(1).status,'paused');
+});
+test('choice submissions reject stale questions and origins, resume with selected labels only',async()=>{
+ const f=fixture({model:async()=>({text:JSON.stringify({action:'pause',reply:'选择输出内容',choices:['摘要','明细','建议']})})});await f.runtime.start(1,'整理');await f.runtime.tick(1);
+ const t=f.data.get(1),q=t.question;assert.equal(t.reason,'question');
+ await assert.rejects(()=>f.runtime.choose(1,t.taskId,'old',[0]));await assert.rejects(()=>f.runtime.choose(1,t.taskId,q.id,[5]));await assert.rejects(()=>f.runtime.choose(1,t.taskId,q.id,[0,0]));
+ await f.runtime.choose(1,t.taskId,q.id,[0,2]);assert.equal(f.data.get(1).status,'running');assert.match(f.data.get(1).instructions.at(-1).text,/摘要；建议/);assert.equal(f.executed.length,0);
+ await assert.rejects(()=>f.runtime.choose(1,t.taskId,q.id,[1]));
+});
+test('important click records notice without waiting for approval',async()=>{
+ const f=fixture({model:async()=>({text:JSON.stringify({action:'click',id:'t0',reply:'继续',notice:'即将提交表单'})})});await f.runtime.start(1,'处理');await f.runtime.tick(1);
+ assert.equal(f.executed.length,1);assert.equal(f.data.get(1).notice,'即将提交表单');assert.notEqual(f.data.get(1).status,'waiting_confirmation');
 });

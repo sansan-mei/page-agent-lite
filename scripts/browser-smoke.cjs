@@ -72,6 +72,8 @@ const JUDGMENT_HTML='<html><body><h1>Judgment fixture</h1><fieldset><legend>Q1: 
 const DIALOG_HTML=`<html><body><button id="start" onclick="window.openCount=(window.openCount||0)+1;document.getElementById('confirm').hidden=false;this.remove()">Submit</button>${'<button>Background</button>'.repeat(130)}<div id="confirm" role="dialog" aria-label="Confirm changes" hidden><button onclick="window.confirmCount=(window.confirmCount||0)+1;document.getElementById('result').textContent='Saved';document.getElementById('confirm').hidden=true">Submit</button></div><section id="result" aria-label="Confirmation result">Waiting</section></body></html>`;
 const GENERAL_HTML=`<html><body><h1>General workflow</h1><form aria-label="Profile"><label>Name<input name="name" type="text" value="old" onchange="this.replaceWith(this.cloneNode(true))"></label></form><button onclick="window.filterCount=(window.filterCount||0)+1;setTimeout(()=>document.getElementById('rows').textContent='Filtered rows',3000)">Filter</button><section id="rows" aria-label="Results">Waiting</section><button onclick="fetch('/persist',{method:'POST'}).then(()=>document.getElementById('save-status').textContent='Saved')">Save</button><section id="save-status" role="status" aria-label="Save status">Not saved</section><section aria-label="Advertisement">Saved</section><section id="delayed" aria-label="Delayed">Waiting</section><script>setTimeout(()=>document.getElementById('delayed').textContent='Ready',5000)</script></body></html>`;
 
+const COVERAGE_HTML=`<!doctype html><html><body style="margin:0"><div id="rows" aria-label="Scrollable rows" style="height:180px;width:300px;overflow:auto">${Array.from({length:135},(_,i)=>`<button style="display:block;height:30px;width:600px">Row ${i}</button>`).join('')}<div role="combobox" aria-label="Choose city" aria-expanded="false" onpointerdown="window.pointerReady=true" onmousedown="window.mouseReady=true" onclick="if(window.pointerReady&&window.mouseReady){this.setAttribute('aria-expanded','true');document.getElementById('feedback').textContent='Opened'}" style="height:40px">Choose city</div></div><section id="feedback" aria-label="Interaction feedback">Waiting</section><button id="covered" style="position:fixed;left:400px;top:30px;width:100px;height:40px" onclick="window.coveredClicks=(window.coveredClicks||0)+1">Covered save</button><div id="cover" style="position:fixed;left:390px;top:20px;width:130px;height:70px;background:gray"></div></body></html>`;
+
 // ── Report accumulator ──────────────────────────────────────────────────
 const report = {
   status:        'running',
@@ -83,7 +85,6 @@ const report = {
     'Native optional-host permission prompt scenarios (grant/deny/retry) are NOT verified.',
     'Initial injection uses chrome.scripting.executeScript from the worker, NOT toolbar icon click.',
     'Model calls go to a deterministic loopback HTTP stub, NOT a live third-party API.',
-    'Closed Shadow DOM stays closed; inspected via CDP DOM.getDocument(pierce:true).',
     'Worker termination during wait is tested; natural idle suspension and termination during side-effect dispatch are NOT tested.',
   ],
 };
@@ -217,11 +218,11 @@ async function startServer() {
   const svc = http.createServer((req, res) => {
     void (async () => {
       if(req.method==='POST'&&req.url==='/persist'){persistedCount++;res.writeHead(200);res.end('ok');return;}
-      if (req.method === 'GET' && ['/article','/task-one','/task-two','/judgment','/general','/dialog'].includes(req.url)) {
+      if (req.method === 'GET' && ['/article','/task-one','/task-two','/judgment','/general','/dialog','/coverage'].includes(req.url)) {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
         });
-        res.end(req.url==='/dialog'?DIALOG_HTML:req.url==='/general'?GENERAL_HTML:req.url==='/judgment'?JUDGMENT_HTML:req.url==='/task-one'?'<html><body><h1>Task page one</h1><input aria-label="Answer" type="text"><a href="/task-two">Next page</a></body></html>':req.url==='/task-two'?'<html><body><h1>Task page two complete</h1></body></html>':FIXTURE_HTML); return;
+        res.end(req.url==='/coverage'?COVERAGE_HTML:req.url==='/dialog'?DIALOG_HTML:req.url==='/general'?GENERAL_HTML:req.url==='/judgment'?JUDGMENT_HTML:req.url==='/task-one'?'<html><body><h1>Task page one</h1><input aria-label="Answer" type="text"><a href="/task-two">Next page</a></body></html>':req.url==='/task-two'?'<html><body><h1>Task page two complete</h1></body></html>':FIXTURE_HTML); return;
       }
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
         res.writeHead(404); res.end(); return;
@@ -505,230 +506,65 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await sw.evaluate(
     (id) => chrome.scripting.executeScript({
       target: { tabId: id, frameIds: [0] },
-      files: ['tool-protocol.js', 'conditions.js', 'core.js', 'content.js', 'article-tools.js'],
+      files: ['tool-protocol.js', 'conditions.js', 'core.js', 'content.js'],
       world: 'ISOLATED',
     }),
     tabId,
   );
 
-  // Connect CDP session to page for shadow DOM inspection.
-  cdpSession = await context.newCDPSession(page);
+  // Exercise production tools in the real isolated world on a clipped long list.
+  const coveragePage=await context.newPage();await coveragePage.goto(origin+'/coverage');
+  const coverageId=await sw.evaluate(async url=>(await chrome.tabs.query({})).find(t=>t.url===url).id,origin+'/coverage');
+  await sw.evaluate(id=>chrome.scripting.executeScript({target:{tabId:id,frameIds:[0]},files:['tool-protocol.js','conditions.js','core.js','content.js'],world:'ISOLATED'}),coverageId);
+  const toolCall=message=>sw.evaluate(({id,message})=>chrome.tabs.sendMessage(id,message,{frameId:0}),{id:coverageId,message});
+  let coverage=(await toolCall({type:'agent:observe'})).value;
+  assert.equal(coverage.page.elements.length,120);assert.equal(coverage.page.coverage.elementsComplete,false);
+  assert.ok(!coverage.page.elements.some(e=>e.label==='Choose city'));
+  const rows=coverage.page.elements.find(e=>e.label==='Scrollable rows');assert.ok(rows.scroll.maxY>3000);
+  for(const direction of ['right','left']){
+    coverage=(await toolCall({type:'agent:observe'})).value;
+    const container=coverage.page.elements.find(e=>e.label==='Scrollable rows');
+    const horizontal=await toolCall({type:'agent:execute',snapshotId:coverage.snapshotId,documentId:coverage.documentId,url:coverage.url,plan:{reply:'Read columns',action:'scroll',id:container.id,value:direction}});
+    assert.equal(horizontal.ok,true);assert.equal(horizontal.value.observed.axis,'x');
+    assert.ok(direction==='right'?horizontal.value.observed.delta>0:horizontal.value.observed.delta<0);
+  }
+  pass('horizontal container scroll moves both directions and reports the correct axis');
+  let scrolled;
+  for(let i=0;i<7;i++){
+    coverage=(await toolCall({type:'agent:observe'})).value;
+    const container=coverage.page.elements.find(e=>e.label==='Scrollable rows');
+    scrolled=await toolCall({type:'agent:execute',snapshotId:coverage.snapshotId,documentId:coverage.documentId,url:coverage.url,plan:{reply:'Read more rows',action:'scroll',id:container.id,value:'down'}});
+    assert.equal(scrolled.ok,true);
+  }
+  assert.equal(scrolled.value.observed.atEnd,true);assert.equal(await coveragePage.evaluate(()=>window.scrollY),0);
+  pass('container scroll reaches the list boundary, reports actual movement and leaves the document in place');
+  coverage=(await toolCall({type:'agent:observe'})).value;
+  const combo=coverage.page.elements.find(e=>e.label==='Choose city');assert.ok(combo?.inViewport);assert.equal(combo.expanded,false);
+  assert.equal(coverage.page.coverage.elementsComplete,false);
+  pass('viewport prioritization exposes a clipped control beyond 135 earlier rows without claiming complete coverage');
+  const clicked=await toolCall({type:'agent:execute',snapshotId:coverage.snapshotId,documentId:coverage.documentId,url:coverage.url,plan:{reply:'Open city',action:'click',id:combo.id}});
+  assert.equal(clicked.ok,true);assert.equal(await coveragePage.locator('#feedback').textContent(),'Opened');
+  pass('pointerdown and mousedown dependent custom control receives the click sequence and opens');
+  coverage=(await toolCall({type:'agent:observe'})).value;
+  const blocked=await toolCall({type:'agent:execute',snapshotId:coverage.snapshotId,documentId:coverage.documentId,url:coverage.url,plan:{reply:'Save',action:'click',id:coverage.page.elements.find(e=>e.label==='Covered save').id}});
+  assert.equal(blocked.code,'TARGET_BLOCKED');assert.equal(blocked.result.dispatch,'not_sent');assert.equal(await coveragePage.evaluate(()=>window.coveredClicks||0),0);
+  pass('overlay blocks the underlying save before dispatch and reports TARGET_BLOCKED with zero save clicks');
 
-  // Wait for panel to appear.
-  await poll(() => shadowText('[role="status"]'), 'panel appeared in isolated world', 8000);
-  async function showArticle(){await sw.evaluate(id=>chrome.scripting.executeScript({target:{tabId:id,frameIds:[0]},world:'ISOLATED',func:()=>globalThis.__pageAgent?.show()}),tabId);}
-  await showArticle();
-  assert.match(await shadowText('[role="status"]'), /临时模式/,
-    'Status shows temporary-mode message');
-  pass('chrome.scripting.executeScript injected unmodified page tools and article tools in ISOLATED world');
-
-  // 7. Enable site via options form.
-  await optionsPage.bringToFront();
-  await optionsPage.locator('#origin').fill(origin);
-  await optionsPage.locator('#site-form button[type="submit"]').click();
-
-  await poll(
-    async () => (await optionsPage.locator('#status').textContent()).includes('站点已启用'),
-    'site form submitted and accepted',
-  );
-
-  const sitesResult = await sw.evaluate(() => chrome.storage.local.get('sites'));
-  assert.deepEqual(sitesResult.sites, [origin]);
-  const regs = await sw.evaluate(() => chrome.scripting.getRegisteredContentScripts());
-  assert.ok(regs.length >= 1, 'Site registration triggered real content script registration');
-  pass('site form registers content script, refresh restores records without model calls');
-
-  // 8. Refresh test page — panel auto-injects, records restored.
-  await page.bringToFront();
-  await page.reload();
-  await poll(() => shadowText('[role="status"]'), 'panel restored on reload', 8000);
-  await showArticle();
-  assert.match(await shadowText('[role="status"]'), /此站点已启用持久保存/,
-    'Status confirms persisted site enabled');
-  assert.equal(report.requests.length, 0, 'Restore does not call model');
-  pass('refresh restores content script and reads saved records from storage');
-
-  // 9. TRANSLATE — select text → click → verify.
-  await page.evaluate(() => {
-    const el = document.getElementById('selected');
-    const range = document.createRange();
-    range.setStart(el.firstChild, 0);
-    range.setEnd(el.firstChild, el.textContent.length);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.dispatchEvent(new Event('selectionchange'));
+  await coveragePage.evaluate(()=>{
+    const n=document.createElement('button');n.textContent='Changing target';n.style.cssText='position:fixed;left:10px;top:300px';n.addEventListener('pointerdown',()=>n.remove());n.addEventListener('click',()=>window.changingClicks=(window.changingClicks||0)+1);document.body.append(n);
   });
+  coverage=(await toolCall({type:'agent:observe'})).value;
+  const changing=await toolCall({type:'agent:execute',snapshotId:coverage.snapshotId,documentId:coverage.documentId,url:coverage.url,plan:{reply:'Open',action:'click',id:coverage.page.elements.find(e=>e.label==='Changing target').id}});
+  assert.equal(changing.code,'TARGET_CHANGED');assert.equal(changing.result.dispatch,'unknown');assert.equal(await coveragePage.evaluate(()=>window.changingClicks||0),0);
+  await coveragePage.close();
+  pass('pointer handler removing a target prevents the final click and preserves unknown side-effect status');
 
-  await shadowClick(cdpSession, '#translate');
-
-  // Translation appears in shadow DOM.
-  await poll(
-    async () => (await page.locator('[data-page-agent="translation"]').textContent()) === TEST_TRANSLATION,
-    'translation rendered in page DOM',
-  );
-
-  assert.equal(report.requests.length, 1, 'Exactly one translate request');
-  assert.equal(report.requests[0].task, 'translate');
-
-  // Stub HTML did NOT execute.
-  await assertNoModelExec();
-  pass('trusted click translates selection, renders model HTML literally');
-
-  // 10. SUMMARY — click → verify.
-  await shadowClick(cdpSession, '#summary');
-
-  await poll(
-    async () => (await page.locator('[data-page-agent="summary"]').textContent()) === TEST_SUMMARY,
-    'summary rendered in page DOM',
-  );
-  await assertNoModelExec();
-  assert.equal(report.requests.length, 2);
-  pass('summary inserts plain text, no script execution');
-  await snap('01-translate-summary');
-
-  // 11. EDIT — propose (invalid) → reject.
-  await shadowEval(cdpSession, '#prompt', 'function(v){this.value=v;}',
-    ['Make the separate paragraph blue.']);
-  invalidEdit = true;
-  await shadowClick(cdpSession, '#propose');
-
-  assert.match(await shadowText('[role="status"]'), /拒绝不安全的修改/,
-    'Strict schema rejected extra keys');
-  assert.equal(await page.locator('#editable').getAttribute('style'), null,
-    'No style applied on rejection');
-
-  // Apply with no pending should fail.
-  await shadowClick(cdpSession, '#apply');
-  assert.match(await shadowText('[role="status"]'), /请先生成有效修改建议/,
-    'Apply failed when nothing pending');
-  pass('strict edit schema rejects proposals with extra keys');
-
-  // 12. EDIT — propose (valid) → preview → apply.
-  invalidEdit = false;
-  await shadowClick(cdpSession, '#propose');
-
-  const previewText = await shadowText('#preview');
-  assert.match(previewText, /#112233/, 'Preview shows the proposed color change');
-  // Preview does NOT mutate the page.
-  assert.equal(await page.locator('#editable').getAttribute('style'), null,
-    'Preview does not apply to page');
-  pass('edit preview renders before applying');
-  await snap('02-edit-preview');
-
-  await shadowClick(cdpSession, '#apply');
-  const computedColor = await page.locator('#editable').evaluate(el =>
-    getComputedStyle(el).getPropertyValue('color'));
-  assert.equal(computedColor, 'rgb(17, 34, 51)', 'Computed color matches proposal');
-  assert.equal(await page.locator('#editable').evaluate(el =>
-    el.style.getPropertyPriority('color')), 'important',
-    'Style priority is !important');
-
-  // Three records saved.
-  const savedData = await sw.evaluate(() => chrome.storage.local.get('savedPages'));
-  const recordKeys = savedData.savedPages[origin + '/article']?.map(r => r.kind) || [];
-  assert.deepEqual(recordKeys, ['translation', 'summary', 'edit']);
-  assert.equal(report.requests.length, 4,
-    'Two edit attempts counted (invalid rejected, valid accepted)');
-  pass('validated edit applies, persists in chrome.storage.local');
-
-  // 13. REFRESH — records restored, zero new model calls.
-  const preReloadReqs = report.requests.length;
-  await page.reload();
-  await poll(() => shadowText('[role="status"]'), 'panel restored post-reload', 8000);
-  await showArticle();
-  assert.equal(
-    await page.locator('[data-page-agent="translation"]').textContent(),
-    TEST_TRANSLATION,
-  );
-  assert.equal(
-    await page.locator('[data-page-agent="summary"]').textContent(),
-    TEST_SUMMARY,
-  );
-  assert.equal(
-    await page.locator('#editable').evaluate(el => getComputedStyle(el).color),
-    'rgb(17, 34, 51)',
-  );
-  await assertNoModelExec();
-  assert.equal(report.requests.length, preReloadReqs, 'Zero model calls on restore');
-  pass('restore replays translation, summary and style with no new model requests');
-  await snap('03-restored');
-
-  // 14. UNDO — remove last edit, persist, verify reload.
-  await shadowClick(cdpSession, '#undo');
-  assert.equal(await page.locator('#editable').getAttribute('style'), null,
-    'Undo removed style from page');
-
-  await page.reload();
-  await poll(() => shadowText('[role="status"]'), 'panel restored after undo+reload', 8000);
-  await showArticle();
-  assert.equal(await page.locator('#editable').getAttribute('style'), null,
-    'Undo persists across reload');
-  const postUndoRecords = await sw.evaluate(() =>
-    chrome.storage.local.get('savedPages'));
-  assert.equal(postUndoRecords.savedPages[origin + '/article'].length, 2,
-    'Storage reflects undo (2 records remain)');
-  assert.equal(report.requests.length, preReloadReqs, 'Undo/reload no model calls');
-  pass('undo removes last edit from DOM and storage, survives reload');
-
-  // 15. SERVER ERROR — sanitized response.
-  failNext = true;
-  await shadowClick(cdpSession, '#summary');
-  assert.match(await shadowText('[role="status"]'), /API 503/,
-    'Raw error displayed for failed request');
-  const panelText = await shadowText('section');
-  assert.ok(!panelText.includes(FAKE_SECRET), 'Secret not leaked in panel');
-  assert.ok(!panelText.includes(FAKE_KEY),    'Key not leaked in panel');
-  // Existing translations/summaries preserved.
-  assert.equal(await page.locator('[data-page-agent="translation"]').count(), 1);
-  assert.equal(await page.locator('[data-page-agent="summary"]').count(), 1);
-  const errRecords = await sw.evaluate(() =>
-    chrome.storage.local.get('savedPages'));
-  assert.equal(errRecords.savedPages[origin + '/article'].length, 2,
-    'Failed request did not add partial records');
-  pass('API failure displays sanitized error, no raw response/key leak');
-  await snap('04-sanitized-error');
-
-  // 16. CLEAR — wipe everything.
-  await shadowClick(cdpSession, '#clear');
-  await poll(async () =>
-    await page.locator('[data-page-agent="translation"], [data-page-agent="summary"]').count() === 0,
-    'all modifications cleared',
-  );
-  const cleared = await sw.evaluate(() => chrome.storage.local.get('savedPages'));
-  assert.equal(cleared.savedPages[origin + '/article'], undefined,
-    'Page cleared from storage');
-
-  await page.reload();
-  await poll(() => shadowText('[role="status"]'), 'empty panel after clear+reload', 8000);
-  assert.equal(await page.locator('[data-page-agent="translation"]').count(), 0);
-  assert.equal(await page.locator('#editable').getAttribute('style'), null);
-  pass('clear deletes storage entries, all modifications absent after reload');
-
-  // 17. DISABLE SITE — unregister content script, no injection on reload.
-  await optionsPage.bringToFront();
-  const disableBtn = optionsPage.locator('#sites li button');
-  assert.ok(await disableBtn.isVisible(), 'Disable button visible');
-  await disableBtn.click();
-
-  await poll(
-    async () => (await optionsPage.locator('#status').textContent()).includes('已停用'),
-    'site disabled',
-  );
-  const afterDisableSites = await sw.evaluate(() => chrome.storage.local.get('sites'));
-  assert.deepEqual(afterDisableSites.sites, []);
-  const afterDisableRegs = await sw.evaluate(() =>
-    chrome.scripting.getRegisteredContentScripts());
-  assert.equal(afterDisableRegs.length, 0, 'Content script unregistered');
-
-  await page.bringToFront();
-  await page.reload();
-  await page.waitForTimeout(2000); // Extra margin for delayed document_idle.
-  assert.equal(await page.locator('[data-page-agent="ui"]').count(), 0,
-    'Disabled site does not inject content script');
-  assert.equal(report.requests.length, 5, 'Disable flow no model calls');
-  pass('disable unregisters content script, reload does not inject or call model');
-  await snap('05-disabled');
+  assert.equal(await page.locator('[data-page-agent="ui"]').count(),0);
+  assert.equal(await optionsPage.locator('#article-settings, #article, #auto-click, #auto-fill').count(),0);
+  assert.equal(await optionsPage.locator('#context-tokens').inputValue(),'100000');
+  await optionsPage.locator('#agent-config button[type="submit"]').click();
+  await poll(async()=>(await optionsPage.locator('#status').textContent()).includes('助手默认设置已保存'),'budget preferences saved without execution toggles');
+  pass('settings default to 100000 tokens with no automation switches or article tools');
 
   // Runtime integration: trusted extension sidepanel document, real content
   // messages, actual DOM events and same-origin document navigation.
@@ -739,37 +575,23 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await page.goto(origin+'/task-one');await page.bringToFront();
   const command=(type,extra={})=>panel.evaluate(async ({type,tabId,extra})=>chrome.runtime.sendMessage({type,tabId,...extra}),{type,tabId,extra});
   const started=await command('task:start',{goal:'Fill answer 4 then go to the next page'});assert.equal(started.ok,true);
-  await poll(async()=>((await command('task:get')).value?.status)==='waiting_confirmation','runtime fills and waits for click confirmation',20000);
-  assert.equal(await page.locator('input').inputValue(),'4');
-  let beforeNav=(await command('task:get')).value;
-  assert.equal(beforeNav.steps,2);assert.equal(beforeNav.prefs.maxSteps,50);
-  const firstTaskId=beforeNav.taskId;
-  await panel.evaluate(()=>{document.getElementById('instruction').value='Keep the current task, continue to the next page.';document.getElementById('chat').requestSubmit();});
-  await poll(async()=>await panel.locator('#instruction').inputValue()==='','successful followup clears composer');
-  await poll(async()=>((await command('task:get')).value?.status)==='waiting_confirmation','supplement replans the same task',20000);
-  beforeNav=(await command('task:get')).value;assert.equal(beforeNav.taskId,firstTaskId);assert.equal(beforeNav.instructions.length,1);assert.equal(beforeNav.steps,3);
-  const approved=await command('task:approve',{taskId:beforeNav.taskId});assert.equal(approved.ok,true);
-  await page.waitForURL(origin+'/task-two');
-  await poll(async()=>((await command('task:get')).value?.status)==='completed','runtime continues after document replacement',20000);
-  const finished=(await command('task:get')).value;assert.equal(finished.taskId,beforeNav.taskId);assert.equal(finished.steps,4);
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','automatic fill and navigation complete',20000);
+  const finished=(await command('task:get')).value;
+  assert.equal(finished.taskId,started.value.taskId);assert.equal(finished.steps,3);assert.equal(finished.prefs.maxSteps,50);
+  assert.equal(page.url(),origin+'/task-two');assert.equal(finished.events.some(e=>e.text.startsWith('等待确认')),false);
   await panel.waitForTimeout(300);
-  assert.match(await panel.locator('#goal').textContent(),/Fill answer/);
   assert.match(await panel.locator('#progress').textContent(),/已完成/);
-  pass('sidepanel document starts task; real page fill, click confirmation, same-origin navigation and completion preserve task ID and budget');
-  pass('successful sidepanel followup clears composer and keeps original task ID, goal and cumulative budget');
+  pass('default automatic fill and click navigate without approval and preserve task ID and cumulative budget');
   report.caveats.push('Sidepanel extension document is exercised in a test tab; native browser sidebar placement and toolbar gesture remain unverified.');
   await panel.screenshot({path:path.join(outputDir,'06-sidepanel.png'),fullPage:true});
   const taskCleared=await command('task:clear');assert.equal(taskCleared.ok,true);assert.equal((await command('task:get')).value,null);
-  await optionsPage.locator('#auto-click').check();
-  await optionsPage.locator('#agent-config button[type="submit"]').click();
-  await poll(async()=>(await optionsPage.locator('#status').textContent()).includes('助手默认设置已保存'),'auto click setting saved');
   await page.goto(origin+'/task-one');await page.bringToFront();
   const automatic=await command('task:start',{goal:'Fill answer 4 then go to the next page automatically'});assert.equal(automatic.ok,true);
   await poll(async()=>((await command('task:get')).value?.status)==='completed','automatic click navigates without approval',20000);
   const autoFinished=(await command('task:get')).value;
-  assert.equal(autoFinished.prefs.autoClick,true);assert.equal(page.url(),origin+'/task-two');
+  assert.equal(autoFinished.prefs.autoClick,undefined);assert.equal(page.url(),origin+'/task-two');
   assert.equal(autoFinished.events.some(e=>e.text.startsWith('等待确认')),false);
-  pass('options enables auto click; real fill and same-origin navigation finish without an approval command');
+  pass('real fill and same-origin navigation finish with built-in automation and no approval command');
   await command('task:clear');
   await page.goto(origin+'/judgment');await page.bringToFront();
   const correction=await command('task:submit',{goal:'按指定答案更正：第一题对，第二题错，不提交评分'});assert.equal(correction.ok,true);
@@ -777,6 +599,8 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(await page.locator('input[name="q1"][value="yes"]').isChecked(),true);
   assert.equal(await page.locator('input[name="q2"][value="no"]').isChecked(),true);
   const corrected=(await command('task:get')).value;assert.equal(corrected.results.length,2);assert.ok(corrected.results.every(r=>r.verification.verified===true));
+  await optionsPage.locator('#tabs-refresh').click();
+  await optionsPage.locator('#managed-tab').selectOption(String(tabId));
   pass('repeated true/false labels map to question groups and real radio corrections verify their checked state');
   await command('task:clear');
   for(const goal of ['Memory smoke save','Memory smoke recall','Memory smoke forget']){
@@ -785,12 +609,12 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     const notes=(await command('task:memory')).value;
     if(goal==='Memory smoke save'){
       assert.equal(notes[0].text,'用户更正：第一题对，第二题错');
-      await poll(async()=>(await panel.locator('#memories').textContent()).includes('用户更正'),'memory viewer receives storage updates');
+      await poll(async()=>(await optionsPage.locator('#memories').textContent()).includes('用户更正'),'memory viewer receives storage updates');
     }
     if(goal==='Memory smoke recall')assert.ok((await command('task:get')).value.results.some(r=>r.action==='memory_read'&&r.result.entries[0].id==='answers'));
     if(goal==='Memory smoke forget')assert.equal(notes.length,0);
   }
-  pass('model memory tools save, read across completed tasks, update sidepanel viewer and clear temporary site notes');
+  pass('model memory tools save, read across completed tasks, update settings viewer and clear temporary site notes');
   await command('task:clear');
   await page.goto(origin+'/general');await page.bringToFront();
   await sw.evaluate(()=>{
@@ -843,7 +667,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   const contextTask=(await command('task:get')).value;
   contextTask.goal='Context smoke';contextTask.status='stopped';contextTask.phase='observe';contextTask.steps=0;contextTask.completionChecks=null;contextTask.check=null;contextTask.pending=null;
   contextTask.instructions=[{text:'User correction preserved',time:Date.now()}];
-  contextTask.results=Array.from({length:13},(_,i)=>({action:'observe',result:'Earlier observation '+i+(i<7?'x'.repeat(25000):'')}));
+  contextTask.results=Array.from({length:13},(_,i)=>({action:'observe',result:'Earlier observation '+i+(i<7?'x'.repeat(90000):'')}));
   contextTask.lastOutcome={version:2,status:'unknown',code:'UNKNOWN_SAVE',dispatch:'sent',scope:'dispatch'};
   await panel.evaluate(async task=>chrome.storage.session.set({['task:'+task.tabId]:task}),contextTask);
   assert.equal((await command('task:resume')).ok,true);
@@ -877,23 +701,25 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal((await command('task:submit',{goal:'Durable smoke recall'})).ok,true);
   await poll(async()=>((await command('task:get')).value?.status)==='completed','model recalls durable note across tasks',10000);
   assert.ok((await command('task:get')).value.results.some(r=>r.action==='site_memory_read'&&r.result.note.text.includes('Verified workflow')));
-  await panel.locator('#site-memory-panel').evaluate(el=>el.open=true);
-  await panel.locator('#site-memory-refresh').click();
-  await poll(async()=>await panel.locator('#site-memories').textContent().then(t=>t.includes('Verified workflow')),'durable note viewer');
-  await panel.locator('#site-memory-id').fill('workflow');await panel.locator('#site-memory-text').fill('User corrected workflow');await panel.locator('#site-memory-save').click();
+  await optionsPage.locator('#tabs-refresh').click();
+  await optionsPage.locator('#managed-tab').selectOption(String(tabId));
+  await optionsPage.locator('#site-memory-panel').evaluate(el=>el.open=true);
+  await optionsPage.locator('#site-memory-refresh').click();
+  await poll(async()=>await optionsPage.locator('#site-memories').textContent().then(t=>t.includes('Verified workflow')),'durable note viewer');
+  await optionsPage.locator('#site-memory-id').fill('workflow');await optionsPage.locator('#site-memory-text').fill('User corrected workflow');await optionsPage.locator('#site-memory-save').click();
   await poll(async()=>((await command('task:site-memory')).value?.notes[0]?.text)==='User corrected workflow','manual durable edit saved',10000);
-  await panel.locator('#site-memory-refresh').click();
-  await poll(async()=>await panel.locator('#site-memories').textContent().then(t=>t.includes('User corrected')),'updated durable note viewer');
-  const downloadEvent=panel.waitForEvent('download');await panel.locator('#site-memory-export').click();const download=await downloadEvent;
+  await optionsPage.locator('#site-memory-refresh').click();
+  await poll(async()=>await optionsPage.locator('#site-memories').textContent().then(t=>t.includes('User corrected')),'updated durable note viewer');
+  const downloadEvent=optionsPage.waitForEvent('download');await optionsPage.locator('#site-memory-export').click();const download=await downloadEvent;
   const stream=await download.createReadStream();const chunks=[];for await(const chunk of stream)chunks.push(chunk);
   const exported=JSON.parse(Buffer.concat(chunks).toString('utf8'));assert.equal(exported.origin,origin);assert.equal(exported.notes[0].text,'User corrected workflow');
-  await panel.locator('#site-memory-id').fill('temporary');await panel.locator('#site-memory-text').fill('discard this note');await panel.locator('#site-memory-save').click();
+  await optionsPage.locator('#site-memory-id').fill('temporary');await optionsPage.locator('#site-memory-text').fill('discard this note');await optionsPage.locator('#site-memory-save').click();
   await poll(async()=>((await command('task:site-memory')).value?.notes.length)===2,'second durable note saved');
-  await panel.locator('#site-memory-refresh').click();
-  await panel.locator('#site-memories > div').filter({hasText:'temporary'}).getByRole('button',{name:'删除',exact:true}).click();
-  await poll(async()=>((await command('task:site-memory')).value?.notes.length)===1,'durable note deleted in sidepanel');
-  await panel.screenshot({path:path.join(outputDir,'09-site-memory.png'),fullPage:true});
-  pass('model saves and reads durable notes across tasks with index-only defaults; sidepanel edits and exports real JSON');
+  await optionsPage.locator('#site-memory-refresh').click();
+  await optionsPage.locator('#site-memories > div').filter({hasText:'temporary'}).getByRole('button',{name:'删除',exact:true}).click();
+  await poll(async()=>((await command('task:site-memory')).value?.notes.length)===1,'durable note deleted in settings');
+  await optionsPage.screenshot({path:path.join(outputDir,'09-site-memory.png'),fullPage:true});
+  pass('model saves and reads durable notes across tasks with index-only defaults; settings edits and exports real JSON');
   await command('task:clear');await panel.close();
   await context.close();context=await chromium.launchPersistentContext(profileDir,launchOptions);
   const restartedPanel=await context.newPage();await restartedPanel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
@@ -902,6 +728,22 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   },origin);
   assert.equal(retained.notes[0].text,'User corrected workflow');
   pass('durable website notes survive a real browser process close and relaunch using the same extension profile');
+  const conversationCheck=await restartedPanel.evaluate(async origin=>{
+    await import(chrome.runtime.getURL('task-store.js'));
+    const store=PageAgentTaskStore.createTaskStore(chrome);
+    const tab=await chrome.tabs.create({url:origin+'/article',active:false});
+    const first={taskId:'history-first',origin,tabId:tab.id,goal:'First isolated conversation',status:'ended',phase:'idle',steps:1,prefs:{maxSteps:50},updatedAt:1,events:[{time:1,text:'First only'}],results:[],token:'not-for-history'};
+    await store.set(tab.id,first);await store.set(tab.id,{...first,taskId:'history-second',goal:'Second isolated conversation',updatedAt:2,events:[]});
+    const list=await chrome.runtime.sendMessage({type:'task:history',tabId:tab.id});
+    const detail=await chrome.runtime.sendMessage({type:'task:history-get',tabId:tab.id,taskId:first.taskId});
+    const current=await store.get(tab.id);
+    await chrome.tabs.remove(tab.id);
+    return {list,detail,currentId:current.taskId};
+  },origin);
+  assert.equal(conversationCheck.list.ok,true);assert.equal(conversationCheck.list.value.length,2);
+  assert.equal(conversationCheck.detail.value.goal,'First isolated conversation');
+  assert.equal(conversationCheck.detail.value.token,undefined);assert.equal(conversationCheck.currentId,'history-second');
+  pass('conversation history preserves separate tasks and reads old records through trusted messages without replacing the current task');
   await restartedPanel.close();
 
   // ── Finalize report ──────────────────────────────────────────────────
@@ -936,7 +778,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await fs.mkdir(outputDir, { recursive: true });
   await fs.writeFile(
     path.join(outputDir, 'report.json'),
-    JSON.stringify(report, null, 2) + '\n',
+    JSON.stringify(report, null, 2) + '\r\n',
   );
   console.log(JSON.stringify({
     status: report.status,

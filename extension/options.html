@@ -1,33 +1,31 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page Agent Lite · 设置</title><link rel="icon" href="icons/icon-32.png"><link rel="stylesheet" href="options.css"><script defer src="core.js"></script><script defer src="options.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page Agent Lite · 设置</title><link rel="icon" href="icons/icon-32.png"><link rel="stylesheet" href="ui-theme.css"><link rel="stylesheet" href="options.css"><script defer src="core.js"></script><script defer src="options.js"></script><script defer src="management.js"></script></head>
 <body><main>
-<header class="settings-header"><img src="icons/logo.svg" alt="" width="48" height="48"><div><p class="eyebrow">PAGE AGENT LITE</p><h1>把助手调成你的习惯。</h1></div></header>
-<p>在这里配置默认模型与助手行为。发送对话后，助手会读取当前网页并在本次任务中多次调用模型。API 授权与网页持久化授权相互独立。</p>
+<header class="settings-header"><img src="icons/logo.svg" alt="" width="48" height="48"><div><p class="eyebrow">PAGE AGENT LITE</p></div><span class="edition">LOCAL / LITE</span></header>
+<div class="settings-hero"><p class="hero-kicker">偏好设置</p><h1>设置你的 Page Agent</h1><p>在这里配置默认模型与助手行为。发送对话后，助手会读取当前网页并在本次任务中多次调用模型。API 授权与网页访问授权相互独立。</p></div>
 <p id="status" role="status" aria-live="polite">正在读取设置…</p>
-<section><span class="section-number">01 / CONNECTION</span><h2>连接你的模型</h2>
+<div class="settings-layout"><nav class="settings-nav" aria-label="设置分类"><p>设置分类</p><a href="#connection"><span>01</span>模型连接</a><a href="#behavior"><span>02</span>执行预算</a><a href="#management"><span>03</span>网站与记忆</a></nav><div class="settings-content"><section id="connection"><span class="section-number">01 / CONNECTION</span><h2>连接你的模型</h2>
 <form id="config">
 <label for="endpoint">API 基础地址（包括 /v1，不含 /chat/completions）</label><input id="endpoint" type="url" required placeholder="https://api.openai.com/v1" autocomplete="off">
 <label for="model">模型名称</label><input id="model" required maxlength="120" placeholder="填写服务商提供的模型 ID">
+<label for="reasoningEffort">思考强度</label><select id="reasoningEffort"><option value="low">低</option><option value="medium" selected>中（默认）</option><option value="high">高</option><option value="default">服务默认（不发送思考参数）</option></select><p>通过 reasoning_effort 请求模型思考强度；效果由模型服务决定。若接口不支持，请选择服务默认。思考可能增加耗时和费用。</p>
 <label for="key">API 密钥（本机服务可留空）</label><input id="key" type="password" maxlength="4096" autocomplete="off" spellcheck="false">
-<label for="language">默认回复 / 翻译 / 摘要语言</label><input id="language" required maxlength="60" value="简体中文">
+<label for="language">默认回复语言</label><input id="language" required maxlength="60" value="简体中文">
 <button type="submit">授权此 API 地址并保存配置</button>
 </form><p>仅允许 HTTPS 或 localhost / 127.0.0.1 / [::1] 的 HTTP 地址。密钥仅保存于本机 chrome.storage.local，不同步，也不交给网页内容脚本；本机存储并非加密保险箱。</p></section>
-<section><span class="section-number">02 / BEHAVIOR</span><h2>选择执行方式</h2>
+<section id="behavior"><span class="section-number">02 / BEHAVIOR</span><h2>执行预算</h2>
 <form id="agent-config">
 <label for="max-steps">每次任务的执行轮数上限（默认 50，0 表示不限）</label><input id="max-steps" type="number" min="0" step="1" value="50" required>
-<p>不限轮数时，持续执行直到任务完成、需要确认、发生错误或你点击停止。也可以填写 100、500 等自定义上限。每轮会调用模型，翻页后累计轮数继续保留。</p>
-<label for="context-tokens">模型上下文窗口（token）</label><input id="context-tokens" type="number" min="8192" max="262144" step="1" value="32768" required>
+<p>不限轮数时，持续执行直到任务完成、任务暂停、发生错误或你点击停止。也可以填写 100、500 等自定义上限。每轮会调用模型，翻页后累计轮数继续保留。</p>
+<label for="context-tokens">模型上下文窗口（token）</label><input id="context-tokens" type="number" min="8192" max="262144" step="1" value="100000" required>
 <label for="compression-threshold">自动压缩阈值（可用输入预算的百分比）</label><input id="compression-threshold" type="number" min="50" max="95" step="1" value="80" required>
-<p>请填写模型实际支持的上下文窗口，默认 32768 token；预留 2000 token 输出空间，在剩余预算的 80% 才压缩。接口未提供用量时采用估算。正常执行保留原始历史以利于缓存复用，缓存是否命中由服务商决定。</p>
-<label for="auto-fill"><input id="auto-fill" type="checkbox" checked> 自动执行填写、勾选和下拉选择</label>
-<label for="auto-click"><input id="auto-click" type="checkbox"> 自动执行按钮、链接和翻页点击（无需逐次确认）</label>
-<p>自动点击默认关闭；开启后模型提出的点击会直接执行，包括页面上的提交、删除等按钮。自动填写独立控制填写、勾选和下拉选择。保存后对新任务或点击「继续任务」的任务生效。停止会取消未完成的模型请求，已发出的网页操作不会自动撤销。</p>
+<p>请填写模型实际支持的上下文窗口，默认 100000 token；预留 2000 token 输出空间，在剩余预算的 80% 才压缩。接口未提供用量时采用估算。正常执行保留原始历史以利于缓存复用，缓存是否命中由服务商决定。</p>
+<p>填写、勾选、选择和点击均自动执行，无需开启开关或逐次确认。你可以随时停止；已发出的网页操作不会自动撤销。</p>
 <button type="submit">保存助手默认设置</button>
 </form></section>
-<section><span class="section-number">03 / ARTICLE TOOLS</span><h2>文章工具的站点设置</h2>
-<p>未启用时，工具栏点击授予当前站点临时访问。启用后会在该站点自动恢复保存的文章修改；文章工具可从侧边栏打开。文章恢复不会调用模型；后台未完成任务会继续运行。授权后请刷新网页。</p>
-<form id="site-form"><label for="origin">网页源（协议 + 域名，可含端口；不含路径）</label><input id="origin" type="url" required placeholder="https://example.com"><button type="submit">授权并启用站点</button><button type="button" id="current-site">尝试填入当前网页源</button></form>
-<h3>已启用站点</h3><ul id="sites"></ul>
-<p>停用会取消自动注入和恢复；已有网页请刷新。停用不删除已保存记录，重新启用会恢复。清除记录请在对应网页点击「当前页全部撤销/清除保存」。浏览器扩展详情可单独撤回授权；API 与网页可能共用同一源，因此停用不会自动撤回源权限。</p></section>
-</main></body></html>
+<section id="management"><span class="section-number">03 / SITE & MEMORY</span><h2>网站与记忆管理</h2><p>选择已打开的网页。修改或清空记忆会取消相关旧请求并暂停相关任务，请返回侧栏继续。</p><label for="managed-tab">目标网页</label><select id="managed-tab"></select><button id="tabs-refresh" type="button">刷新网页列表</button><p id="management-status" role="status"></p><button id="grant-all" type="button">授权所有网站</button><details id="site-memory-panel"><summary>网站长期记忆</summary><p>仅在本机保存，同一网站跨标签页和浏览器重启可用。模型按需维护；不会自动保存整段对话。切换登录账号时请检查笔记是否适用。</p><p id="site-memory-status" role="status"></p><div id="site-memories"></div>
+<form id="site-memory-form"><label for="site-memory-id">笔记名称</label><input id="site-memory-id" maxlength="60" pattern="[a-zA-Z0-9_-]{1,60}" required placeholder="例如 preferred_workflow"><label for="site-memory-text">内容</label><textarea id="site-memory-text" maxlength="2000" required></textarea><button id="site-memory-save" type="submit">保存笔记</button></form><button id="site-memory-refresh" type="button">刷新长期记忆</button><button id="site-memory-clear" type="button">清空本站长期记忆</button><button id="site-memory-export" type="button">导出本站记忆</button></details>
+<details id="memory-panel"><summary>临时记忆</summary><p>模型自行判断保存、读取和清理。记忆仅限当前标签页和网站，关闭标签页后清除；你也可以随时清空。</p><div id="memories"></div><button id="memory-refresh" type="button">刷新记忆</button><button id="memory-clear" type="button">清空临时记忆</button></details>
+
+</section></div></div><footer class="settings-footer"><span>PAGE AGENT LITE</span><span>自选模型 · 本机记忆 · 由你掌控</span></footer></main></body></html>

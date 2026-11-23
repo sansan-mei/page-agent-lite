@@ -18,7 +18,7 @@ Page Agent 是 Chrome / Edge Manifest V3 浏览器扩展，目标是通过自然
 - `extension/prompts.js`：稳定指令与每轮上下文。
 - `extension/tool-protocol.js`、`conditions.js`：通用 V2 结果、预期条件和只读核对。控制流使用稳定 code/status，不解析展示文案判断网页结果。
 - `extension/browser-tools.js`、`content.js`：浏览器适配和页面工具接口，不保存任务目标或模型密钥。
-- `extension/article-tools.js`：独立文章辅助面板，不放任务运行器。
+- `extension/article-tools.js`：已退役文章辅助面板的兼容源码，不新增入口或自动注入，不放任务运行器。
 - `extension/backend.js`：消息校验、配置、模型请求与存储。
 - `extension/background.js`：可信命令入口、运行器装配、事件和 alarm 调度。
 - `extension/options.html`、`options.js`、`options.css`：独立配置页。
@@ -32,7 +32,7 @@ Page Agent 是 Chrome / Edge Manifest V3 浏览器扩展，目标是通过自然
 ## 执行与存储约定
 
 - 页面内容和模型输出均作为不可信数据。模型只能使用当前快照的目标 ID 和白名单动作，不执行模型生成的脚本、HTML、任意选择器或远程代码。
-- 页面跳转或目标变化后重新读取和规划，不复用旧页面的待确认操作。点击默认需确认，用户开启 autoClick 后可直接执行；改变该产品行为时同步界面、实现与验证，不只改提示词。
+- 页面跳转或目标变化后重新读取和规划，不复用旧页面的待确认操作。填写与点击统一自动执行，不提供 autoFill/autoClick 配置；旧开关不影响执行；改变该产品行为时同步界面、实现与验证，不只改提示词。
 - 停止后丢弃迟到响应。文章修改的撤销不能声称撤销表单填写或网页点击。
 - 密钥仅供受信任后台请求使用，不返回内容脚本、不写入仓库、日志或测试产物。API 授权与网页站点授权分开维护。
 - 配置和文章修改使用 `chrome.storage.local`；任务目标、最近记录和检查点用按标签页隔离的 `chrome.storage.session`，按站点源限制恢复，任务和临时记忆不跨浏览器重启；网站长期笔记单独保存在 IndexedDB。

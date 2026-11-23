@@ -3,6 +3,19 @@ const assert=require('node:assert/strict');
 const {parseHTML}=require('linkedom');
 const C=require('../extension/core.js');
 
+test('hover reveals event-driven menus without a click and rejects stale or invented targets',()=>{
+ const {document}=parseHTML('<html><body><button>Menu</button><div hidden>Options</div></body></html>');
+ document.defaultView.MouseEvent=document.defaultView.Event;
+ const button=document.querySelector('button');let clicks=0;
+ button.addEventListener('click',()=>clicks++);
+ button.addEventListener('mouseenter',()=>document.querySelector('div').removeAttribute('hidden'));
+ const snap=C.agentSnapshot(document),plan=C.agentPlan(JSON.stringify({reply:'Open menu',action:'hover',id:'t0'}),snap);
+ C.agentExecute(plan,snap,document);
+ assert.equal(clicks,0);assert.match(C.agentSnapshot(document).page.text,/Options/);
+ assert.throws(()=>C.agentPlan(JSON.stringify({...plan,id:'t999'}),snap));
+ button.textContent='Different';assert.throws(()=>C.agentExecute(plan,snap,document),e=>e.code==='STALE');
+});
+
 test('agent reads forms and options but excludes extension UI, passwords and hidden text',()=>{
  const {document}=parseHTML('<html><body><p>Question: 2+2?</p><input aria-label="Answer" type="text"><button>Submit</button><input type="password" value="secret"><div hidden>hidden secret</div><div data-page-agent="ui">private conversation</div></body></html>');
  const snap=C.agentSnapshot(document);
@@ -74,4 +87,57 @@ test('durable memory tools validate note identifiers and bounded plain text',()=
  const snap={nodes:new Map()};
  assert.equal(C.agentPlan('{"reply":"save","action":"site_memory_write","id":"workflow","value":"verified"}',snap).action,'site_memory_write');
  for(const p of [{action:'site_memory_read',id:'../../x'},{action:'site_memory_delete',id:''},{action:'site_memory_write',id:'ok',value:'x'.repeat(2001)}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'test',...p}),snap));
+});
+
+
+test('viewport targets escape the first-120 cap while dialogs retain priority and absence stays unknown',()=>{
+ const {document,window}=parseHTML('<html><body>'+Array.from({length:130},(_,i)=>`<button>Old ${i}</button>`).join('')+'<button id="later">Later</button><div role="dialog" aria-label="Confirm"><button id="confirm">Confirm</button></div></body></html>');
+ window.innerWidth=800;window.innerHeight=600;
+ for(const n of document.querySelectorAll('button'))n.getBoundingClientRect=()=>({left:0,right:100,top:900,bottom:930,width:100,height:30});
+ const later=document.getElementById('later');later.getBoundingClientRect=()=>({left:0,right:100,top:10,bottom:40,width:100,height:30});
+ const snap=C.agentSnapshot(document);
+ assert.equal(snap.page.elements[0].label,'Confirm');assert.equal(snap.page.elements[1].label,'Later');
+ assert.equal(snap.page.elements[1].inViewport,true);assert.equal(snap.page.coverage.elementsComplete,false);
+ const G=require('../extension/conditions.js');
+ assert.equal(G.evaluate([{kind:'element_absent',target:{category:'element',label:'Old 129'}}],snap).status,'unknown');
+});
+
+test('scrollable containers expose state, accept bounded directions and reject removed targets',()=>{
+ const {document,window}=parseHTML('<html><body><div aria-label="Rows"></div></body></html>');
+ const n=document.querySelector('div');Object.assign(n,{scrollWidth:1000,clientWidth:200,scrollHeight:1600,clientHeight:200,scrollTop:0,scrollLeft:0});
+ window.getComputedStyle=()=>({overflowX:'auto',overflowY:'auto'});
+ n.scrollBy=({left,top})=>{n.scrollLeft=Math.max(0,Math.min(800,n.scrollLeft+left));n.scrollTop=Math.max(0,Math.min(1400,n.scrollTop+top));};
+ const snap=C.agentSnapshot(document);assert.equal(snap.page.elements[0].scroll.maxY,1400);
+ const plan=C.agentPlan(JSON.stringify({reply:'Scroll rows',action:'scroll',id:'t0',value:'right'}),snap);
+ const moved=C.agentExecute(plan,snap,document);assert.equal(moved.delta,600);assert.equal(n.scrollTop,0);
+ assert.equal(C.agentExecute(plan,snap,document).atEnd,true);
+ assert.throws(()=>C.agentPlan(JSON.stringify({...plan,id:'bad'}),snap));
+ assert.throws(()=>C.agentPlan(JSON.stringify({...plan,value:'sideways'}),snap));
+ n.remove();assert.throws(()=>C.agentExecute(plan,snap,document),/变化/);
+});
+
+test('custom combobox state and visible popup context are read, expansion invalidates old actions',()=>{
+ const {document}=parseHTML('<html><body><div role="combobox" aria-label="City" aria-expanded="false" aria-controls="choices"></div><div id="choices" role="listbox" aria-label="Cities"><div role="option" aria-selected="true">Paris</div></div></body></html>');
+ const snap=C.agentSnapshot(document),combo=snap.page.elements.find(e=>e.role==='combobox');
+ assert.equal(combo.expanded,false);assert.deepEqual(combo.controlledLabels,['Cities']);
+ assert.equal(snap.page.elements.find(e=>e.role==='option').selected,true);
+ document.querySelector('[role="combobox"]').setAttribute('aria-expanded','true');
+ assert.throws(()=>C.agentExecute({action:'click',id:combo.id},snap,document),/变化/);
+});
+
+test('occluded targets are rejected before click or pointer events are emitted',()=>{
+ const {document,window}=parseHTML('<html><body><button>Save</button><div id="cover"></div></body></html>');
+ window.innerWidth=800;window.innerHeight=600;const n=document.querySelector('button');
+ n.getBoundingClientRect=()=>({left:0,right:100,top:0,bottom:30,width:100,height:30});
+ document.elementFromPoint=()=>document.getElementById('cover');let clicks=0;n.addEventListener('click',()=>clicks++);
+ const snap=C.agentSnapshot(document);
+ assert.throws(()=>C.agentExecute({action:'click',id:'t0'},snap,document),e=>e.code==='TARGET_BLOCKED'&&e.beforeDispatch);
+ assert.equal(clicks,0);
+});
+
+test('decision schema rejects malformed options and limits new model fields',()=>{
+ const snap={nodes:new Map()};
+ for(const choices of [[],['only'],['x','x'],['x',3],Array(9).fill('x')])assert.throws(()=>C.agentPlan(JSON.stringify({action:'pause',reply:'选择',choices}),snap));
+ assert.throws(()=>C.agentPlan(JSON.stringify({action:'observe',reply:'x',choices:['a','b']}),snap));
+ assert.throws(()=>C.agentPlan(JSON.stringify({action:'pause',reply:'x',pauseReason:'anything'}),snap));
 });

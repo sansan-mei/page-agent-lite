@@ -8,7 +8,7 @@
 |---|---|
 | running | 可继续推进 |
 | waiting_page | 等待页面，事件或 alarm 重试读取 |
-| waiting_confirmation | 必须显式确认，alarm 不执行待确认动作 |
+| waiting_confirmation | 旧任务兼容状态；继续后丢弃待确认动作并重新规划，alarm 不执行旧动作 |
 | paused | 达到预算、离开原站点、无进展或结果不确定 |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
@@ -23,7 +23,7 @@
 2. executing 恢复时有条件则只读核对，否则暂停；approved 检查旧 URL，页面变化则重新规划。
 3. 普通路径读取快照，必要时先压缩旧记录并保存 compacting；摘要成功后下一 tick 重新观察，否则累计模型轮数并保存 thinking。
 4. 调用模型。停止/被替换则丢弃结果；URL 变化则重新观察。
-5. 严格解析动作。done 有 expected 或已保存完成条件时必须核实；未提供时明确为模型报告完成。pause 表示未完成但受阻；未开启 autoClick 的点击或关闭自动填写时待确认。
+5. 严格解析动作。done 有 expected 或已保存完成条件时必须核实；未提供时明确为模型报告完成。pause 表示未完成但受阻；填写与点击直接自动执行，不读取旧 autoFill/autoClick 开关。
 6. 执行前保存 executing；网页返回后保存结果，调度下一轮。
 
 模型返回 memory_* 时由后台维护临时笔记，记录工具结果后进入下一轮；不点击网页、不注入完整上一任务。模型可用 wait/verify 指定条件。字段动作自动添加值/勾选条件，未核实先等待，期限内不符或未知则暂停。

@@ -13,28 +13,32 @@ function createService(chrome,fetcher=fetch){
  function siteId(origin){return 'pa-'+btoa(origin).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');}
  async function enabled(origin){return (await get('sites')||[]).includes(origin)&&await chrome.permissions.contains({origins:[origin+'/*']});}
  async function write(value){try{await store.set(value);}catch{throw new Error('存储空间不足或写入失败；未保存，请清理已保存修改');}}
+ async function preferences(){
+   const p=await get('agentPreferences')||{};
+   return {maxSteps:p.maxSteps??50,contextTokens:p.contextTokens??100000,compressionThreshold:p.compressionThreshold??80};
+ }
  async function handle(m,sender,options={}){
   if(!m||typeof m!=='object'||JSON.stringify(m).length>(options.internalAgent?6100000:160000)||typeof m.type!=='string')throw new Error('消息格式或大小无效');
   const opts=sender?trusted(sender,'options.html'):false;
   if(m.type==='agentPreferences'){
    if(!opts)page(sender);
-   return {maxSteps:50,autoFill:true,autoClick:false,contextTokens:32768,compressionThreshold:80,...await get('agentPreferences')};
+   return preferences();
   }
   if(m.type==='setAgentPreferences'){
    if(!opts)throw new Error('拒绝修改设置');
    const p=m.preferences;
-   if(!p||Object.keys(p).some(k=>!['maxSteps','autoFill','autoClick','contextTokens','compressionThreshold'].includes(k))||!Number.isSafeInteger(p.maxSteps)||p.maxSteps<0||typeof p.autoFill!=='boolean'||(p.autoClick!==undefined&&typeof p.autoClick!=='boolean'))throw new Error('助手设置无效');
+   if(!p||Object.keys(p).some(k=>!['maxSteps','contextTokens','compressionThreshold'].includes(k))||!Number.isSafeInteger(p.maxSteps)||p.maxSteps<0)throw new Error('助手设置无效');
    if((p.contextTokens!==undefined&&(!Number.isInteger(p.contextTokens)||p.contextTokens<8192||p.contextTokens>262144))||(p.compressionThreshold!==undefined&&(!Number.isInteger(p.compressionThreshold)||p.compressionThreshold<50||p.compressionThreshold>95)))throw new Error('上下文预算或压缩阈值无效');
-   const previous=await get('agentPreferences')||{};
-   await write({agentPreferences:{...previous,...p,autoClick:p.autoClick??false,contextTokens:p.contextTokens??previous.contextTokens??32768,compressionThreshold:p.compressionThreshold??previous.compressionThreshold??80}});return {ok:true};
+   const previous=await preferences();
+   await write({agentPreferences:{...previous,...p}});return {ok:true};
   }
   if(m.type==='sites'){if(!opts)throw new Error('拒绝访问站点列表');return await get('sites')||[];}
-  if(m.type==='settings'){if(!opts)throw new Error('拒绝访问设置');return await get('config')||{};}
+  if(m.type==='settings'){if(!opts)throw new Error('拒绝访问设置');return {reasoningEffort:'medium',...await get('config')};}
   if(m.type==='configure'){
    if(!opts)throw new Error('拒绝修改设置');const c=m.config;
-   if(!c||Object.keys(c).sort().join()!=='endpoint,key,language,model'||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
+   if(!c||Object.keys(c).some(k=>!['endpoint','key','language','model','reasoningEffort'].includes(k))||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
    const endpoint=C.endpoint(c.endpoint);if(!await chrome.permissions.contains({origins:[new URL(endpoint).origin+'/*']}))throw new Error('请先授权 API 地址');
-   await write({config:{...c,endpoint}});return {ok:true};
+   await write({config:{...c,endpoint,reasoningEffort:c.reasoningEffort??'medium'}});return {ok:true};
   }
   if(['enableSite','disableSite'].includes(m.type)){
    if(!opts)throw new Error('仅能从设置页更改站点权限');const origin=C.siteOrigin(m.origin);
@@ -43,7 +47,7 @@ function createService(chrome,fetcher=fetch){
      if(!await chrome.permissions.contains({origins:[origin+'/*']}))throw new Error('请先授权当前站点');
      if(sites.length>=20&&!sites.includes(origin))throw new Error('最多启用 20 个站点');
      const registered=await chrome.scripting.getRegisteredContentScripts({ids:[id]});
-     const definition={id,matches:[origin+'/*'],js:['tool-protocol.js','conditions.js','core.js','content.js','article-tools.js'],allFrames:false,runAt:'document_idle',persistAcrossSessions:true,world:'ISOLATED'};
+     const definition={id,matches:[origin+'/*'],js:['tool-protocol.js','conditions.js','core.js','page-pointer.js','content.js','article-tools.js'],allFrames:false,runAt:'document_idle',persistAcrossSessions:true,world:'ISOLATED'};
      if(!registered.length)await chrome.scripting.registerContentScripts([definition]);
      else await chrome.scripting.updateContentScripts([definition]);
      sites=[...new Set([...sites,origin])];
@@ -73,7 +77,7 @@ function createService(chrome,fetcher=fetch){
    if(options.signal?.aborted)controller.abort();
    options.signal?.addEventListener('abort',cancel,{once:true});
    const task=(async()=>{
-    let response;try{response=await fetcher(base+'/chat/completions',{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...(config.key?{Authorization:'Bearer '+config.key}:{})},body:JSON.stringify({model:config.model,messages:[{role:'system',content:system},{role:'user',content:m.text}],temperature:0.2,max_tokens:2000,stream:false}),signal:controller.signal});}catch{throw new Error('API 网络连接失败，请检查地址、权限与网络');}
+    let response;try{response=await fetcher(base+'/chat/completions',{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...(config.key?{Authorization:'Bearer '+config.key}:{})},body:JSON.stringify({model:config.model,messages:[{role:'system',content:system},{role:'user',content:m.text}],...((config.reasoningEffort??'medium')==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:config.reasoningEffort??'medium'}),stream:false}),signal:controller.signal});}catch{throw new Error('API 网络连接失败，请检查地址、权限与网络');}
     if(!response.ok){response.body?.cancel().catch(()=>{});const reason={401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常';throw new Error('API '+response.status+'：'+reason);}
     let raw='';const reader=response.body?.getReader();if(!reader)throw new Error('API 响应为空');const decoder=new TextDecoder();let bytes=0;
     try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>65536){await reader.cancel();throw new Error('API 响应过大');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}catch{throw new Error(bytes>65536?'API 响应过大':'API 响应读取失败，请重试');}finally{try{reader.releaseLock();}catch{}}
@@ -94,10 +98,10 @@ function createService(chrome,fetcher=fetch){
  }
  async function identity(config=undefined){
   config=config||await get('config')||{};
-  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key])));
+  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key,config.reasoningEffort??'medium'])));
   return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
  }
- return {init,handle,identity,generateAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true})};
+ return {init,handle,identity,preferences,generateAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true})};
 }
 const api={createService};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Page Agent Lite · 网页助手",
   "version": "0.1.0",
-  "description": "把网页上的重复操作，交给一句话。自选模型、持续执行、结果核对与本机网站记忆。",
+  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事物",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",

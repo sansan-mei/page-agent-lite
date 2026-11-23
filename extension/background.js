@@ -34,7 +34,7 @@ function schedule(tabId,delay=0){
 }
 async function cancelSchedule(tabId){clearTimeout(timers.get(tabId));timers.delete(tabId);await chrome.alarms.clear('task:'+tabId);}
 const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,schedule,cancelSchedule,
-  preferences:async()=> ({maxSteps:50,autoFill:true,autoClick:false,...(await chrome.storage.local.get('agentPreferences')).agentPreferences}),
+  preferences:()=>service.preferences(),
   model:(text,signal)=>service.generateAgent(text,signal),
   summarize:(text,signal)=>service.summarizeAgent(text,signal),
   identity:()=>service.identity()
@@ -44,7 +44,8 @@ const ready=(async()=>{
   await chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true});
   // Upgrade registrations created by older extension versions.
   const registered=await chrome.scripting.getRegisteredContentScripts();
-  for(const item of registered)if(item.id.startsWith('pa-'))await chrome.scripting.updateContentScripts([{id:item.id,js:['tool-protocol.js','conditions.js','core.js','content.js','article-tools.js']}]);
+  const legacyIds=registered.filter(item=>item.id.startsWith('pa-')).map(item=>item.id);
+  if(legacyIds.length)await chrome.scripting.unregisterContentScripts({ids:legacyIds});
   await runtime.recover();return true;
 })().catch(()=>false);
 function panelSender(s){return s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('sidepanel.html')&&(s.frameId===undefined||s.frameId===0);}
@@ -68,8 +69,15 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       return {ready:true};
     }
     if(m.type.startsWith('task:')){
-      if(!panelSender(s)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
+      const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
+      if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       if(m.type==='task:get')return runtime.get(m.tabId);
+      if(m.type==='task:history'||m.type==='task:history-get'){
+        const origin=new URL((await tools.tab(m.tabId)).url).origin;
+        if(m.type==='task:history')return store.history(m.tabId,origin);
+        if(typeof m.taskId!=='string'||m.taskId.length>100)throw new Error('对话标识无效');
+        return store.historyGet(m.tabId,origin,m.taskId);
+      }
       if(m.type==='task:site-memory')return runtime.getSiteMemory(m.tabId);
       if(m.type==='task:site-memory-change')return runtime.editSiteMemory(m.tabId,{origin:m.origin,action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
       if(m.type==='task:memory')return runtime.getMemory(m.tabId);
@@ -79,14 +87,9 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:finish')return runtime.finish(m.tabId);
       if(m.type==='task:resume')return runtime.resume(m.tabId);
       if(m.type==='task:stop')return runtime.stop(m.tabId);
+      if(m.type==='task:choose')return runtime.choose(m.tabId,m.taskId,m.questionId,m.indices);
       if(m.type==='task:approve')return runtime.approve(m.tabId,m.taskId);
       if(m.type==='task:clear'){await runtime.remove(m.tabId);return null;}
-      if(m.type==='task:article'){
-        await tools.inject(m.tabId);
-        await chrome.scripting.executeScript({target:{tabId:m.tabId,frameIds:[0]},files:['core.js','article-tools.js'],world:'ISOLATED'});
-        await chrome.scripting.executeScript({target:{tabId:m.tabId,frameIds:[0]},func:()=>globalThis.__pageAgent?.show(),world:'ISOLATED'});
-        return {opened:true};
-      }
       throw new Error('未知任务操作');
     }
     if(m.type==='model'&&m.task==='agent')throw new Error('请从侧边栏发起任务');
@@ -117,5 +120,5 @@ chrome.tabs.onUpdated.addListener((id,change)=>{
     if(task&&['running','waiting_page'].includes(task.status))schedule(id);
   }).catch(()=>{});
 });
-chrome.tabs.onRemoved.addListener(id=>{void ready.then(ok=>ok&&runtime.remove(id)).catch(()=>{});});
+chrome.tabs.onRemoved.addListener(id=>{void ready.then(ok=>ok&&runtime.remove(id).then(()=>store.removeHistory(id))).catch(()=>{});});
 }

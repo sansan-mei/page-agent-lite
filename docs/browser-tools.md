@@ -10,7 +10,7 @@
 
 page.groups 提供可识别的 fieldset、radiogroup、题目容器及原生选项组上下文，各元素带 group、name、label、checked。优先读取原生/嵌套 label 并去重。组上下文总长限 5000 字符，无法确定归属时模型应询问，不保证任意网站题型都能识别。
 
-交互列表除原生控件外，还包含 role=link/menuitem/switch、onclick、非负 tabindex 及 pointer 鼠标样式边界的自定义控件。pointer 继承的子图标与计数不重复分配 ID；有显式控件祖先或后代的 pointer 容器不作为额外目标。标签支持 aria-labelledby 和 title，不根据站点类名或计数推断业务含义。没有可识别线索、超出 120 项或不在顶层 DOM 的按钮仍可能遗漏。onclick 仅用于识别，扩展不读取执行其代码，点击仍使用原生 click 并遵守现有确认设置。
+交互列表除原生控件外，还包含 role=link/menuitem/switch、onclick、非负 tabindex 及 pointer 鼠标样式边界的自定义控件。pointer 继承的子图标与计数不重复分配 ID；有显式控件祖先或后代的 pointer 容器不作为额外目标。标签支持 aria-labelledby 和 title，不根据站点类名或计数推断业务含义。没有可识别线索、超出 120 项或不在顶层 DOM 的按钮仍可能遗漏。onclick 仅用于识别，扩展不读取执行其代码，点击遵守现有确认设置；执行前滚入视野和命中检查，再派发常用 pointer/mouse/focus 事件，最后一次 click。合成事件不是受信任的真实鼠标事件。
 
 ## execute
 
@@ -23,11 +23,11 @@ page.groups 提供可识别的 fieldset、radiogroup、题目容器及原生选�
 | observe | reply | 刷新观察，不修改页面 |
 | verify | expected | 立即只读验证条件，不匹配反馈给模型 |
 | wait | expected、可选 timeoutMs | 等待条件，默认 10 秒，最多 30 秒 |
-| click | id | 原生 click；默认需确认，autoClick 开启后直接执行 |
+| click | id | 滚入视野、检查遮挡、派发事件序列和一次 click；直接自动执行 |
 | fill | id、字符串 value | 支持的 input / textarea，派发 input/change |
 | check | id、布尔 value | 原生 radio / checkbox |
 | select | id、字符串 value | 存在且未禁用的 option |
-| scroll | up / down 的 value | 按方向滚动 600px |
+| scroll | up / down / left / right 的 value，可选 id | 按方向滚动 600px；id 指定当前快照中的容器，不传则滚动窗口 |
 
 不执行代码、HTML、URL 指令或任意选择器。密码、文件、隐藏字段、扩展 UI 被排除；普通表单可能含隐私，不能承诺全面脱敏。
 
@@ -58,3 +58,22 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 ## 弹窗与核对证据
 
 顶层 DOM 中原生 open dialog、role=dialog/alertdialog 和 aria-modal=true 区域的控件、区域优先抽取，仍遵守 120 控件、40 区域及文字预算；不支持浏览器原生 confirm/alert 弹窗。弹窗分组优先于内部 form，支持 aria-labelledby，背景无分组不等于匹配任意弹窗分组。element_visible/element_absent 的预期分别显示 true/false，侧栏显示目标与证据 code；unknown 的实际值仍可能为 null，不伪造观测。
+
+
+## 视口覆盖、滚动与点击兼容
+
+弹窗仍优先；同一优先级内，控件和区域按是否与当前视口相交排序，考虑 overflow 祖先的裁剪。`inViewport` 仅代表几何相交，不保证没有遮挡。120 控件、40 区域及原有正文预算不变；滚动后重新读取，可将先前被预算截断的后续控件纳入快照。全文分区分页尚未实现，`coverage` 不完整时仍不能证明不存在。
+
+`page.viewport` 包含 width/height 和 x/y/maxX/maxY。可滚动容器作为当前目标提供 `scroll: {x,y,maxX,maxY}`。scroll 只接受当前快照 ID，检查节点签名和状态；不接收选择器，不自动改为滚动其他容器。回执 observed 包含 axis/before/after/delta/atStart/atEnd，边界不等于任务完成。RTL 负向 scrollLeft 暂无专门适配。
+
+额外读取 role=combobox/option/tab，以及 expanded、selected、haspopup 和受控浮层的名称 controlledLabels；不执行控件脚本，也不保证任意组件可用。展开或选中状态变化使旧目标签名失效。
+
+点击初始命中不属于当前目标时返回 TARGET_BLOCKED、dispatch=not_sent，最多两次重新观察规划。hover/down/focus/up 已发出后，目标被替换或遮挡则返回 TARGET_CHANGED、dispatch=unknown 并暂停，不继续 click。事件处理器可能已有副作用，因此不能宣称撤销或自动重放。只支持命中点检查，复杂形状、受信任事件及富文本仍有局限。
+
+## 虚拟鼠标与悬停（已实现）
+
+`hover` 与 `click` 一样使用当前快照 `id`，拒绝失效、隐藏、禁用或被遮挡的目标，不接受坐标、选择器或脚本。派发 pointer/mouse over、enter、move，不派发 down/up/click；结果仍须按新快照和 expected 核对。合成事件不能设置真实 CSS 悬停状态，也不提供 isTrusted 输入。
+
+`page-pointer.js` 在 isolated world 管理独立、禁止命中的显示层（内部样式使用封闭 shadow root 隔离，这不代表支持操作网页 Shadow DOM）。core 校验目标后触发视觉反馈；动画不阻塞操作，不新增模型请求。显示层排除在抽取和隐藏覆盖判断之外。约 900 毫秒自动隐藏；后台停止、手动结束或运行器进入非活动状态时发送仅可信后台可用的 `agent:clear-pointer`。pagehide、滚动、resize、visibilitychange 清理当前显示层。不新增权限或依赖；不保存指针状态。
+
+视觉反馈本身不消耗模型 token；新增 hover 的稳定说明、动作记录和重新观察可能增加用量。纯 CSS 悬停、拖拽、右键、双击及系统鼠标控制未实现。

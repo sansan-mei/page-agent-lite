@@ -10,7 +10,7 @@
     }
     async function inject(tabId){
       await tab(tabId);
-      try{await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},injectImmediately:true,files:['tool-protocol.js','conditions.js','core.js','content.js'],world:'ISOLATED'});}
+      try{await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},injectImmediately:true,files:['tool-protocol.js','conditions.js','core.js','page-pointer.js','content.js'],world:'ISOLATED'});}
       catch{
         const t=await tab(tabId),origin=new URL(t.url).origin;
         if(!await chrome.permissions.contains({origins:[origin+'/*']}))throw Object.assign(new Error('尚未授权当前网站，请点击侧边栏「授权当前网站」后重试'),{code:'PERMISSION_DENIED'});
@@ -52,7 +52,8 @@
         return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected}));
       }
     }
-    return {tab,inject,observe,execute,verify};
+    async function clearPointer(tabId){try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }}
+    return {tab,inject,observe,execute,verify,clearPointer};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

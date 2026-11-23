@@ -1,11 +1,11 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
 const flush=()=>new Promise(r=>setImmediate(r));
-async function fixture(){
+async function fixture(registered=[]){
  let listener;const calls=[];
  const runtime={async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){},async tick(){}};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
  storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
- scripting:{async getRegisteredContentScripts(){return [];},async executeScript(){calls.push(['inject']);}},
+ scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
  alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},
  tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}}},action:{onClicked:{addListener(){}}}};
  vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,URL,setTimeout,clearTimeout,importScripts(){},
@@ -22,6 +22,8 @@ test('only trusted sidepanel owns runtime commands; content cannot create/read/s
   assert.equal((await f.send({type:'task:site-memory-change',tabId:1,action:'clear',expectedVersion:0},sender)).ok,false);
   assert.equal((await f.send({type:'task:site-memory',tabId:1},sender)).ok,false);
   assert.equal((await f.send({type:'task:get',tabId:1},sender)).ok,false);
+  assert.equal((await f.send({type:'task:history',tabId:1},sender)).ok,false);
+  assert.equal((await f.send({type:'task:history-get',tabId:1,taskId:'old'},sender)).ok,false);
   assert.equal((await f.send({type:'task:start',tabId:1,goal:'x'},sender)).ok,false);
   assert.equal((await f.send({type:'task:connect',tabId:1},sender)).ok,false);
  }
@@ -44,4 +46,17 @@ test('local dependency load failure keeps actionable diagnostics reachable witho
  let result;listener({type:'task:get'},{id:'test'},r=>result=r);
  assert.equal(result.ok,false);assert.match(result.error,/core\.js/);assert.match(result.error,/重新加载/);
  let called=false;listener({type:'task:get'},{id:'other'},()=>called=true);assert.equal(called,false);
+});
+
+test('options page cannot open retired article tools or control task execution',async()=>{
+ const f=await fixture(),sender={...panel,url:'chrome-extension://test/options.html'};
+ assert.equal((await f.send({type:'task:article',tabId:1},sender)).ok,false);
+ for(const type of ['task:get','task:submit','task:approve','task:stop','task:clear','task:connect'])assert.equal((await f.send({type,tabId:1,goal:'x'},sender)).ok,false);
+ assert.equal((await f.send({type:'task:article',tabId:1},{...sender,frameId:1})).ok,false);
+});
+
+test('startup unregisters only legacy article injections without clearing local records',async()=>{
+ const f=await fixture([{id:'pa-old'},{id:'another-feature'}]);
+ assert.deepEqual(f.calls.find(c=>c[0]==='unregister'),['unregister','pa-old']);
+ assert.equal((await f.send({type:'task:get',tabId:1},panel)).ok,true);
 });
