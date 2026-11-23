@@ -8,6 +8,7 @@
 | local sites | 文章持久化站点 | 本机保留 |
 | local savedPages | 文章记录 | origin + pathname + search，忽略 hash |
 | IndexedDB page-agent-memory / sites | 按完整 origin 保存长期笔记和版本 | 本机跨重启；用户删除或卸载/清理存储后消失 |
+| IndexedDB page-agent-memory / global | 独立 scope=global 记录，全局偏好和通用经验及版本 | 本机跨站/任务/标签页/重启共享，不同步 |
 | session task:tabId | 任务和检查点 | 会话内；关闭标签页删除 |
 | session memory:tabId | 按 origin 保存的临时笔记 | 模型决定维护；任务结束保留，清空任务或关标签删除 |
 
@@ -31,11 +32,11 @@ contextArchive 同任务保存压缩前结果，含 id/from/to/results；上限 
 
 ## 后续
 
-完整消息、动作轨迹与检索可迁移到 IndexedDB。偏好、站点经验、技能需独立 schema、来源、更新时间及删除入口。已实现网站长期笔记；完整历史检索、同步和备份导入未实现，见 [上下文与技能](context-and-skills.md)。
+完整消息、动作轨迹与检索可迁移到 IndexedDB。偏好、站点经验、技能需独立 schema、来源、更新时间及删除入口。已实现网站和全局长期笔记；完整历史检索、同步和备份导入未实现，见 [上下文与技能](context-and-skills.md)。
 
 ## IndexedDB 网站笔记
 
-`site-memory.js` 原生 IndexedDB，无额外权限、库或构建。数据库 page-agent-memory 版本 1，sites 对象仓库以 origin 为主键，记录 {origin,version,notes}，笔记含 id/text/source/createdAt/updatedAt。单站 32 条/64000 序列化字符、单条 2000 字符；总存储受浏览器配额约束，不申请 unlimitedStorage。
+`site-memory.js` 原生 IndexedDB，无额外权限、库或构建。数据库 page-agent-memory 版本 2（从版本 1 升级保留 sites 原记录），sites 对象仓库以 origin 为主键，记录 {origin,version,notes}，笔记含 id/text/source/createdAt/updatedAt。单站 32 条/64000 序列化字符、单条 2000 字符；总存储受浏览器配额约束，不申请 unlimitedStorage。
 
 readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成功完成事务才返回保存成功；失败/abort 不修改旧记录。clear 保留空记录与递增版本，防止旧请求以 version=0 把数据写回来。任务清空、关标签、重载不清长期笔记；只允许可信侧栏通过后台调用，内容脚本没有此命令权限。侧栏操作附期望 origin，导航后拒绝写入另一个网站。
 
@@ -50,3 +51,9 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 历史目录只返回标题、状态、更新时间和 taskId；正文按需读取。后台仅接受可信侧栏的 task:history / task:history-get，按当前标签页完整 origin 校验。查看记录不请求模型、不改变活动任务，也不自动继承原任务上下文。关闭标签页删除其所有对话；清空当前任务不删除其他归档。继承 session 的生命周期与容量限制，配额不足时创建新任务可能失败，不静默裁剪旧历史。
 
 保留的是任务已有的滚动消息、工具结果、摘要与 contextArchive；不补齐此前已被裁剪的状态消息，不是完整无限轨迹，也不能恢复功能上线前已被覆盖的对话。暂不支持跨标签页历史列表、跨重启保存、搜索、导入或逐条删除归档。
+
+## 全局长期笔记
+
+同一数据库独立 global 对象仓库以 scope 为主键，唯一记录 {scope:'global',version,notes}，不使用虚拟 origin。笔记字段与每范围 32 条/64000 序列化字符、单条 2000 字符上限沿用网站笔记；独立版本和 readwrite CAS 保证原子性。clear 保留递增版本的空记录。
+
+只有可信设置页/侧栏可通过后台 task:global-memory 与 task:global-memory-change 管理，全局管理无需 tabId；内容脚本被拒绝。模型使用 global_memory_* 工具，每轮只看到 globalMemoryIndex，正文按需读取。用户修改前取消各站请求并暂停现存活动任务，清理全局读取结果、history_read 缓存及摘要；等待期限和 executing 检查点保留，继续时先恢复只读核对。模型写入使其他在途决定失效，后续按 globalMemoryVersion 重读。网站和全局分别清空/导出，不包含 API 配置。无同步、导入或账号隔离。

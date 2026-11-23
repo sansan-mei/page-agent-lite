@@ -485,3 +485,43 @@ test('delay requires a bounded duration and verify still requires conditions',()
  for(const plan of [{action:'wait'},{action:'wait',timeoutMs:0},{action:'wait',timeoutMs:30001},{action:'wait',timeoutMs:'15000'},{action:'verify'}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'等待',...plan}),snap));
  assert.equal(C.agentPlan(JSON.stringify({reply:'等待',action:'wait',timeoutMs:15000}),snap).timeoutMs,15000);
 });
+
+
+test('global notes are shared across origins with explicit reads and independent site notes',async()=>{
+ const globalMemory=durableFixture(),siteMemory=durableFixture();let payload,calls=0;
+ const f=fixture({globalMemory,siteMemory,tools:{async tab(id){return {url:id===1?'https://example.test/1':'https://other.test/1',status:'complete'};},async observe(id){return {url:id===1?'https://example.test/1':'https://other.test/1',snapshotId:'s',page:{text:'page',elements:[]}};}},model:async text=>{payload=JSON.parse(text);return {text:JSON.stringify(++calls===1?{reply:'save',action:'global_memory_write',id:'format',value:'User preference: Chinese tables'}:{reply:'read',action:'global_memory_read',id:'format'})};}});
+ await f.runtime.start(1,'remember');await f.runtime.tick(1);await f.runtime.start(2,'recall');await f.runtime.tick(2);
+ assert.deepEqual(payload.globalMemoryIndex,[{id:'format',source:'model',updatedAt:1}]);assert.equal(JSON.stringify(payload).includes('Chinese tables'),false);
+ assert.equal((await f.runtime.get(2)).results.at(-1).result.note.text,'User preference: Chinese tables');assert.equal((await siteMemory.read('https://other.test')).notes.length,0);
+ await f.runtime.remove(1);assert.equal((await f.runtime.getGlobalMemory()).notes.length,1);
+});
+
+test('global user clear cancels all origins, scrubs active and archived reads and rejects late writes',async()=>{
+ const globalMemory=durableFixture(),siteMemory=durableFixture();let resolve,signal;
+ const f=fixture({globalMemory,siteMemory,model:async(text,s)=>{signal=s;return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'one');await f.runtime.start(2,'two');let other=await f.runtime.get(2);other.origin='https://other.test';other.contextSummary={content:{facts:['old']}};other.results=[{action:'global_memory_read',result:'old'},{action:'click',result:'keep'}];other.contextArchive=[{id:'h1',results:[{action:'history_read',result:'old'}]}];await f.store.set(2,other);
+ await siteMemory.change('https://example.test',{action:'write',id:'site',text:'keep site',expectedVersion:0});
+ const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));
+ await f.runtime.editGlobalMemory({action:'clear',expectedVersion:0});assert.equal(signal.aborted,true);
+ resolve({text:JSON.stringify({reply:'late',action:'global_memory_write',id:'old',value:'bad'})});await job;
+ assert.equal((await f.runtime.getGlobalMemory()).notes.length,0);assert.equal((await siteMemory.read('https://example.test')).notes.length,1);
+ for(const id of [1,2])assert.equal((await f.runtime.get(id)).status,'paused');other=await f.runtime.get(2);assert.equal(other.contextSummary,null);assert.equal(other.contextArchive[0].results.length,0);assert.deepEqual(other.results,[{action:'click',result:'keep'}]);
+});
+
+test('global version changes discard stale page actions',async()=>{
+ const globalMemory=durableFixture();let resolve;
+ const f=fixture({globalMemory,model:async()=>new Promise(r=>resolve=r)});await f.runtime.start(1,'task');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));
+ await globalMemory.change(null,{action:'clear',expectedVersion:0});resolve({text:JSON.stringify({reply:'click',action:'click',id:'t0'})});await job;assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).phase,'observe');
+});
+
+test('global editing preserves original waiting deadlines and unknown executing checkpoints on resume',async()=>{
+ const f=fixture({globalMemory:durableFixture(),now:()=>1000});await f.runtime.start(1,'wait');let t=await f.runtime.get(1);t.status='waiting_page';t.phase='verifying';t.check={kind:'delay',deadline:5000,request:{action:'wait',timeoutMs:4000}};await f.store.set(1,t);
+ await f.runtime.editGlobalMemory({action:'write',id:'pref',text:'tables',expectedVersion:0});await f.runtime.resume(1);t=await f.runtime.get(1);assert.equal(t.check.deadline,5000);await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).check.deadline,5000);
+ await f.runtime.start(2,'save');t=await f.runtime.get(2);t.phase='executing';await f.store.set(2,t);await f.runtime.editGlobalMemory({action:'clear',expectedVersion:1});await f.runtime.resume(2);await f.runtime.tick(2);assert.equal((await f.runtime.get(2)).reason,'uncertain');assert.equal(f.executed.length,0);
+});
+
+test('a model global write invalidates other in-flight decisions across tabs',async()=>{
+ const globalMemory=durableFixture();let resolve,calls=0;
+ const f=fixture({globalMemory,model:async()=>++calls===1?new Promise(r=>resolve=r):{text:JSON.stringify({reply:'save',action:'global_memory_write',id:'pref',value:'use tables'})}});
+ await f.runtime.start(1,'first');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));await f.runtime.start(2,'second');await f.runtime.tick(2);resolve({text:JSON.stringify({reply:'click',action:'click',id:'t0'})});await job;assert.equal(f.executed.length,0);assert.equal((await f.runtime.getGlobalMemory()).version,1);
+});

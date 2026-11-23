@@ -2,7 +2,7 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(registered=[]){
  let listener;const calls=[];
- const runtime={async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){},async tick(){}};
+ const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){},async tick(){}};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
  storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
  scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
@@ -59,4 +59,12 @@ test('startup unregisters only legacy article injections without clearing local 
  const f=await fixture([{id:'pa-old'},{id:'another-feature'}]);
  assert.deepEqual(f.calls.find(c=>c[0]==='unregister'),['unregister','pa-old']);
  assert.equal((await f.send({type:'task:get',tabId:1},panel)).ok,true);
+});
+
+
+test('global memory management works without a target tab only for trusted extension pages',async()=>{
+ const f=await fixture();for(const sender of [panel,{...panel,url:'chrome-extension://test/options.html'}]){
+ assert.equal((await f.send({type:'task:global-memory'},sender)).value.scope,'global');assert.equal((await f.send({type:'task:global-memory-change',action:'clear',expectedVersion:0},sender)).ok,true);
+ }
+ for(const sender of [{...panel,frameId:1},{...panel,url:panel.url+'?x'}, {id:'test',url:'https://example.test',frameId:0,tab:{id:1}}])for(const type of ['task:global-memory','task:global-memory-change'])assert.equal((await f.send({type},sender)).ok,false);
 });

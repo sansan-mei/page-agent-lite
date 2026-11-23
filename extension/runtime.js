@@ -10,7 +10,8 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, model, summarize, identity=async()=>null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+    let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const locks = new Map(), jobs = new Map(), controllers = new Map();
     function serial(tabId, fn) {
       const p = (locks.get(tabId) || Promise.resolve()).catch(() => {}).then(fn);
@@ -30,6 +31,55 @@
       const keep=r=>!r.action?.startsWith('site_memory_')&&r.action!=='history_read';
       t.results=(t.results||[]).filter(keep);
       t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(keep)}));
+    }
+    function forgetGlobalContext(t){
+      t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;
+      const keep=r=>!r.action?.startsWith('global_memory_')&&r.action!=='history_read';
+      t.results=(t.results||[]).filter(keep);
+      t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(keep)}));
+    }
+    const getGlobalMemoryOrEmpty=()=>globalMemory?globalMemory.read(null):Promise.resolve({version:0,notes:[]});
+    async function getGlobalMemory(){
+      if(!globalMemory)throw new Error('全局长期记忆服务不可用，请重新加载扩展');
+      return globalMemory.read(null);
+    }
+    function editGlobalMemory(operation){
+      const job=globalEditQueue.catch(()=>{}).then(async()=>{
+        if(!globalMemory)throw new Error('全局长期记忆服务不可用，请重新加载扩展');
+        globalEditing=true;globalEpoch++;
+        try{
+          for(const controller of controllers.values())controller.abort();
+          for(const old of await store.list())await serial(old.tabId,async()=>{
+            const t=await store.get(old.tabId);if(!t)return;
+            controllers.get(t.tabId)?.abort();t.token=uuid();forgetGlobalContext(t);t.memoryReview=null;
+            // Keep uncertain side effects and existing deadlines for read-only recovery.
+            if(t.phase!=='executing'&&!t.check){t.pending=null;t.phase='observe';}
+            if(!['completed','ended','stopped','failed'].includes(t.status)){t.status='paused';t.reason='global_memory_changed';}
+            event(t,'用户正在修改全局长期记忆，旧请求失效；继续任务将重新读取');await store.set(t.tabId,t);
+          });
+          return await globalMemory.change(null,{...operation,source:'user'});
+        }finally{globalEditing=false;}
+      });
+      globalEditQueue=job;return job;
+    }
+    async function globalMemoryAction(task,plan,version,signal){
+      await serial(task.tabId,async()=>{
+        const t=await store.get(task.tabId);if(t?.token!==task.token||signal.aborted||globalEditing||!ACTIVE.has(t.status))return;
+        let result;
+        try{
+          if(!globalMemory)throw new Error('全局长期记忆服务不可用');
+          if(plan.action==='global_memory_read'){
+            const current=await globalMemory.read(null),note=current.notes.find(n=>n.id===plan.id);
+            result=note?{version:current.version,note}:{version:current.version,error:'没有此全局长期记忆'};
+          }else{
+            const saved=await globalMemory.change(null,{action:plan.action.slice('global_memory_'.length),id:plan.id,text:plan.value,expectedVersion:version,source:'model',signal});
+            globalEpoch++;for(const [id,controller] of controllers)if(id!==t.tabId)controller.abort();forgetGlobalContext(t);t.globalMemoryVersion=saved.version;
+            result={version:saved.version,saved:plan.id||null,action:plan.action};if(plan.action==='global_memory_write')t.memoryReview=null;
+          }
+        }catch(e){result={error:e.message,code:e.code||'GLOBAL_MEMORY_ERROR'};}
+        if(signal.aborted)return;
+        t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan,time:now(),action:plan.action,result});event(t,'全局长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
+      });
     }
     async function getSiteMemory(tabId){
       const tab=await tools.tab(tabId),origin=new URL(tab.url).origin;
@@ -137,10 +187,12 @@
       const prefs = await preferences();
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
+        const recovery=t.reason==='global_memory_changed'&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
         t.question=null;t.helpAttempts=0;t.token=uuid();t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
+        if(recovery)Object.assign(t,recovery);
         t.reason=null;event(t,'继续任务，重新读取当前页面');
       });
       schedule(tabId); return saved;
@@ -155,13 +207,15 @@
       await update(task.tabId, task.token, t => {t.status=reason==='error'?'failed':'paused';t.reason=reason;t.pending=null;t.check=null;t.waitDeadline=null;event(t,text);});
     }
     async function turn(tabId) {
+      if(globalEditing)return;
+      const epoch=globalEpoch;
       let task = await store.get(tabId); if (!task || !ACTIVE.has(task.status)) return;
       const token = task.token;
       let call=null;
       const controller = new AbortController(); controllers.set(tabId, controller);
       const live = async () => {
         const current = await store.get(tabId);
-        return !controller.signal.aborted && current?.token===token && ACTIVE.has(current.status);
+        return !globalEditing && epoch===globalEpoch && !controller.signal.aborted && current?.token===token && ACTIVE.has(current.status);
       };
       try {
         const tab = await tools.tab(tabId);
@@ -209,12 +263,18 @@
           task=await update(tabId,token,t=>{forgetSiteContext(t);t.siteMemoryVersion=durable.version;});
           if(!task||!await live())return;
         }
+        const shared=await getGlobalMemoryOrEmpty();
+        if(task.globalMemoryVersion!==undefined&&task.globalMemoryVersion!==shared.version){
+          task=await update(tabId,token,t=>{forgetGlobalContext(t);t.globalMemoryVersion=shared.version;});
+          if(!task||!await live())return;
+        }
+        const globalMemoryIndex=shared.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
         const siteMemoryIndex=durable.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
         const modelIdentity=await identity();
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
         const memoryIndex=memories.map(m=>({id:m.id,updatedAt:m.updatedAt}));
-        const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex);
+        const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
@@ -234,7 +294,7 @@
           const archives=(task.contextArchive||[]).concat(archive);
           if(JSON.stringify(archives).length>1000000){await pause(task,'任务历史归档达到 100 万字符上限，请结束任务；原记录已保留','context');return;}
           const input=JSON.stringify({goal:task.goal,instructions:task.instructions||[],previousSummary:task.contextSummary?.content||null,archiveId:archive.id,olderResults:older.map(r=>{
-            if(['memory_read','site_memory_read'].includes(r.action))return {action:r.action,result:'Memory bodies omitted; read again if needed'};
+            if(['memory_read','site_memory_read','global_memory_read'].includes(r.action))return {action:r.action,result:'Memory bodies omitted; read again if needed'};
             const raw=JSON.stringify(r);return raw.length<=4000?r:{action:r.action,label:r.label,truncated:true,archiveId:archive.id,excerpt:raw.slice(0,2000)+' [middle omitted; recover with history_read] '+raw.slice(-1000)};
           })});
           if(input.length>1000000||P.estimateTokens(input)+P.estimateTokens(P.summarySystem('简体中文'))>pressure.budget*0.9){await pause(task,'待整理记录超过摘要预算，原始记录已保留；请增加上下文窗口或结束任务','context');return;}
@@ -256,9 +316,9 @@
           return;
         }
         if(pressure.tokens>=pressure.trigger){await pause(task,'当前页面和受保护内容已接近上下文预算，无法压缩；请检查窗口设置或缩小页面','context');return;}
-        task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
+        task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
-        const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex);
+        const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex);
         const sentEstimate=P.pressure(task,payload).estimatedTokens;
         const result = await model(payload, controller.signal);
         if (!await live()) return;
@@ -269,6 +329,9 @@
         const current = await tools.tab(tabId);
         if (!await live()) return;
         if (current.url!==snap.url) {await update(tabId,token,t=>{t.phase='observe';event(t,'页面已跳转，丢弃旧回复');});return;}
+        if((await getGlobalMemoryOrEmpty()).version!==shared.version){
+          if(await live())await update(tabId,token,t=>{forgetGlobalContext(t);t.phase='observe';event(t,'全局长期记忆已更新，丢弃旧回复并重新读取');});return;
+        }
         if(siteMemory&&(await siteMemory.read(task.origin)).version!==durable.version){
           if(await live())await update(tabId,token,t=>{forgetSiteContext(t);t.phase='observe';event(t,'网站长期记忆已在其他任务更新，丢弃旧回复并重新读取');});return;
         }
@@ -288,6 +351,7 @@
           const result=text?{id:archive.id,offset,text:text.slice(offset,offset+4000),nextOffset:offset+4000<text.length?offset+4000:null}:{error:'历史归档不存在'};
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'history_read',result});event(t,'读取任务历史：'+plan.id);});return;
         }
+        if(plan.action.startsWith('global_memory_')){await globalMemoryAction(task,plan,shared.version,controller.signal);return;}
         if(plan.action.startsWith('site_memory_')){await siteMemoryAction(task,plan,durable.version,controller.signal);return;}
         if(plan.action.startsWith('memory_')){await memoryAction(task,plan);return;}
         if(plan.action==='observe'){
@@ -459,7 +523,7 @@
     }
     async function remove(tabId) {controllers.get(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
     async function recover() {for(const task of await store.list())if(ACTIVE.has(task.status))schedule(task.tabId);}
-    return {start,submit,choose,finish,stop,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

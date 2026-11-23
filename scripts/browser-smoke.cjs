@@ -294,6 +294,14 @@ async function startServer() {
           else{const button=data.page.elements.find(e=>e.label==='Submit');plan={reply:'Open confirmation',action:'click',id:button.id,expected:[{kind:'element_visible',id:button.id}],timeoutMs:100};}
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
+        if(data.goal.startsWith('Global smoke')){
+          let plan={reply:'global done',action:'done'};
+          if(data.goal==='Global smoke save'&&!data.globalMemoryIndex.some(n=>n.id==='format'))plan={reply:'save preference',action:'global_memory_write',id:'format',value:'User preference: Chinese tables'};
+          if(data.goal==='Global smoke recall'&&!data.results.some(r=>r.action==='global_memory_read')){
+            assert.ok(data.globalMemoryIndex.some(n=>n.id==='format'));assert.ok(!input.includes('User preference: Chinese tables'));plan={reply:'read preference',action:'global_memory_read',id:'format'};
+          }
+          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
+        }
         if(data.goal.startsWith('Durable smoke')){
           let plan={reply:'durable done',action:'done'};
           if(data.goal==='Durable smoke save'&&!data.siteMemoryIndex.some(n=>n.id==='workflow'))plan={reply:'save durable',action:'site_memory_write',id:'workflow',value:'Verified workflow: review before saving'};
@@ -720,6 +728,45 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await poll(async()=>((await command('task:site-memory')).value?.notes.length)===1,'durable note deleted in settings');
   await optionsPage.screenshot({path:path.join(outputDir,'09-site-memory.png'),fullPage:true});
   pass('model saves and reads durable notes across tasks with index-only defaults; settings edits and exports real JSON');
+  const globalDbChecks=await panel.evaluate(async()=>{
+    const name='page-agent-upgrade-smoke';
+    await new Promise((resolve,reject)=>{const req=indexedDB.open(name,1);req.onupgradeneeded=()=>req.result.createObjectStore('sites',{keyPath:'origin'});req.onerror=()=>reject(req.error);req.onsuccess=()=>{const db=req.result,tx=db.transaction('sites','readwrite');tx.objectStore('sites').put({origin:'https://one.test',version:3,notes:[{id:'site',text:'retained'}]});tx.oncomplete=()=>{db.close();resolve();};};});
+    const site=PageAgentSiteMemory.createSiteMemory({name}),global=PageAgentSiteMemory.createSiteMemory({name,scope:'global'});
+    const before=await site.read('https://one.test');let current=await global.change(null,{action:'write',id:'pref',text:'tables',expectedVersion:0});
+    const both=await Promise.allSettled([global.change(null,{action:'delete',id:'pref',expectedVersion:1}),global.change(null,{action:'clear',expectedVersion:1})]);
+    current=await global.read(null);for(let i=0;i<32;i++)current=await global.change(null,{action:'write',id:'note'+i,text:'note',expectedVersion:current.version});
+    let capacity=false;try{await global.change(null,{action:'write',id:'extra',text:'excess',expectedVersion:current.version});}catch{capacity=true;}
+    const signal=AbortSignal.abort();let cancelled=false;try{await global.change(null,{action:'clear',expectedVersion:current.version,signal});}catch{cancelled=true;}
+    const after=await global.read(null),retained=await site.read('https://one.test');await site.close();await global.close();
+    return {site:before.notes[0].text,siteVersion:retained.version,successes:both.filter(x=>x.status==='fulfilled').length,conflict:both.find(x=>x.status==='rejected').reason.code,capacity,cancelled,count:after.notes.length,scope:after.scope};
+  });
+  assert.deepEqual(globalDbChecks,{site:'retained',siteVersion:3,successes:1,conflict:'MEMORY_CONFLICT',capacity:true,cancelled:true,count:32,scope:'global'});
+  pass('database v1 upgrades without losing website notes; global store isolates scope, CAS, capacity rollback and cancelled writes');
+  await command('task:clear');await command('task:submit',{goal:'Global smoke save'});
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','model global write',10000);
+  await command('task:clear');await command('task:submit',{goal:'Global smoke recall'});
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','model global read',10000);
+  assert.ok((await command('task:get')).value.results.some(r=>r.action==='global_memory_read'&&r.result.note.text==='User preference: Chinese tables'));
+  await optionsPage.locator('#global-memory-panel').evaluate(el=>el.open=true);await optionsPage.locator('#global-memory-refresh').click();
+  await poll(async()=>(await optionsPage.locator('#global-memories').textContent()).includes('Chinese tables'),'global viewer');
+  await optionsPage.locator('#global-memories > div').filter({hasText:'format'}).getByRole('button',{name:'编辑',exact:true}).click();
+  assert.equal(await optionsPage.locator('#global-memory-text').inputValue(),'User preference: Chinese tables');
+  await optionsPage.locator('#global-memory-text').fill('Edited global preference');await optionsPage.locator('#global-memory-save').click();
+  await poll(async()=>((await command('task:global-memory')).value?.notes[0]?.text)==='Edited global preference','global edit saved');
+  await poll(async()=>optionsPage.locator('#global-memory-export').isEnabled(),'global export enabled');
+  const globalDownloadEvent=optionsPage.waitForEvent('download');await optionsPage.locator('#global-memory-export').click();const globalDownload=await globalDownloadEvent;
+  const globalStream=await globalDownload.createReadStream(),globalChunks=[];for await(const chunk of globalStream)globalChunks.push(chunk);
+  const globalExport=JSON.parse(Buffer.concat(globalChunks).toString());assert.equal(globalExport.scope,'global');assert.equal(globalExport.notes[0].text,'Edited global preference');
+  await optionsPage.locator('#global-memories > div').getByRole('button',{name:'删除',exact:true}).click();await poll(async()=>((await command('task:global-memory')).value?.notes.length)===0,'global delete');
+  await poll(async()=>optionsPage.locator('#global-memory-save').isEnabled(),'global save enabled');
+  await optionsPage.locator('#global-memory-id').fill('retained');await optionsPage.locator('#global-memory-text').fill('Before clear');await optionsPage.locator('#global-memory-save').click();
+  await poll(async()=>((await command('task:global-memory')).value?.notes.length)===1,'global recreated');await poll(async()=>optionsPage.locator('#global-memory-clear').isEnabled(),'global clear enabled');
+  await optionsPage.locator('#global-memory-clear').click();await poll(async()=>((await command('task:global-memory')).value?.notes.length)===0,'global clear');await poll(async()=>optionsPage.locator('#global-memory-save').isEnabled(),'global ready');
+  await optionsPage.locator('#global-memory-id').fill('retained');await optionsPage.locator('#global-memory-text').fill('Global survives restart');await optionsPage.locator('#global-memory-save').click();
+  await poll(async()=>((await command('task:global-memory')).value?.notes[0]?.text)==='Global survives restart','global persistence seed');
+  assert.equal((await command('task:site-memory')).value.notes[0].text,'User corrected workflow');
+  await optionsPage.screenshot({path:path.join(outputDir,'10-global-memory.png'),fullPage:true});
+  pass('global model read/write and settings view, edit, delete, clear and JSON export preserve separate website notes');
   await command('task:clear');await panel.close();
   await context.close();context=await chromium.launchPersistentContext(profileDir,launchOptions);
   const restartedPanel=await context.newPage();await restartedPanel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
@@ -727,6 +774,9 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     await import(chrome.runtime.getURL('site-memory.js'));const store=PageAgentSiteMemory.createSiteMemory();const value=await store.read(origin);await store.close();return value;
   },origin);
   assert.equal(retained.notes[0].text,'User corrected workflow');
+  const globalRetained=await restartedPanel.evaluate(async()=>{const store=PageAgentSiteMemory.createSiteMemory({scope:'global'});const data=await store.read(null);await store.close();return data;});
+  assert.equal(globalRetained.notes[0].text,'Global survives restart');
+  pass('global notes survive browser process relaunch independently of website notes');
   pass('durable website notes survive a real browser process close and relaunch using the same extension profile');
   const conversationCheck=await restartedPanel.evaluate(async origin=>{
     await import(chrome.runtime.getURL('task-store.js'));

@@ -28,7 +28,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `runtime.js` | 每次 tick 推进一步、预算、状态、重试、停止和恢复 |
 | `tool-protocol.js` | V2 工具结果、稳定代码、旧返回适配，分开派发与证据 |
 | `conditions.js` | 条件校验、语义目标绑定、唯一匹配的只读核对 |
-| `site-memory.js` | IndexedDB 网站笔记、原子版本更新与取消；只有后台调用 |
+| `site-memory.js` | IndexedDB 网站/全局双作用域笔记、原子版本更新与取消；只有后台调用 |
 | `task-store.js` | 会话任务读写、旧版数据迁移；后台统一写入 |
 | `prompts.js` | 稳定模型指令和当前任务上下文组装 |
 | `backend.js` | OpenAI 兼容调用、配置与文章存储 |
@@ -49,7 +49,7 @@ worker 可能终止，必要状态写入 session。执行前保存 `executing`�
 
 ## 取舍
 
-不引入服务端、Python、向量库、MCP 或子 Agent。保留非流式 OpenAI 兼容接口和严格 JSON 工具协议。近期顺序见 [Roadmap](../ROADMAP.md)，网站长期笔记已接入，技能和跨会话任务恢复尚未实现。
+不引入服务端、Python、向量库、MCP 或子 Agent。保留非流式 OpenAI 兼容接口和严格 JSON 工具协议。近期顺序见 [Roadmap](../ROADMAP.md)，网站与全局长期笔记已接入，技能和跨会话任务恢复尚未实现。
 
 参考：[Hermes 架构](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)、[Agent 循环](https://hermes-agent.nousresearch.com/docs/developer-guide/agent-loop)、[Chrome worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。不代表项目具备 Hermes 全部能力。
 

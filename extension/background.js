@@ -26,6 +26,7 @@ const service=PageAgentBackend.createService(chrome);
 const store=PageAgentTaskStore.createTaskStore(chrome);
 const tools=PageAgentBrowserTools.createBrowserTools(chrome);
 const siteMemory=PageAgentSiteMemory.createSiteMemory();
+const globalMemory=PageAgentSiteMemory.createSiteMemory({scope:'global'});
 const timers=new Map();
 function schedule(tabId,delay=0){
   void chrome.alarms.create('task:'+tabId,{delayInMinutes:0.5,periodInMinutes:0.5});
@@ -33,7 +34,7 @@ function schedule(tabId,delay=0){
   timers.set(tabId,setTimeout(()=>{timers.delete(tabId);void runtime.tick(tabId).catch(()=>{});},delay));
 }
 async function cancelSchedule(tabId){clearTimeout(timers.get(tabId));timers.delete(tabId);await chrome.alarms.clear('task:'+tabId);}
-const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,schedule,cancelSchedule,
+const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemory,schedule,cancelSchedule,
   preferences:()=>service.preferences(),
   model:(text,signal)=>service.generateAgent(text,signal),
   summarize:(text,signal)=>service.summarizeAgent(text,signal),
@@ -67,6 +68,12 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const task=await runtime.get(s.tab.id);
       if(task?.origin===new URL(s.url).origin&&['running','waiting_page'].includes(task.status))schedule(s.tab.id);
       return {ready:true};
+    }
+    if(['task:global-memory','task:global-memory-change'].includes(m.type)){
+      const optionsSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0);
+      if(!panelSender(s)&&!optionsSender)throw new Error('拒绝访问全局记忆');
+      if(m.type==='task:global-memory')return runtime.getGlobalMemory();
+      return runtime.editGlobalMemory({action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
     }
     if(m.type.startsWith('task:')){
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
