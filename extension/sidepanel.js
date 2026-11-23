@@ -7,13 +7,34 @@
     const result=await chrome.runtime.sendMessage({type,tabId,...extra});
     if(!result?.ok)throw new Error(result?.error||'扩展通信失败');return result.value;
   }
+  function outcomeLabel(entry,status){
+    const outcome=entry.outcome;
+    const states={success:'已核实',pending:'等待核对',unknown:'结果未知',error:'执行失败',not_satisfied:'未满足预期',returned:'已返回'};
+    if(status!=='unknown'||!outcome)return states[status]||status;
+    if(outcome.dispatch==='not_sent'){
+      if(outcome.code==='STALE')return '目标过期，未执行';
+      if(outcome.code==='TARGET_BLOCKED')return '目标被遮挡，未执行';
+      return '未执行';
+    }
+    // Only ordinary dispatch receipts qualify; lost replies and failed checks stay unknown.
+    if(outcome.dispatch==='sent'&&outcome.scope==='dispatch'&&['PAGE_CHANGED','NO_CHANGE'].includes(outcome.code)){
+      const scroll=outcome.observed;
+      if(entry.action==='scroll'&&scroll&&Number.isFinite(scroll.delta)){
+        if(scroll.delta!==0)return '已滚动';
+        const direction=entry.request?.value;
+        if((['up','left'].includes(direction)&&scroll.atStart===true)||(['down','right'].includes(direction)&&scroll.atEnd===true))return '已到边界';
+        return '未观察到滚动';
+      }
+      return '已派发，待核对';
+    }
+    return states[status];
+  }
   function toolCard(entry,key,expanded){
     const card=document.createElement('details'),summary=document.createElement('summary');
     card.className='tool-call';card.dataset.callKey=key;card.open=expanded.has(key);
     const status=entry.pending?'执行中':entry.outcome?.status||(entry.result?.error?'error':'returned');
-    const states={success:'已核实',pending:'等待核对',unknown:'结果未知',error:'执行失败',not_satisfied:'未满足预期',returned:'已返回'};
     card.dataset.status=status;
-    summary.textContent=`ƒ ${entry.action} · ${entry.label||entry.request?.id||'工具调用'} · ${states[status]||status}`;card.append(summary);
+    summary.textContent=`ƒ ${entry.action} · ${entry.label||entry.request?.id||'工具调用'} · ${outcomeLabel(entry,status)}`;card.append(summary);
     for(const [label,value] of [['请求参数',entry.request||{action:entry.action,说明:'旧记录未保存完整参数'}],['返回结果',entry.pending?'操作已准备或派发，等待工具返回':entry.outcome||entry.result]]){
       const title=document.createElement('h4'),pre=document.createElement('pre');title.textContent=label;pre.textContent=typeof value==='string'?value:JSON.stringify(value??null,null,2);card.append(title,pre);
     }

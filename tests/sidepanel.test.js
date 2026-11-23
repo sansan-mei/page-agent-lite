@@ -174,3 +174,25 @@ test('decision form renders escaped options and submits multiple choices once',a
  const msg=f.calls.find(c=>c[1].type==='task:choose')[1];assert.equal(JSON.stringify(msg.indices),'[0,2]');assert.equal(msg.questionId,'q');assert.equal(form.hidden,true);
  assert.match(f.document.getElementById('important-notice').textContent,/即将提交/);
 });
+
+
+test('tool summaries distinguish dispatch, scroll boundaries, stale targets and uncertain effects',async()=>{
+ const receipt={status:'unknown',dispatch:'sent',scope:'dispatch',code:'PAGE_CHANGED'};
+ const cases=[
+  {action:'click',outcome:receipt,label:'已派发，待核对'},
+  {action:'click',outcome:{...receipt,dispatch:'not_sent',code:'STALE'},label:'目标过期，未执行'},
+  {action:'click',outcome:{...receipt,dispatch:'not_sent',code:'TARGET_BLOCKED'},label:'目标被遮挡，未执行'},
+  {action:'scroll',outcome:{...receipt,observed:{delta:300}},label:'已滚动'},
+  {action:'scroll',request:{value:'down'},outcome:{...receipt,code:'NO_CHANGE',observed:{delta:0,atEnd:true}},label:'已到边界'},
+  {action:'scroll',request:{value:'left'},outcome:{...receipt,observed:{delta:0,atStart:true}},label:'已到边界'},
+  {action:'scroll',request:{value:'up'},outcome:{...receipt,observed:{delta:0,atEnd:true}},label:'未观察到滚动'},
+  {action:'click',outcome:{...receipt,dispatch:'unknown',code:'REPLY_LOST'},label:'结果未知'},
+  {action:'click',outcome:{...receipt,scope:'ui',code:'CONDITIONS_UNMET'},label:'结果未知'},
+  {action:'scroll',outcome:{...receipt,code:'REPLY_LOST',observed:{delta:300}},label:'结果未知'},
+ ];
+ const task={taskId:'outcomes',goal:'Work',status:'running',steps:2,prefs:{maxSteps:50},events:[],results:cases.map((c,i)=>({...c,time:i+1}))};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:undefined);
+ const cards=[...f.document.querySelectorAll('#timeline .tool-call')];
+ assert.equal(cards.length,cases.length);
+ cards.forEach((card,i)=>{assert.ok(card.querySelector('summary').textContent.endsWith(cases[i].label));assert.equal(card.dataset.status,'unknown');});
+});

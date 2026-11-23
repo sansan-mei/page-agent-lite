@@ -47,7 +47,7 @@
         const check=expected.length?G.evaluate(expected,current):null;
         const r=T.result({operationId:message.operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
           evidence:check?.evidence||[],observed:verification?{actual:verification.actual??null}:interaction||null,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
-          message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'页面未观察到变化':'页面已更新，尚未验证业务结果'});
+          message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'操作已发出，暂未观察到页面变化':'操作已发出，页面有变化；具体效果待核对'});
         return {...r,verification,navigation:false};
       }finally{executing=false;}
     })().then(value=>respond({ok:true,value}),error=>{
