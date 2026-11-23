@@ -97,6 +97,13 @@ function agentScrollInfo(n){
  return {x:n.scrollLeft||0,y:n.scrollTop||0,maxX:x,maxY:y};
 }
 // ARIA popup ownership is reference data, never an instruction or a selector from the model.
+// Only plain text and bare line breaks are replaceable without destroying editor nodes.
+function agentEditable(n){
+ const mode=n.getAttribute('contenteditable');
+ if(mode===null||!['','true','plaintext-only'].includes(mode.toLowerCase()))return null;
+ const parts=[...n.childNodes],supported=parts.every(c=>c.nodeType===3||c.nodeType===1&&c.localName==='br'&&!c.attributes.length);
+ return {supported,value:supported?parts.map(c=>c.nodeType===3?c.textContent:'\n').join(''):undefined};
+}
 function agentPopup(n){
  const popup=n.closest('[role="listbox"]');if(!popup)return null;
  const owners=popup.id?[...n.ownerDocument.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')].filter(c=>{if(c.closest('[hidden],[aria-hidden="true"],[data-page-agent],input[type="password"],input[type="hidden"]'))return false;for(let p=c;p;p=p.parentElement){const style=n.ownerDocument.defaultView?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;}).filter(c=>[c.getAttribute('aria-controls'),c.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/).includes(popup.id)):[];
@@ -127,7 +134,7 @@ function agentSnapshot(doc, textOffset=0){
  const start=Math.min(textOffset,fullText.length),text=fullText.slice(start,start+16000);
  const textRange={start,end:start+text.length,total:fullText.length,nextOffset:start+text.length<fullText.length?start+text.length:null};
  // Include custom controls without relying on site-specific classes or executing handlers.
- const controls='button,a[href],input,textarea,select,[role="button"],[role="radio"],[role="checkbox"],[role="link"],[role="menuitem"],[role="switch"],[role="combobox"],[role="option"],[role="tab"],[onclick],[tabindex]';
+ const controls='[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],button,a[href],input,textarea,select,[role="button"],[role="radio"],[role="checkbox"],[role="link"],[role="menuitem"],[role="switch"],[role="combobox"],[role="option"],[role="tab"],[onclick],[tabindex]';
  const explicit=n=>n.matches(controls)&&(n.getAttribute('tabindex')===null||Number(n.getAttribute('tabindex'))>=0||n.matches(controls.replace(',[tabindex]','')));
  const cursors=new Map();
  const pointer=n=>{if(!n)return false;if(!cursors.has(n))cursors.set(n,doc.defaultView?.getComputedStyle?.(n)?.cursor);return cursors.get(n)==='pointer';};
@@ -138,12 +145,12 @@ function agentSnapshot(doc, textOffset=0){
    if(!pointer(n)||n===doc.body||n===doc.documentElement||pointer(n.parentElement)||n.closest(controls)||n.querySelector(controls))continue;
   }
   if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
-  const id='t'+elements.length;
+  const id='t'+elements.length,editable=agentEditable(n);
   const associated=[...(n.labels||[])];
   if(n.closest('label'))associated.push(n.closest('label'));
   if(n.id)for(const l of doc.querySelectorAll('label[for]'))if(l.htmlFor===n.id||l.getAttribute('for')===n.id)associated.push(l);
   const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ').trim();
-  const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>l.textContent).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(n.type)?n.value:'')||n.textContent||n.getAttribute('placeholder')||n.name||'').trim().slice(0,180);
+  const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>l.textContent).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(n.type)?n.value:'')||(editable?'':n.textContent)||n.getAttribute('placeholder')||n.name||'').trim().slice(0,180);
   if(reading.query&&!label.toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase())&&!(n.name||'').toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase()))continue;
   if(matchedElements++<elementOffset)continue;
   if(elements.length>=120)continue;
@@ -169,12 +176,12 @@ function agentSnapshot(doc, textOffset=0){
    group.optionIds.push(id);
   }
   const options=n.localName==='select'?[...n.options].map(o=>({value:o.value,label:o.textContent.slice(0,100)})).slice(0,40):undefined;
-  const role=n.getAttribute('role')||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
+  const role=n.getAttribute('role')||(editable?'textbox':null)||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
   const ariaChecked=n.getAttribute('aria-checked');
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
   const controlled=related?.split(/\s+/).slice(0,5).map(id=>doc.getElementById(id)).filter(Boolean);
   const expanded=n.getAttribute('aria-expanded'),selected=n.getAttribute('aria-selected');
-  elements.push({inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),value:n.value?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
+  elements.push({inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  const regionOffset=reading.regionOffset||0;let matchedRegions=0;
@@ -204,11 +211,11 @@ function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
  const n=snap.nodes.get(plan.id)?.node;
  if(!n?.isConnected)return {verified:false,message:'操作后目标被替换，尚未核实结果，需重新读取页面'};
- const actual=plan.action==='check'?n.checked:n.value;
+ const editor=agentEditable(n),actual=plan.action==='check'?n.checked:editor?editor.value:n.value;
  const verified=actual===plan.value;
  return {verified,actual,message:verified?'已核对目标字段状态与本次指定值一致':'实际字段状态与指定值不一致，操作未生效；需重新读取并修正'};
 }
-function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature]);}
+function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
  if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','wheel','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
@@ -249,8 +256,10 @@ function agentExecute(p,snap,doc){
   if(n.type==='radio'&&!p.value)throw new Error('不能直接取消单选项');
   if(n.checked!==p.value){n.click();try{root.PageAgentPointer?.click();}catch{}}return;
  }
- if(n.readOnly)throw new Error('目标为只读字段');
- if(p.action==='fill'&&!(n.localName==='textarea'||n.localName==='input'&&['text','search','email','tel','url','number','date','time','datetime-local','month','week'].includes(n.type)))throw new Error('目标不是支持的文本字段');
+ const editable=agentEditable(n);
+ if(p.action==='fill'&&editable&&!editable.supported)throw Object.assign(new Error('此编辑器包含复杂节点，不支持纯文本替换'),{code:'UNSUPPORTED_EDITABLE',beforeDispatch:true});
+ if(n.readOnly||n.getAttribute('aria-readonly')==='true')throw new Error('目标为只读字段');
+ if(p.action==='fill'&&!(editable||n.localName==='textarea'||n.localName==='input'&&['text','search','email','tel','url','number','date','time','datetime-local','month','week'].includes(n.type)))throw new Error('目标不是支持的文本字段');
  if(p.action==='select'&&(n.localName!=='select'||![...n.options].some(o=>o.value===p.value&&!o.disabled)))throw new Error('下拉选项无效');
  const proto=n.localName==='textarea'?win.HTMLTextAreaElement?.prototype:n.localName==='select'?win.HTMLSelectElement?.prototype:win.HTMLInputElement?.prototype;
  const setter=proto&&Object.getOwnPropertyDescriptor(proto,'value')?.set;
@@ -261,7 +270,7 @@ function agentExecute(p,snap,doc){
  }
  const inputType=n.type;
  const intact=()=>{
-  if(!n.isConnected||n.disabled||n.readOnly||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType)throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
+  if(!n.isConnected||n.disabled||n.readOnly||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
   for(let parent=n;parent;parent=parent.parentElement){const style=win.getComputedStyle?.(parent);if(style&&(style.display==='none'||style.visibility==='hidden'))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});}
  };
  n.focus?.({preventScroll:true});intact();
@@ -272,7 +281,7 @@ function agentExecute(p,snap,doc){
   intact();
   if(agentSignature(n)!==ref.signature)throw Object.assign(new Error('输入前字段变化，未继续写入'),{code:'TARGET_CHANGED'});
  }
- if(setter)setter.call(n,p.value);else n.value=p.value;
+ if(editable)n.textContent=p.value;else if(setter)setter.call(n,p.value);else n.value=p.value;
  n.dispatchEvent(p.action==='fill'?inputEvent('input',false):new win.Event('input',{bubbles:true,composed:true}));
  intact();
  n.dispatchEvent(new win.Event('change',{bubbles:true,composed:true}));

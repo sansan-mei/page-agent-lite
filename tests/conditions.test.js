@@ -86,3 +86,11 @@ test('selection and expansion checks use unique popup groups and preserve missin
  assert.throws(()=>G.validate([{kind:'expanded_equals',id:combo.id,value:'false'}]));
  assert.throws(()=>G.validate([{kind:'selected_equals',id:option.id,value:0}]));
 });
+
+test('editable value checks bind stable unnamed nodes and can observe rollback',()=>{
+ const {document}=parseHTML('<html><body><div contenteditable="true">old</div></body></html>');
+ const before=capture(document),field=before.page.elements[0],condition=G.bind([{kind:'field_equals',id:field.id,value:'new'}],before);
+ C.agentExecute({action:'fill',id:field.id,value:'new'},before,document);assert.equal(G.evaluate(condition,capture(document)).status,'success');
+ document.querySelector('div').textContent='old';assert.equal(G.evaluate(condition,capture(document)).status,'not_satisfied');
+ document.querySelector('div').innerHTML='<span>new</span>';assert.equal(G.evaluate(condition,capture(document)).status,'unknown');
+});

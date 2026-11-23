@@ -98,7 +98,7 @@ fill 仍只接受现有 input 类型及 textarea。使用原型 value setter 绕
 
 聚焦后重核对节点签名，再派发可取消 beforeinput；支持 InputEvent 时携带 data、inputType=insertReplacementText、isComposing=false 和 composed=true。网页 preventDefault 返回 INPUT_CANCELLED，不继续 setter/input/change；因处理器可能已有副作用，dispatch=unknown，不冒称撤销或自动重试。允许输入后使用原生 setter，再派发 input/change；select 保留普通 input/change。聚焦/事件处理器替换、隐藏、禁用节点或修改字段类型时返回 TARGET_CHANGED 并停止后续事件。InputEvent 不可用时降级普通 Event。
 
-现有稳定观察及字段 expected 仍核对实际值：异步回滚为 not_satisfied，替换后只能唯一语义匹配核对；不自动补写。控制器可能要求 isTrusted/键盘/IME 或特定框架协议，本增量不保证兼容，不支持组合输入、富文本或任意脚本。
+现有稳定观察及字段 expected 仍核对实际值：异步回滚为 not_satisfied，替换后只能唯一语义匹配核对；不自动补写。控制器可能要求 isTrusted/键盘/IME 或特定框架协议，本增量不保证兼容，不支持组合输入、复杂富文本或任意脚本。
 
 ## ARIA 选择控件与状态核对
 
@@ -119,3 +119,11 @@ observe 的对象 value 可加 regionOffset（非负安全整数）、regionQuer
 下一轮使用已有 nextObservation 重新捕获范围，不持久化区域 ID，不增加模型预算或权限。按区域分页不会滚动网页；DOM 变化可能改变顺序。单个区域 textTruncated 仍保留，未提供其内部文字分页。
 
 verify 和动作后核对会针对绑定条件中具名 region 进行额外只读名称查找，最多随 5 个条件读取并按节点 key 去重；不发送额外模型请求、不执行网页动作、不改变当前动作快照。语义匹配仍需唯一，重复名称保持 ambiguous。合并不提升原覆盖完整性：原全页读取不完整时，找不到目标仍是 unknown；原范围确已完整时保留既有缺失核对语义。额外读取不证明全文完整或服务器成功。
+
+## 简单 contenteditable（PA3）
+
+显式 contenteditable=true、空值或 plaintext-only 根节点可作为 textbox，快照 editable=plain_text 并提供 value。仅允许文本节点与无属性 br（读取为换行）；出现其他节点、注释、格式或嵌套控件时 editable=unsupported_structure，不提供 value。未命名编辑区不以正文冒充标签，保持节点身份核对。
+
+fill 仅将指定字符串写入 textContent（最多 4000 字符），不解析 HTML，不调用 execCommand 或框架命令。先检查结构，再聚焦、可取消 beforeinput、重新校验节点/签名，然后写入并派发 input/change；已有取消、隐藏、禁用、只读和节点替换保护适用。复杂结构在聚焦/输入事件前返回 UNSUPPORTED_EDITABLE、status=unsupported、dispatch=not_sent，运行器暂停，不删除原节点。
+
+自动 field_equals 与短暂观察核对实际纯文本，异步回滚为 not_satisfied；后续变成复杂结构则无可读取值，保持 unknown。仅证明本地内容，不证明服务端或框架保存；继承可编辑根、复杂 DOM 编辑器、富文本格式、IME/受信任键盘及撤销栈未支持。

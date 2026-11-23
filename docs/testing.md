@@ -93,3 +93,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA1 区域分页与按需核对
 
 162 项 Node 测试通过，新增文字预算早于 40 项耗尽的 nextOffset、后部区域读取、隐藏区域/非法参数排除、歧义与截断保持 unknown、具名区域更新后 verify 成功及完整范围缺失语义保留。Edge 无窗口 `scripts/page-read-smoke.cjs` 通过：66 个可读区域中后部区域分页/查找及只读核对，新增同名区域后返回 unknown。沿用真实 DOM + Chrome 消息 stub，非完整扩展或真实模型验证。
+
+## PA3 简单 contenteditable
+
+164 项 Node 回归通过，新增正文不充当名称、纯文本/br 值、HTML 字面量、复杂结构节点保留、取消、未命名节点核对及回滚/结构变化 unknown。Edge 无窗口 scripts/editable-smoke.cjs 通过：文字/换行写入、HTML 不解析、beforeinput 取消、复杂 span 保留且无 input 事件、异步回滚与 beforeinput 节点替换中断。真实 DOM + Chrome 消息 stub，不是完整扩展/真实框架/线上模型验证。PAGE_AGENT_CHROMIUM 可指定浏览器，fixture 经 Playwright 路由合成。

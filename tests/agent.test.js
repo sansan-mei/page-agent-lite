@@ -198,3 +198,18 @@ test('region pages respect count and text budget and preserve incomplete coverag
  assert.equal(require('../extension/conditions.js').evaluate([{kind:'element_absent',target:{category:'region',label:'Private'}}],hidden).status,'unknown');
  for(const value of [{regionOffset:-1},{regionOffset:1.5},{regionQuery:''},{regionQuery:'a'.repeat(181)},{regionQuery:'Result',selector:'section'}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'read',action:'observe',value}),first));
 });
+
+test('plain editable fields use text only, preserve cancellation and refuse complex editor nodes',()=>{
+ const {document}=parseHTML('<html><body><div contenteditable="true" aria-label="Editor">old<br>line</div><div contenteditable="plaintext-only" aria-label="Plain"></div><div contenteditable="true" aria-label="Complex"><span>formatted</span></div><div contenteditable="false">Read only</div></body></html>');
+ let snap=C.agentSnapshot(document);const editor=snap.page.elements.find(e=>e.label==='Editor');
+ assert.equal(editor.value,'old\nline');assert.equal(editor.role,'textbox');assert.equal(editor.editable,'plain_text');
+ const value='<img src=x onerror=alert(1)>\nline';
+ C.agentExecute({action:'fill',id:editor.id,value},snap,document);
+ assert.equal(document.querySelector('img'),null);assert.equal(C.agentVerify({action:'fill',id:editor.id,value},snap).verified,true);
+ assert.equal(C.agentSnapshot(document).page.elements.find(e=>e.label==='Editor').value,value);
+ const complex=snap.page.elements.find(e=>e.label==='Complex'),span=document.querySelector('span');
+ assert.equal(complex.editable,'unsupported_structure');assert.equal(complex.value,undefined);
+ assert.throws(()=>C.agentExecute({action:'fill',id:complex.id,value:'overwrite'},snap,document),e=>e.code==='UNSUPPORTED_EDITABLE');assert.equal(span.isConnected,true);
+ const plain=document.querySelector('[contenteditable="plaintext-only"]');plain.addEventListener('beforeinput',e=>e.preventDefault());snap=C.agentSnapshot(document);
+ assert.throws(()=>C.agentExecute({action:'fill',id:snap.page.elements.find(e=>e.label==='Plain').id,value:'cancel'},snap,document),e=>e.code==='INPUT_CANCELLED');assert.equal(plain.textContent,'');
+});

@@ -64,3 +64,5 @@ worker 可能终止，必要状态写入 session。执行前保存 `executing`�
 ARIA listbox/combobox 归属由 core.js 抽取为语义分组并纳入目标签名；conditions.js 统一只读核对 selected_equals/expanded_equals。运行器继续使用通用 click/wait/verify，没有组件库专用动作或第二条执行循环。
 
 content.js 的条件读取可按具名 region 额外只读捕获并合并，conditions.js 仍独立执行唯一语义匹配；不新增执行循环或模型请求。
+
+简单 contenteditable 由 core.js 判定可替换结构并复用 fill 事件路径；conditions.js 通过快照 value 核对，无新工具动作或执行循环。复杂结构在 DOM 写入前拒绝，runtime.js 按 UNSUPPORTED_EDITABLE 暂停。
