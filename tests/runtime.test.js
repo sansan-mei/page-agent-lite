@@ -621,3 +621,25 @@ test('compact mouse and keyboard actions stop before dispatch and never replay i
   const fresh=createRuntime(g.deps);await fresh.tick(1);assert.equal((await fresh.get(1)).reason,'uncertain');assert.equal(g.executed.length,1);
  }
 });
+
+test('user takeover cancels a thinking request and resumes against manual page changes with original budget',async()=>{
+ let resolve,started;const ready=new Promise(r=>started=r);let value='before',calls=0;
+ const f=fixture({tools:{async observe(){return {url:'https://example.test/1',documentId:'doc',snapshotId:'s',page:{elements:[{id:'t0',key:'node',label:'Name',value}]}};}},model:async input=>{
+  if(++calls===1){started();return new Promise(r=>resolve=r);}
+  assert.equal(JSON.parse(input).page.elements[0].value,'manual');return {text:JSON.stringify({reply:'Observed manual value',action:'done'})};
+ }});
+ await f.runtime.start(1,'Work');const job=f.runtime.tick(1);await ready;const id=(await f.runtime.get(1)).taskId;
+ await f.runtime.takeover(1);value='manual';resolve({text:JSON.stringify({reply:'Old fill',action:'fill',id:'t0',value:'old'})});await job;
+ assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).reason,'user_takeover');
+ f.runtime=createRuntime(f.deps);await f.runtime.resume(1);await f.runtime.tick(1);
+ assert.equal((await f.runtime.get(1)).taskId,id);assert.equal((await f.runtime.get(1)).steps,2);assert.equal(f.executed.length,0);
+});
+
+test('takeover during uncertain dispatch blocks a newly planned repeat after resume',async()=>{
+ let resolve,started;const ready=new Promise(r=>started=r);let actions=0;
+ const f=fixture({tools:{async observe(){return {url:'https://example.test/1',documentId:'doc',snapshotId:'s',page:{elements:[{id:'t0',key:'save',label:'Save'}]}};},async execute(){actions++;started();return new Promise(r=>resolve=r);}},model:async()=>({text:JSON.stringify({reply:'Save',action:'click',id:'t0'})})});
+ await f.runtime.start(1,'Save');const job=f.runtime.tick(1);await ready;await f.runtime.takeover(1);
+ resolve({version:2,status:'unknown',dispatch:'sent',code:'NO_CHANGE'});await job;
+ assert.equal((await f.runtime.get(1)).uncertainClicks.length,1);
+ f.runtime=createRuntime(f.deps);await f.runtime.resume(1);await f.runtime.tick(1);assert.equal(actions,1);assert.equal((await f.runtime.get(1)).reason,'uncertain');
+});

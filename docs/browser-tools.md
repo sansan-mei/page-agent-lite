@@ -139,3 +139,5 @@ double_click 向当前 id 执行两次受保护 click 后派发 detail=2 的 dbl
 元素 context.path 提供由外向内最多三层具名 section/article/main/fieldset/form/dialog 或 ARIA region/group/dialog；名称使用 aria-label、可读取 aria-labelledby 或属于本区域的首个可见标题，不挪用嵌套区域标题。context.description 读取最多五个去重 aria-describedby 引用，最多 300 字符。单层路径名称最多 160 字符，每快照路径及说明合计 4000 字符，预算不足裁短或省略；单个说明节点最多扫描 300 节点。
 
 新增文字只取可见普通文本，排除 hidden/aria-hidden、CSS display:none/visibility:hidden、关闭 dialog、扩展 UI、脚本/样式、原生输入和 contenteditable 子树。不宣称全面隐私识别。上下文仅为不可信定位线索，不参与自动重放、动作授权或条件匹配；相同名称仍需模型使用当前 ID 消歧，验证仍要求受限语义目标唯一。不增加动作、权限或请求。
+
+用户接管通过侧栏可信后台消息完成，不新增模型动作。接管只取消尚未生效的旧计划与请求，已派发动作可能继续由网页处理；返回继续后使用新快照，未确定目标仍不能重复执行。

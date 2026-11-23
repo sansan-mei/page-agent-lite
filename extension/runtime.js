@@ -178,6 +178,18 @@
       const saved = await update(tabId, task.token, t => {t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
       await cancelSchedule(tabId); return saved;
     }
+    async function takeover(tabId){
+      controllers.get(tabId)?.abort();
+      const saved=await serial(tabId,async()=>{
+        const t=await store.get(tabId);if(!t||['completed','ended'].includes(t.status))throw new Error('没有可接管的进行中任务');
+        const uncertain=t.phase==='executing'?t.pending:null;
+        const check=t.check?.kind==='action'?t.check:null;
+        if(uncertain||check){const source=uncertain||check;t.uncertainClicks=(t.uncertainClicks||[]).concat({url:source.url,documentId:source.documentId,key:source.targetKey||source.key,target:source.targetDescriptor||source.target}).slice(-2);}
+        t.token=uuid();t.status='paused';t.reason='user_takeover';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.question=null;t.contextUsage=null;
+        event(t,'用户接管网页；完成手动操作后点击继续，助手将重新观察，未确定动作不会重放');await store.set(tabId,t);return t;
+      });
+      await tools.clearPointer?.(tabId);await cancelSchedule(tabId);return saved;
+    }
     async function resume(tabId) {
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
@@ -391,7 +403,7 @@
         const combined=[...plan.expected||[]];
         for(const c of G.automatic(plan))if(!combined.some(e=>e.kind===c.kind&&e.id===c.id&&e.value===c.value))combined.push(c);
         const expected=G.bind(combined,snap);
-        for(const guard of ['click','double_click','right_click','press_key','wheel'].includes(plan.action)?(task.uncertainClicks||[]):[]){
+        for(const guard of ['click','double_click','right_click','press_key','wheel','fill','check','select'].includes(plan.action)?(task.uncertainClicks||[]):[]){
           const sameTarget=target&&(guard.key?guard.key===target.key:JSON.stringify(guard.target)===JSON.stringify(G.descriptor(target,snap.page)));
           if(guard.url===snap.url&&guard.documentId===snap.documentId&&sameTarget){
             await pause(task,'该点击的结果仍不确定，已阻止重复点击同一目标；请核实当前状态或选择新的确认控件','uncertain');return;
@@ -538,7 +550,7 @@
     }
     async function remove(tabId) {controllers.get(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
     async function recover() {for(const task of await store.list())if(ACTIVE.has(task.status))schedule(task.tabId);}
-    return {start,submit,choose,finish,stop,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

@@ -210,3 +210,18 @@ test('authorization buttons follow existing grants and permission revocation',as
  site=true;all=true;f.added();await flush();
  assert.equal(d.getElementById('grant').hidden,true);assert.equal(d.getElementById('grant-all').hidden,true);
 });
+
+test('sidepanel exposes takeover and labels its fresh-observation continuation',async()=>{
+ let state={taskId:'t',goal:'Work',status:'running',steps:3,prefs:{maxSteps:50},events:[],results:[]};
+ const f=await fixture(true,m=>{
+  if(m.type==='task:get')return {ok:true,value:state};
+  if(m.type==='task:takeover'){state={...state,status:'paused',reason:'user_takeover'};return {ok:true,value:state};}
+  if(m.type==='task:resume'){state={...state,status:'running',reason:null};return {ok:true,value:state};}
+ });
+ assert.equal(f.document.getElementById('takeover').hidden,false);
+ f.document.getElementById('takeover').dispatchEvent(new f.window.Event('click'));await flush();
+ assert.equal(f.document.getElementById('resume').textContent,'操作完成，重新观察');assert.equal(f.document.getElementById('takeover').hidden,true);
+ f.document.getElementById('resume').dispatchEvent(new f.window.Event('click'));await flush();
+ assert.equal(f.calls.filter(c=>c[0]==='message'&&c[1].type==='task:takeover').length,1);
+ assert.equal(f.calls.filter(c=>c[0]==='message'&&c[1].type==='task:resume').length,1);
+});

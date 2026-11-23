@@ -178,6 +178,9 @@
     $('start').textContent='发送';
     $('start').title=ongoing?'发送并继续当前任务':'发送并开始任务';
     $('instruction').placeholder=ongoing?'补充要求，或告诉我下一步…':'告诉我你想做什么…';
+    $('takeover').hidden=!task||['completed','ended'].includes(task.status)||task.reason==='user_takeover';
+    $('takeover').disabled=busy;
+    $('resume').textContent=task?.reason==='user_takeover'?'操作完成，重新观察':'继续任务';
     $('stop').hidden=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
     $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status);
     $('stop').disabled=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
@@ -223,7 +226,7 @@
   $('instruction').addEventListener('keydown',e=>{
     if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!composing&&e.keyCode!==229){e.preventDefault();$('chat').requestSubmit();}
   });
-  for(const [id,type] of Object.entries({stop:'task:stop',resume:'task:resume',finish:'task:finish',clear:'task:clear'}))$(id).addEventListener('click',()=>void action(type));
+  for(const [id,type] of Object.entries({takeover:'task:takeover',stop:'task:stop',resume:'task:resume',finish:'task:finish',clear:'task:clear'}))$(id).addEventListener('click',()=>void action(type));
   $('choice-form').addEventListener('submit',e=>{e.preventDefault();const indices=[...$('choice-options').querySelectorAll('input')].filter(n=>n.checked).map(n=>Number(n.value));if(!indices.length){$('status').textContent='请至少选择一项';return;}void action('task:choose',{taskId:task?.taskId,questionId:task?.question?.id,indices});});
   $('approve').addEventListener('click',()=>void action('task:approve',{taskId:task?.taskId}));
   async function loadHistory(){

@@ -68,3 +68,5 @@ content.js 的条件读取可按具名 region 额外只读捕获并合并，cond
 简单 contenteditable 由 core.js 判定可替换结构并复用 fill 事件路径；conditions.js 通过快照 value 核对，无新工具动作或执行循环。复杂结构在 DOM 写入前拒绝，runtime.js 按 UNSUPPORTED_EDITABLE 暂停。
 
 core.js 的控件 context 是受预算限制的只读语义线索（具名祖先路径与 aria-describedby），prompts.js 提醒其不可信且可能省略；条件唯一性与运行器生命周期保持既有职责。
+
+PA4 用户接管由侧栏发送可信 task:takeover，background.js 路由至 runtime.js；取消、代次隔离、暂停和未确定动作防重放仍集中于运行器。页面工具不保存接管目标或任务状态。

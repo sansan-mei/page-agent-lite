@@ -94,6 +94,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:finish')return runtime.finish(m.tabId);
       if(m.type==='task:resume')return runtime.resume(m.tabId);
       if(m.type==='task:stop')return runtime.stop(m.tabId);
+      if(m.type==='task:takeover')return runtime.takeover(m.tabId);
       if(m.type==='task:choose')return runtime.choose(m.tabId,m.taskId,m.questionId,m.indices);
       if(m.type==='task:approve')return runtime.approve(m.tabId,m.taskId);
       if(m.type==='task:clear'){await runtime.remove(m.tabId);return null;}

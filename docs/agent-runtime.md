@@ -75,3 +75,7 @@ INPUT_CANCELLED 与 INVALID_FIELD_VALUE 使用稳定 code 进入 reason=input �
 动作核对检查点另保存 dispatch：执行前 unknown，取得回执后更新为原派发状态。后续只读核对及超时沿用此值，旧检查点缺省 unknown，避免把已发出的动作显示为未执行。wheel 沿用执行前检查点、中断后只核对/暂停和停止代次保护，不在运行器增加定时循环。
 
 nextObservation.value 同样接受 regionOffset/regionQuery，沿用控件读取范围的一次性检查点和 URL/documentId/代次边界；区域核对的额外只读捕获由内容脚本负责，不改变轮数或等待 deadline。
+
+## 用户接管
+
+可信 task:takeover 通过串行任务更新取消当前请求、切换 token，暂停为 reason=user_takeover，清除旧 pending/check/读取范围/问题并停止调度。若 phase=executing 或存在 action 核对，先保存原 URL/documentId/目标 key/描述到现有 uncertainClicks；不解释为撤销或已完成。继续沿用 resume 的同 origin 检查及新观察路径，保留任务 ID 和未耗尽预算，不执行旧计划。防重放目标检查覆盖 fill/check/select 及现有点击/键鼠输入，避免重新规划重复未确定输入。
