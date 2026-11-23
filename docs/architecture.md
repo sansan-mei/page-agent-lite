@@ -72,3 +72,5 @@ core.js 的控件 context 是受预算限制的只读语义线索（具名祖先
 PA4 用户接管由侧栏发送可信 task:takeover，background.js 路由至 runtime.js；取消、代次隔离、暂停和未确定动作防重放仍集中于运行器。页面工具不保存接管目标或任务状态。
 
 PA5 的 includeText=false 由 core.js 跳过整页 body 克隆与提取，仍生成当前控件/区域快照；运行器复用一次性 nextObservation，无新循环或模型调用。
+
+PA6 子目标由 core.js 校验响应结构，runtime.js 在现有模型轮次内核对/更新 session taskPlan，prompts.js 注入历史进度，sidepanel.js 以安全文本显示。没有独立计划执行器、隐藏思维记录或额外规划请求。

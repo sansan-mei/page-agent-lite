@@ -653,3 +653,21 @@ test('controls-only scoped observation reaches the model and its current target 
  await f.runtime.start(1,'Save');await f.runtime.tick(1);await f.runtime.tick(1);
  assert.deepEqual(reads,[undefined,{includeText:false,query:'Save'}]);assert.equal(f.executed.length,1);assert.equal((await f.runtime.get(1)).steps,2);
 });
+
+test('incremental task milestones use current evidence and remain distinct from final completion',async()=>{
+ let calls=0,value='old',lastInput;
+ const f=fixture({tools:{async observe(){return {url:'https://example.test/1',documentId:'doc',snapshotId:'s',page:{elements:[{id:'t0',label:'Name',role:'textbox',value}]}};}},model:async input=>{
+  lastInput=JSON.parse(input);const check=[{kind:'field_equals',id:'t0',value:'new'}];
+  return {text:JSON.stringify({reply:'Update milestones',action:'observe',subgoals:++calls===1?[{id:'edit',title:'Name is new',status:'completed',checks:check},{id:'save',title:'Save result',status:'pending'}]:calls===2?[{id:'edit',title:'Name is new',status:'completed',checks:check}]:[{id:'save',title:'Save needs user data',status:'blocked'}]})};
+ }});
+ await f.runtime.start(1,'Edit');await f.runtime.tick(1);let task=await f.runtime.get(1);assert.equal(task.taskPlan[0].status,'active');assert.equal(task.taskPlan[0].verification.status,'not_satisfied');
+ value='new';f.runtime=createRuntime(f.deps);await f.runtime.tick(1);task=await f.runtime.get(1);assert.equal(task.taskPlan.length,2);assert.equal(task.taskPlan.find(g=>g.id==='edit').status,'completed');assert.equal(task.status,'running');
+ await f.runtime.submit(1,'Save requires user data');await f.runtime.tick(1);task=await f.runtime.get(1);assert.equal(task.taskPlan.find(g=>g.id==='save').status,'blocked');assert.equal(lastInput.taskPlan.length,2);assert.equal(task.steps,3);assert.equal(f.executed.length,0);
+});
+
+test('a stopped model reply cannot write task milestones',async()=>{
+ let resolve,started;const ready=new Promise(r=>started=r);
+ const f=fixture({model:async()=>{started();return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'Work');const job=f.runtime.tick(1);await ready;await f.runtime.stop(1);
+ resolve({text:JSON.stringify({reply:'Late plan',action:'observe',subgoals:[{id:'late',title:'Late',status:'active'}]})});await job;assert.equal((await f.runtime.get(1)).taskPlan,undefined);
+});

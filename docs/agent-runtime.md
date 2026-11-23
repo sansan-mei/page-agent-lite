@@ -79,3 +79,9 @@ nextObservation.value 同样接受 regionOffset/regionQuery，沿用控件读取
 ## 用户接管
 
 可信 task:takeover 通过串行任务更新取消当前请求、切换 token，暂停为 reason=user_takeover，清除旧 pending/check/读取范围/问题并停止调度。若 phase=executing 或存在 action 核对，先保存原 URL/documentId/目标 key/描述到现有 uncertainClicks；不解释为撤销或已完成。继续沿用 resume 的同 origin 检查及新观察路径，保留任务 ID 和未耗尽预算，不执行旧计划。防重放目标检查覆盖 fill/check/select 及现有点击/键鼠输入，避免重新规划重复未确定输入。
+
+## 结构化子目标（PA6 基础）
+
+普通模型响应可选 subgoals，运行器在同一轮解析和代次/站点校验后更新 taskPlan，不单独请求规划。每项 id/title/status/checks?，最多 8 个更新及 8 个存储项；同 ID 替换，其余保留，更新项移至列表末尾；[] 清空。状态为 pending/active/completed/blocked，id 为 1–40 ASCII 字母数字或 _/-，title 非空最多 120 字符。拒绝额外思维字段，不保存私有思维链。
+
+completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind/evaluate，非 success 降为 active，并保存结构化 verification。没有副作用、额外页面请求或额外模型轮数；它核实的是规划所见页面，不是随后动作的效果。每项保留 URL/documentId/updatedAt，taskPlan 进入下一轮上下文；旧已核对项仅是历史证据，不执行其条件/动作，不替代 done 的独立完成条件。用户更正可在后续响应改标题/状态，停止/接管的迟到响应不能写回。新增子目标超过总量则保留原计划并报告错误。

@@ -225,3 +225,8 @@ test('sidepanel exposes takeover and labels its fresh-observation continuation',
  assert.equal(f.calls.filter(c=>c[0]==='message'&&c[1].type==='task:takeover').length,1);
  assert.equal(f.calls.filter(c=>c[0]==='message'&&c[1].type==='task:resume').length,1);
 });
+
+test('milestone UI shows historical verification and renders untrusted titles as text',async()=>{
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:{taskId:'t',goal:'Work',status:'running',steps:1,prefs:{maxSteps:50},events:[],results:[],taskPlan:[{id:'one',title:'<img src=x onerror=alert(1)>',status:'completed',verification:{status:'success'}},{id:'two',title:'Save',status:'active',verification:{status:'unknown'}}]}}:undefined);
+ assert.equal(f.document.getElementById('task-plan').hidden,false);assert.match(f.document.getElementById('task-plan-items').textContent,/曾核对通过/);assert.match(f.document.getElementById('task-plan-items').textContent,/unknown/);assert.equal(f.document.getElementById('task-plan-items').querySelector('img'),null);
+});

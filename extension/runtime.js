@@ -356,6 +356,15 @@
         }
         if(!await live())return;
         const plan = C.agentPlan(result.text, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
+        if(plan.subgoals!==undefined){
+          const updates=plan.subgoals.map(g=>{
+            const checks=g.checks?G.bind(g.checks,snap):[],verification=checks.length?G.evaluate(checks,snap):null;
+            return {id:g.id,title:g.title,status:g.status==='completed'&&verification?.status!=='success'?'active':g.status,verification,updatedAt:now(),documentId:snap.documentId||null,url:snap.url};
+          });
+          const merged=plan.subgoals.length?(task.taskPlan||[]).filter(g=>!updates.some(u=>u.id===g.id)).concat(updates):[];
+          if(merged.length>8)throw new Error('子目标总数超过 8 项，请先用空列表清空后重列');
+          task=await update(tabId,token,t=>{t.taskPlan=merged;});if(!task||!await live())return;
+        }
         if(!['done','pause'].includes(plan.action))call={request:plan,time:Date.now()};
         if(plan.action==='pause'){
           if(plan.choices){await update(tabId,token,t=>{t.status='paused';t.reason='question';t.pending=null;t.check=null;t.waitDeadline=null;t.question={id:uuid(),text:plan.reply,options:plan.choices};event(t,plan.reply);});return;}

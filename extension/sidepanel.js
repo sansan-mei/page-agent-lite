@@ -162,6 +162,12 @@
       if(follow)conversation.scrollTop=conversation.scrollHeight;
       conversation.dataset.taskId=task?.taskId||'';
     }
+    $('task-plan').hidden=historyOpen||!task?.taskPlan?.length;
+    $('task-plan-items').replaceChildren();
+    for(const goal of task?.taskPlan||[]){
+      const row=document.createElement('li'),state={pending:'待处理',active:'进行中',completed:'曾核对通过',blocked:'受阻'}[goal.status]||'未知';
+      row.textContent=state+'：'+goal.title+(goal.verification&&goal.verification.status!=='success'?'（核对：'+goal.verification.status+'）':'');$('task-plan-items').append(row);
+    }
     const question=!historyOpen&&task?.status==='paused'&&task.reason==='question'?task.question:null;
     $('choice-form').hidden=!question;
     if($('choice-form').dataset.questionId!==(question?.id||'')){

@@ -10,7 +10,7 @@
 <section id="task" hidden aria-label="你的目标"><p id="goal"></p></section>
 <div id="timeline" role="log" aria-label="任务消息" aria-live="polite"></div>
 <section id="important-notice" hidden role="status" aria-live="polite"></section>
-<form id="choice-form" hidden><fieldset><legend id="choice-question"></legend><div id="choice-options"></div></fieldset><button id="choice-submit" type="submit">提交选择并继续</button></form>
+<details id="task-plan" hidden><summary>任务计划（历史进度）</summary><p>已核对仅代表记录时的页面状态；最终结果需重新验证。</p><ol id="task-plan-items"></ol></details><form id="choice-form" hidden><fieldset><legend id="choice-question"></legend><div id="choice-options"></div></fieldset><button id="choice-submit" type="submit">提交选择并继续</button></form>
 <section id="confirmation" hidden><h2>请确认操作</h2><p id="operation"></p><button id="approve" type="button">确认并继续</button></section>
 
 </main><aside id="history-view" hidden aria-label="历史记录"><div class="history-heading"><h2>历史记录</h2><button id="history-back" type="button">返回对话</button></div><p class="history-note">当前标签页、当前网站的对话；仅在本次浏览器会话内保留</p><div id="conversation-list"></div><p id="history-goal"></p><div id="history-messages"></div><p id="history-empty">暂无历史记录</p><details id="run-details" hidden><summary>运行详情 <span id="record-count"></span></summary><p id="task-meta"></p><p id="metrics"></p><p id="context-usage"></p>

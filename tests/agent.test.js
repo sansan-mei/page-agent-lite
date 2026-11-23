@@ -235,3 +235,9 @@ test('controls-only observation skips body cloning and explicitly marks body tex
  assert.equal(C.agentSnapshot(document,{includeText:true}).page.text,full.page.text);
  assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Observe',action:'observe',value:{includeText:'false'}}),full));
 });
+
+test('subgoals require bounded public milestones and explicit completion checks',()=>{
+ const snap={nodes:new Map()},base={reply:'Plan',action:'observe'};
+ assert.equal(C.agentPlan(JSON.stringify({...base,subgoals:[{id:'read',title:'Read result',status:'active'}]}),snap).subgoals.length,1);
+ for(const subgoals of [[{id:'a',title:'Done',status:'completed'}],[{id:'a',title:'X',status:'active',thoughts:'private'}],[{id:'a',title:'X',status:'active'},{id:'a',title:'Y',status:'pending'}],Array.from({length:9},(_,i)=>({id:'g'+i,title:'X',status:'pending'})),[{id:'a',title:'x'.repeat(121),status:'pending'}]])assert.throws(()=>C.agentPlan(JSON.stringify({...base,subgoals}),snap));
+});

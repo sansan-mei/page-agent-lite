@@ -147,3 +147,5 @@ double_click 向当前 id 执行两次受保护 click 后派发 detail=2 的 dbl
 observe 对象 value 支持 includeText 布尔值，可独立使用或与控件/区域范围结合。默认或 true 保留整页正文；false 跳过 body 克隆/正文提取，page.text 为空，textRange={start:0,end:0,total:null,nextOffset:null,omitted:true}，coverage.textComplete=false 且 truncated=true。total=null/omitted 表示没有读取正文，不表示内容为空或读到末尾；普通 observe 或整数偏移可重新读取正文。控件、区域、标签和语义说明仍按原预算提供，不能承诺所有页面文字都省略。
 
 对象读取沿用 nextObservation：下一 tick 新快照使用此范围，后续普通读取恢复默认；不增加请求或修改动作/条件语义。省略正文不省略区域抽取的扫描与克隆，未实现 DOM 增量快照或低影响批量操作。
+
+响应可选 subgoals 描述公开任务里程碑，不是网页工具：后台核对其中 completed.checks 后保存历史进度，不触发 DOM 执行。checks 沿用 expected 的有限条件，副作用和任务最终完成仍走原有协议；详情见运行器文档。

@@ -67,3 +67,5 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 用户接管使用现有 status=paused、reason=user_takeover 和 uncertainClicks 存储，不新增持久键；pending/check 清除前，将执行中或核对中的目标记为未确定，恢复不重放。接管记录仍仅限浏览器会话。
 
 nextObservation.value 可选 includeText 布尔值，用于一次性的正文省略；未读标记保留在本轮快照，不新增存储键或持久页面缓存。
+
+任务可选 taskPlan 数组（默认空）保存 PA6 公开子目标、验证结果、记录时间及文档来源；沿用 session task 和只读对话归档，不新增数据库，不跨浏览器重启恢复。验证证据是历史数据，不是待执行检查点或动作，恢复先重新观察。
