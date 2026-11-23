@@ -452,7 +452,7 @@
         await execute(task,pending,live);
       } catch (error) {
         if (!await live()) return;
-        await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error);if(call)t.results=t.results.concat({...call,action:call.request.action,label:t.pending?.label,outcome:t.lastOutcome,result:t.lastOutcome.message});});
+        await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error,call?{}:{dispatch:'not_sent'});if(call)t.results=t.results.concat({...call,action:call.request.action,label:t.pending?.label,outcome:t.lastOutcome,result:t.lastOutcome.message});});
         if(!await live())return;
         if (['STALE','TARGET_BLOCKED'].includes(error.code)) {
           if((task.recoveryCount||0)>=2){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}

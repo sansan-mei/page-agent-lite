@@ -88,3 +88,5 @@ PA11 标准敏感字段策略固定于 core.js，抽取正文/控件/引用文�
 PA13 初步计时集中在 runtime.js 的请求/工具调用边界，sidepanel.js 只读显示 session metrics；不注入页面时钟、遥测或第二套执行循环，也不把正常回报次数当作工具业务成功次数。
 
 PA13 统计导出由可信 background.js 路由至 runtime.diagnostics，按固定字段重建报告；侧栏只负责下载 JSON。无内容脚本入口、额外下载权限或模型访问，不遍历/导出原始任务对象。
+
+PA12 backend.js 的 parseChatResponse 统一解析非流式兼容文本与 usage；仅通过的字符串交给既有严格 JSON 动作/摘要校验器。结束状态不支持、截断或拒绝不做修补/回退，后台不回显服务响应正文。没有引入原生 function calling 执行路径。

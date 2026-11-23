@@ -736,3 +736,11 @@ test('diagnostic export uses numeric and enum allowlists and cannot leak task or
  await assert.rejects(()=>f.runtime.diagnostics(1,'other-task'),/任务或网站已变化/);
  task.origin='https://other.test';await f.store.set(1,task);await assert.rejects(()=>f.runtime.diagnostics(1,task.taskId),/任务或网站已变化/);
 });
+
+test('truncated HTTP 200 model output never reaches page tools or automatic retries',async()=>{
+ const {createService}=require('../extension/backend.js');let requests=0;
+ const chrome={storage:{local:{async get(){return {config:{endpoint:'https://api.test/v1',key:'PRIVATE_KEY',model:'test',language:'English'}};}}},permissions:{contains:async()=>true}};
+ const service=createService(chrome,async()=>{requests++;return new Response(JSON.stringify({choices:[{finish_reason:'length',message:{content:JSON.stringify({reply:'Save',action:'click',id:'t0'})}}]}));});
+ const f=fixture({model:service.generateAgent});await f.runtime.start(1,'Save');await f.runtime.tick(1);await f.runtime.tick(1);
+ const task=await f.runtime.get(1);assert.equal(f.executed.length,0);assert.equal(requests,1);assert.equal(task.lastOutcome.code,'MODEL_OUTPUT_TRUNCATED');assert.equal(task.lastOutcome.dispatch,'not_sent');assert.equal(task.status,'failed');assert.doesNotMatch(JSON.stringify(task),/PRIVATE_KEY/);
+});

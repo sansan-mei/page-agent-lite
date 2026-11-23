@@ -2,6 +2,27 @@
 'use strict';
 const C=typeof module!=='undefined'?require('./core.js'):root.PageAgentCore;
 const P=typeof module!=='undefined'?require('./prompts.js'):root.PageAgentPrompts;
+function parseChatResponse(raw){
+ const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
+ let data;try{data=JSON.parse(raw);}catch{fail('MODEL_RESPONSE_INVALID','API 响应格式无效');}
+ const choice=Array.isArray(data?.choices)?data.choices[0]:null,message=choice?.message;
+ if(!message||typeof message!=='object'||Array.isArray(message))fail('MODEL_RESPONSE_INVALID','API 响应格式无效');
+ if(choice.finish_reason==='length')fail('MODEL_OUTPUT_TRUNCATED','API 输出被截断，未执行操作；请调整模型输出预算或配置');
+ if(choice.finish_reason==='content_filter'||typeof message.refusal==='string'&&message.refusal.trim())fail('MODEL_OUTPUT_REFUSED','API 未提供可执行回复，未执行操作');
+ if(message.tool_calls!=null&&(!Array.isArray(message.tool_calls)||message.tool_calls.length)||message.function_call!=null||['tool_calls','function_call'].includes(choice.finish_reason))fail('MODEL_TOOL_CALL_UNSUPPORTED','API 返回原生工具调用；当前接口需要严格 JSON 文本');
+ if(choice.finish_reason!=null&&choice.finish_reason!=='stop')fail('MODEL_FINISH_UNSUPPORTED','API 返回不支持的结束状态，未执行操作');
+ if(typeof message.content!=='string')fail('MODEL_CONTENT_UNSUPPORTED','API 回复不是支持的纯文本格式');
+ const text=message.content;if(!text.trim())fail('MODEL_OUTPUT_EMPTY','API 回复为空');
+ if(text.length>12000)fail('MODEL_OUTPUT_TOO_LARGE','API 回复过大');
+ const rawUsage=data.usage,usage={};
+ if(rawUsage&&Number.isSafeInteger(rawUsage.prompt_tokens)&&rawUsage.prompt_tokens>=0){
+  usage.promptTokens=rawUsage.prompt_tokens;
+  if(Number.isSafeInteger(rawUsage.completion_tokens)&&rawUsage.completion_tokens>=0)usage.completionTokens=rawUsage.completion_tokens;
+  const cached=rawUsage.prompt_tokens_details?.cached_tokens;
+  if(Number.isSafeInteger(cached)&&cached>=0&&cached<=usage.promptTokens)usage.cachedTokens=cached;
+ }
+ return {text,usage};
+}
 function createService(chrome,fetcher=fetch){
  const store=chrome.storage.local;
  const get=async k=>{try{return (await store.get(k))[k];}catch{throw new Error('读取本机存储失败，请重启扩展后重试');}};
@@ -81,15 +102,7 @@ function createService(chrome,fetcher=fetch){
     if(!response.ok){response.body?.cancel().catch(()=>{});const reason={401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常';throw new Error('API '+response.status+'：'+reason);}
     let raw='';const reader=response.body?.getReader();if(!reader)throw new Error('API 响应为空');const decoder=new TextDecoder();let bytes=0;
     try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>65536){await reader.cancel();throw new Error('API 响应过大');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}catch{throw new Error(bytes>65536?'API 响应过大':'API 响应读取失败，请重试');}finally{try{reader.releaseLock();}catch{}}
-    let text;try{text=JSON.parse(raw).choices[0].message.content;}catch{throw new Error('API 响应格式无效');}
-    if(typeof text!=='string'||!text.trim()||text.length>12000)throw new Error('API 响应为空或过大');
-    const rawUsage=JSON.parse(raw).usage,usage={};
-    if(rawUsage&&Number.isSafeInteger(rawUsage.prompt_tokens)&&rawUsage.prompt_tokens>=0){
-      usage.promptTokens=rawUsage.prompt_tokens;
-      if(Number.isSafeInteger(rawUsage.completion_tokens)&&rawUsage.completion_tokens>=0)usage.completionTokens=rawUsage.completion_tokens;
-      const cached=rawUsage.prompt_tokens_details?.cached_tokens;
-      if(Number.isSafeInteger(cached)&&cached>=0&&cached<=usage.promptTokens)usage.cachedTokens=cached;
-    }
+    const {text,usage}=parseChatResponse(raw);
     return {text,...(internalAgent?{usage,modelIdentity:await identity(config)}:{})};
    })();
    try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('API 请求超时（25 秒），请重试'));},25000);})]);}finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);}
@@ -103,5 +116,5 @@ function createService(chrome,fetcher=fetch){
  }
  return {init,handle,identity,preferences,generateAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true})};
 }
-const api={createService};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
+const api={createService,parseChatResponse};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

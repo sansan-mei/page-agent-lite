@@ -147,3 +147,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA13 当前任务统计导出
 
 191 项 Node 测试通过，新增所有自由文本字段放入 fixture 私密标记后导出不包含、工具/状态枚举及数值白名单、归档统计、任务/origin 改变拒绝、读取不写回不执行，以及合成侧栏 Blob 下载和成功反馈。完整 MV3 + 本机 stub 新增可信诊断消息及导航/耗时统计检查，实际结果见 changelog。原生下载对话框与真实用户数据脱敏效果未验收；输出是固定统计，不是自由文本轨迹脱敏。
+
+## PA12 严格文本响应诊断
+
+193 项 Node 回归通过：stop/省略 finish_reason/空 tool_calls/refusal 的兼容，usage 统一解析；即使内容为合法动作 JSON，finish_reason=length 仍拒绝。拒绝/工具调用/未知结束状态/非文本/空值/超长/非法 JSON 使用稳定 code 且不回显 fixture 私密响应。真实 Response 包装集成运行器验证 HTTP 200 截断只请求一次、工具执行为零、dispatch=not_sent。完整 MV3 + 本机 stub 结果见 changelog，线上模型及原生工具调用未验收。

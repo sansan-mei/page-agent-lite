@@ -121,3 +121,12 @@ test('reasoning defaults, saved effort, summary requests and compatibility fallb
  await assert.rejects(()=>s.handle({type:'configure',config:{...c.data.config,reasoningEffort:'low'}},page));
  assert.equal(c.data.config.reasoningEffort,'default');
 });
+
+test('chat response parsing rejects truncated, refused and unsupported completions without leaking response data',()=>{
+ const valid='{"reply":"Observe","action":"observe"}';
+ const parse=(message,finish_reason)=>backend.parseChatResponse(JSON.stringify({choices:[{message,finish_reason}],usage:{prompt_tokens:10,completion_tokens:4,prompt_tokens_details:{cached_tokens:8}}}));
+ assert.deepEqual(parse({content:valid},'stop'),{text:valid,usage:{promptTokens:10,completionTokens:4,cachedTokens:8}});
+ assert.equal(parse({content:valid}).text,valid);assert.equal(parse({content:valid,tool_calls:null,refusal:null},'stop').text,valid);
+ for(const [message,reason,code] of [[{content:valid},'length','MODEL_OUTPUT_TRUNCATED'],[{content:'PRIVATE_RESPONSE'},'content_filter','MODEL_OUTPUT_REFUSED'],[{content:valid,refusal:'PRIVATE_RESPONSE'},'stop','MODEL_OUTPUT_REFUSED'],[{content:valid,tool_calls:[{function:{arguments:'PRIVATE_RESPONSE'}}]},'stop','MODEL_TOOL_CALL_UNSUPPORTED'],[{content:valid},'tool_calls','MODEL_TOOL_CALL_UNSUPPORTED'],[{content:[{type:'text',text:'PRIVATE_RESPONSE'}]},'stop','MODEL_CONTENT_UNSUPPORTED'],[{content:''},'stop','MODEL_OUTPUT_EMPTY'],[{content:'x'.repeat(12001)},'stop','MODEL_OUTPUT_TOO_LARGE'],[{content:valid},'PRIVATE_FINISH','MODEL_FINISH_UNSUPPORTED']])assert.throws(()=>parse(message,reason),e=>e.code===code&&!e.message.includes('PRIVATE_'));
+ assert.throws(()=>backend.parseChatResponse('{PRIVATE_INVALID'),e=>e.code==='MODEL_RESPONSE_INVALID'&&!e.message.includes('PRIVATE_'));
+});

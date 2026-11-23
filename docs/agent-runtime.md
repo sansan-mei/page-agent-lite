@@ -101,3 +101,5 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 可信 task:diagnostics 需 tabId/taskId，并读取当前标签页 origin 与当前任务 origin 相符后才返回。导出 schema=page-agent-diagnostics/version=1，固定数值及枚举重建，不展开复制 task；包含状态/阶段、轮数/上限、已有 metrics 计数与 timings，以及保留 results/contextArchive 的工具分类和 V2 状态/dispatch 频数。未知工具不输出其名称，未知状态归类 unknown，非法数值回退 0。
 
 不含 taskId/tabId/token、URL/origin、目标/指令/计划/笔记/摘要/正文、请求/值/证据/消息/任意错误 code；generatedAt 仅报告生成时间。读取不更新存储、不执行动作或模型。仅当前任务，身份/网站改变则拒绝；保留结果分布不是完整历史，未回报次数按计时原规则解释。
+
+模型响应诊断使用 MODEL_RESPONSE_INVALID、MODEL_OUTPUT_TRUNCATED、MODEL_OUTPUT_REFUSED、MODEL_TOOL_CALL_UNSUPPORTED、MODEL_FINISH_UNSUPPORTED、MODEL_CONTENT_UNSUPPORTED、MODEL_OUTPUT_EMPTY、MODEL_OUTPUT_TOO_LARGE。它们不是临时网络/429/5xx 自动重试条件；动作尚未形成时记录 dispatch=not_sent，不把模型异常解释为网页派发未知。工具异常已有 V2 派发语义保持不变。
