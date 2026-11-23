@@ -678,3 +678,37 @@ test('same-origin navigation verifies after worker reconstruction without replay
  await f.runtime.start(1,'Navigate');await f.runtime.tick(1);let t=await f.runtime.get(1);const id=t.taskId;assert.equal(t.phase,'verifying');assert.equal(t.check.expected[0].kind,'url_equals');
  f.runtime=createRuntime(f.deps);await f.runtime.tick(1);t=await f.runtime.get(1);assert.equal(t.check,null);assert.equal(t.lastOutcome.status,'success');assert.equal(t.lastOutcome.dispatch,'unknown');assert.equal(t.taskId,id);assert.equal(t.steps,1);assert.equal(actions,1);
 });
+
+test('memory changes invalidate task milestones and archived planning metadata without clearing checkpoint evidence',async()=>{
+ for(const scope of ['global','site','temporary']){
+  const globalMemory=durableFixture(),siteMemory=durableFixture(),f=fixture({globalMemory,siteMemory});
+  await f.runtime.start(1,'Work');let t=await f.runtime.get(1);
+  const subgoals=[{id:'old',title:'forgotten-plan-text',status:'active'}],request={reply:'Inspect',action:'observe',subgoals};
+  t.taskPlan=subgoals;t.results=[{action:'observe',request}];t.contextArchive=[{id:'h1',results:[{action:'observe',request}]}];
+  t.phase='executing';t.pending={plan:{reply:'Click',action:'click',id:'t0',subgoals},url:'https://example.test/1'};t.check={kind:'action',deadline:12345,expected:[{kind:'url_equals',value:'https://example.test/next'}],dispatch:'unknown',request:{reply:'Click',action:'click',subgoals}};
+  await f.store.set(1,t);
+  if(scope==='global')await f.runtime.editGlobalMemory({action:'clear',expectedVersion:0});
+  else if(scope==='site')await f.runtime.editSiteMemory(1,{origin:'https://example.test',action:'clear',expectedVersion:0});
+  else await f.runtime.clearMemory(1);
+  t=await f.runtime.get(1);assert.equal(t.taskPlan,null);assert.doesNotMatch(JSON.stringify(t),/forgotten-plan-text/);assert.equal(t.results[0].request.action,'observe');
+  if(scope==='global'){assert.equal(t.check.deadline,12345);assert.equal(t.check.dispatch,'unknown');assert.equal(t.pending.plan.action,'click');assert.equal(t.check.expected[0].kind,'url_equals');}
+  await f.runtime.resume(1);
+  const P=require('../extension/prompts.js');assert.doesNotMatch(P.agentInput(await f.runtime.get(1),{elements:[]}),/forgotten-plan-text/);
+ }
+});
+
+test('global memory edits discard late milestone replies as well as existing plan text',async()=>{
+ const globalMemory=durableFixture();let resolve,started;const ready=new Promise(r=>started=r);
+ const f=fixture({globalMemory,model:async()=>{started();return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'Work');const job=f.runtime.tick(1);await ready;
+ await f.runtime.editGlobalMemory({action:'clear',expectedVersion:0});resolve({text:JSON.stringify({reply:'Old plan',action:'observe',subgoals:[{id:'old',title:'forgotten-plan-text',status:'active'}]})});await job;
+ assert.equal((await f.runtime.get(1)).taskPlan,null);assert.doesNotMatch(JSON.stringify(await f.runtime.get(1)),/forgotten-plan-text/);
+});
+
+test('model memory clear cannot reintroduce removed milestones in its request archive',async()=>{
+ for(const action of ['global_memory_clear','site_memory_clear','memory_clear']){
+  const f=fixture({globalMemory:durableFixture(),siteMemory:durableFixture(),model:async()=>({text:JSON.stringify({reply:'Clear notes',action,subgoals:[{id:'old',title:'forgotten-plan-text',status:'active'}]})})});
+  await f.runtime.start(1,'Clear');await f.runtime.tick(1);const task=await f.runtime.get(1);
+  assert.equal(task.taskPlan,null);assert.doesNotMatch(JSON.stringify(task),/forgotten-plan-text/);
+ }
+});

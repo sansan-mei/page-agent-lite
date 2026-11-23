@@ -75,3 +75,5 @@ Node 模拟覆盖全局跨源目录/按需读取、用户修改跨站取消和�
 参考：[Hermes 提示词组装](https://hermes-agent.nousresearch.com/docs/developer-guide/prompt-assembly)、[记忆](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory)、[Skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)。只借鉴职责划分，尚未实现完整技能协议。
 
 普通响应可带 subgoals 增量维护公开任务里程碑；独立 taskPlan 随目标/指令进入模型上下文，不靠历史裁剪保留。完成声明必须经规划快照条件核对，旧计划始终是历史数据，用户新指令与当前证据优先；不保存私有推理，不把里程碑等同已学会技能。
+
+记忆修改/清空同时使当前 taskPlan 失效，并移除当前结果、原始结果归档及检查点请求中的 subgoals 元数据，避免计划标题/证据继续作为模型上下文出现。全局影响各站任务，网站只影响同 origin，临时清空影响当前标签页；既有执行中检查点保护保留其操作/条件/deadline/派发状态，不因清理计划而重放。记忆变更工具本次请求也不重新附回旧 subgoals。此规则针对已知结构化计划字段，不承诺擦除所有历史自由文本或用户原指令。

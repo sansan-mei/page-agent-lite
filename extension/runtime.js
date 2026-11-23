@@ -26,13 +26,25 @@
       });
     }
     const event = (t, text) => {t.events = recent(t.events.concat({time:Date.now(), text}), 40, 16000);};
+    const withoutSubgoals=plan=>{if(!plan||!Object.prototype.hasOwnProperty.call(plan,'subgoals'))return plan;const {subgoals,...rest}=plan;return rest;};
+    function forgetPlanContext(t){
+      t.taskPlan=null;
+      const clean=r=>r.request?{...r,request:withoutSubgoals(r.request)}:r;
+      t.results=(t.results||[]).map(clean);
+      t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.map(clean)}));
+      // Keep action/checkpoint evidence intact; only discard planning metadata.
+      if(t.pending?.plan)t.pending={...t.pending,plan:withoutSubgoals(t.pending.plan)};
+      if(t.check?.request)t.check={...t.check,request:withoutSubgoals(t.check.request)};
+    }
     function forgetSiteContext(t){
+      forgetPlanContext(t);
       t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;
       const keep=r=>!r.action?.startsWith('site_memory_')&&r.action!=='history_read';
       t.results=(t.results||[]).filter(keep);
       t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(keep)}));
     }
     function forgetGlobalContext(t){
+      forgetPlanContext(t);
       t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;
       const keep=r=>!r.action?.startsWith('global_memory_')&&r.action!=='history_read';
       t.results=(t.results||[]).filter(keep);
@@ -78,7 +90,7 @@
           }
         }catch(e){result={error:e.message,code:e.code||'GLOBAL_MEMORY_ERROR'};}
         if(signal.aborted)return;
-        t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan,time:now(),action:plan.action,result});event(t,'全局长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
+        t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:now(),action:plan.action,result});event(t,'全局长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
     async function getSiteMemory(tabId){
@@ -117,7 +129,7 @@
           }
         }catch(e){result={error:e.message,code:e.code||'SITE_MEMORY_ERROR'};}
         if(signal.aborted)return;
-        t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan,time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
+        t.phase='observe';t.pending=null;t.results=t.results.concat({request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
     async function start(tabId, goal) {
@@ -502,9 +514,9 @@
           else{await store.setMemory(t.tabId,t.origin,next);result={saved:plan.id};t.memoryReview=null;}
         }else if(plan.action==='memory_delete'){
           await store.setMemory(t.tabId,t.origin,entries.filter(m=>m.id!==plan.id));result={deleted:plan.id};
-          t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
+          forgetPlanContext(t);t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
         }else{
-          await store.setMemory(t.tabId,t.origin,[]);result={cleared:true};t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
+          await store.setMemory(t.tabId,t.origin,[]);result={cleared:true};forgetPlanContext(t);t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
         }
         t.phase='observe';t.pending=null;t.retries=0;
         t.results=t.results.concat({action:plan.action,result});event(t,'临时记忆：'+plan.action+' · '+plan.reply);
@@ -518,7 +530,7 @@
         await store.setMemory(tabId,origin,[]);
         const task=await store.get(tabId);
         if(task?.origin===origin){
-          controllers.get(tabId)?.abort();task.token=uuid();task.nextObservation=null;task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
+          controllers.get(tabId)?.abort();task.token=uuid();task.nextObservation=null;forgetPlanContext(task);task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
           if(!['completed','ended','stopped','failed'].includes(task.status)){task.status='paused';task.reason='memory_cleared';}
           task.phase='observe';event(task,'用户已清空临时记忆；继续任务将重新读取');await store.set(tabId,task);
         }
