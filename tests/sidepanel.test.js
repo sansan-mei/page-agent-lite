@@ -1,10 +1,10 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const {parseHTML}=require('linkedom');
 const flush=()=>new Promise(r=>setImmediate(r));
-async function fixture(granted,hook=()=>undefined,management=false){
+async function fixture(granted,hook=()=>undefined,management=false,contains=async()=>false){
  const {document,window}=parseHTML(fs.readFileSync(management?'extension/options.html':'extension/sidepanel.html','utf8'));
- const calls=[];let updated;const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/task',title:'Homework'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(){}}}};
+ const calls=[];let updated,added,removed;const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/task',title:'Homework'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(){}}}};
  vm.runInNewContext(fs.readFileSync(management?'extension/management.js':'extension/sidepanel.js','utf8'),{chrome,document,URL,Date});await flush();
- return {document,window,calls,updated};
+ return {document,window,calls,updated,added,removed};
 }
 test('sidepanel requests only current origin directly from gesture, then connects',async()=>{
  const f=await fixture(true);assert.equal(f.document.getElementById('grant').disabled,false);
@@ -195,4 +195,16 @@ test('tool summaries distinguish dispatch, scroll boundaries, stale targets and 
  const cards=[...f.document.querySelectorAll('#timeline .tool-call')];
  assert.equal(cards.length,cases.length);
  cards.forEach((card,i)=>{assert.ok(card.querySelector('summary').textContent.endsWith(cases[i].label));assert.equal(card.dataset.status,'unknown');});
+});
+
+
+test('authorization buttons follow existing grants and permission revocation',async()=>{
+ let site=true,all=true;
+ const f=await fixture(true,()=>undefined,false,async p=>p.origins.length===2?all:site),d=f.document;
+ assert.equal(d.getElementById('grant').hidden,true);assert.equal(d.getElementById('grant-all').hidden,true);
+ all=false;f.removed();await flush();
+ assert.equal(d.getElementById('grant').hidden,true);assert.equal(d.getElementById('grant-all').hidden,false);
+ site=false;f.removed();await flush();assert.equal(d.getElementById('grant').hidden,false);
+ site=true;all=true;f.added();await flush();
+ assert.equal(d.getElementById('grant').hidden,true);assert.equal(d.getElementById('grant-all').hidden,true);
 });

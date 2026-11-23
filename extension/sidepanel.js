@@ -2,6 +2,19 @@
 (() => {
   const $=id=>document.getElementById(id);
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
+  let permissionCheck=0;
+  async function refreshPermissions(){
+    const version=++permissionCheck,origin=tabOrigin;
+    $('grant').hidden=true;$('grant-all').hidden=true;
+    if(!origin)return;
+    try{
+      const [site,all]=await Promise.all([chrome.permissions.contains({origins:[origin+'/*']}),chrome.permissions.contains({origins:['http://*/*','https://*/*']})]);
+      if(version!==permissionCheck||origin!==tabOrigin)return;
+      $('grant').hidden=site;$('grant-all').hidden=all;
+    }catch(e){
+      if(version===permissionCheck&&origin===tabOrigin){$('grant').hidden=false;$('grant-all').hidden=false;}
+    }
+  }
   const labels={running:'执行中',waiting_page:'等待网页',waiting_confirmation:'等待确认',paused:'已暂停',stopped:'已停止',failed:'执行失败',completed:'已完成',ended:'已结束'};
   async function send(type,extra={}){
     const result=await chrome.runtime.sendMessage({type,tabId,...extra});
@@ -169,13 +182,14 @@
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
   }
   async function selectTab(){
-    const version=++selection;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;tabId=null;tabOrigin=null;task=null;render();
+    const version=++selection;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;tabId=null;tabOrigin=null;task=null;render();void refreshPermissions();
     $('status').textContent='';
     try{
       const tabs=await chrome.tabs.query({active:true,currentWindow:true});
       if(version!==selection)return;
       const tab=tabs[0];tabId=tab?.id??null;
       if(tab?.url&&['http:','https:'].includes(new URL(tab.url).protocol))tabOrigin=new URL(tab.url).origin;
+      void refreshPermissions();
       $('target').textContent=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'请选择普通 HTTP/HTTPS 网页';
       if(!tabOrigin)$('status').textContent=tab?.url?'浏览器内部页、扩展页面等不支持操作。':'无法读取网页地址，请重新加载扩展并确认新增权限。';
       if(tabId===null){render();return;}
@@ -229,11 +243,13 @@
         await send('task:connect',{tabId:id});
         if(tabId===id)$('status').textContent=all?'所有普通网站已授权，当前网页已连接。':'网站已授权并连接，可以开始或继续任务。';
       }catch(e){if(tabId===id)$('status').textContent=e.message;}
-      finally{busy=false;render();}
+      finally{busy=false;render();void refreshPermissions();}
     })();
   }
   $('grant').addEventListener('click',()=>authorize(false));
   $('grant-all').addEventListener('click',()=>authorize(true));
+  chrome.permissions.onAdded.addListener(()=>void refreshPermissions());
+  chrome.permissions.onRemoved.addListener(()=>void refreshPermissions());
   chrome.tabs.onActivated.addListener(()=>void selectTab());
   chrome.tabs.onUpdated.addListener((id,change)=>{
     if(id===tabId&&(change.url||change.status==='complete'))void selectTab();
