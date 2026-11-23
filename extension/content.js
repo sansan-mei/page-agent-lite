@@ -5,7 +5,7 @@
   const C=globalThis.PageAgentCore,G=globalThis.PageAgentConditions,T=globalThis.PageAgentProtocol;
   const documentId=crypto.randomUUID();
   let snapshot=null,snapshotId=null,executing=false;
-  function capture(){return {...C.agentSnapshot(document),documentId,url:location.href};}
+  function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset),documentId,url:location.href};}
   function fingerprint(){return JSON.stringify(capture().page);}
   async function settle(before){
     const start=Date.now();let last=before,stable=0;
@@ -27,7 +27,7 @@
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});
       if(message.type==='agent:observe'){
-        snapshot=capture();snapshotId=crypto.randomUUID();
+        snapshot=capture(message.textOffset??0);snapshotId=crypto.randomUUID();
         return {snapshotId,documentId,url:location.href,readyState:document.readyState,page:snapshot.page};
       }
       if(message.type==='agent:verify'){

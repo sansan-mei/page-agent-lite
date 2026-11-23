@@ -79,3 +79,7 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 视觉反馈本身不消耗模型 token；新增 hover 的稳定说明、动作记录和重新观察可能增加用量。纯 CSS 悬停、拖拽、右键、双击及系统鼠标控制未实现。
 
 纯延时示例：`{"reply":"等待15秒后继续","action":"wait","timeoutMs":15000}`。后台只检查持久化的 deadline，不轮询网页条件或请求模型；到期记录 `DELAY_ELAPSED`，随后重新读取页面再规划。该成功只代表时间已过，不证明视频切换或其他网页操作成功。重复间隔还受模型和浏览器调度耗时影响。
+
+## 正文分段读取（PA1 首个增量）
+
+模型可返回 `{"reply":"读取后续正文","action":"observe","value":16000}`；value 为非负安全整数，表示当前规范化正文的 UTF-16 字符偏移。后台 observe(tabId, textOffset) 转发为 agent:observe.textOffset，返回 page.textRange 的 start/end/total/nextOffset（末段为 null），每段最多 16000 字符，超出末尾返回空段。范围指当前 DOM 文本，不是稳定分页游标；内容变化应从 0 重读。后续段仍标记 textComplete=false，不能据此证明全文不存在某项。正文片段作为不可信工具结果进入下一轮，停止/代次变化丢弃迟到结果，导航或文档变化丢弃本次读取；下一轮仍重新观察后规划动作，不复用分段快照目标。不会滚动或分页控件/区域。

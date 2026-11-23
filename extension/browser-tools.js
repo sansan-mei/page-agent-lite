@@ -21,12 +21,12 @@
       const response=await chrome.tabs.sendMessage(tabId,message,{frameId:0});
       if(!response?.ok){const e=new Error(response?.error||'页面工具通信失败');e.code=response?.code||(response?.ok===false?'TOOL_ERROR':undefined);e.result=response?.result;throw e;}return response.value;
     }
-    async function observe(tabId){
-      try{return await call(tabId,{type:'agent:observe'});}catch(error){
+    async function observe(tabId,textOffset=0){
+      try{return await call(tabId,{type:'agent:observe',textOffset});}catch(error){
         if(error.code)throw error;
         try {
           await inject(tabId);
-          return await call(tabId,{type:'agent:observe'});
+          return await call(tabId,{type:'agent:observe',textOffset});
         } catch(reconnectError) {
           if(!reconnectError.code&&(await tab(tabId)).status==='loading')throw Object.assign(new Error('等待页面连接'),{code:'NAVIGATION'});
           throw reconnectError;

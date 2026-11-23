@@ -65,3 +65,5 @@ check 保存 operationId、expected、deadline、kind 及完成说明；条件�
 用户补充指令设置 memoryReview 提醒并随每轮上下文传递。成功 memory_write/site_memory_write 后清除；用户手动清空/编辑笔记也消除提醒，避免提示旧请求重新保存。提示模型审查和记录可复用纠正，未新增自动持久化原始指令。
 
 纯延时复用 check，kind 为 delay、expected 为空数组、deadline 为绝对到期时间。每 tick 先检查 origin，再推进计时；不调用网页 verify，到期后清除 check 并进入 observe，下一轮必须重新读取快照。停止、追加指令、结束及记忆修改沿用现有取消机制。延时不额外增加模型轮数，不能绕过后续页面加载、权限、预算或不确定副作用保护。
+
+正文分段 observe 使用可选整数 value；只读结果写入普通 results 并进入下一轮上下文，仍按模型请求累计轮数。读取返回后检查运行代次、URL 与 documentId；停止或替换后的迟到结果不写回。下一 tick 重新观察后才规划动作，不将分段快照 ID 持久化。

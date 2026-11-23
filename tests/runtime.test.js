@@ -525,3 +525,22 @@ test('a model global write invalidates other in-flight decisions across tabs',as
  const f=fixture({globalMemory,model:async()=>++calls===1?new Promise(r=>resolve=r):{text:JSON.stringify({reply:'save',action:'global_memory_write',id:'pref',value:'use tables'})}});
  await f.runtime.start(1,'first');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));await f.runtime.start(2,'second');await f.runtime.tick(2);resolve({text:JSON.stringify({reply:'click',action:'click',id:'t0'})});await job;assert.equal(f.executed.length,0);assert.equal((await f.runtime.getGlobalMemory()).version,1);
 });
+
+test('segmented observe delivers text on the next model turn and preserves cumulative budget',async()=>{
+ const offsets=[];let calls=0,second;
+ const f=fixture({tools:{async observe(id,offset){offsets.push(offset);return {url:'https://example.test/1',documentId:'doc',page:{text:offset===16000?'tail':'prefix',textRange:{start:offset||0,nextOffset:null},elements:[]}};}},model:async input=>{
+  if(++calls===1)return {text:JSON.stringify({reply:'read more',action:'observe',value:16000})};
+  second=JSON.parse(input);return {text:JSON.stringify({reply:'finished reading',action:'done'})};
+ }});
+ await f.runtime.start(1,'Read');await f.runtime.tick(1);await f.runtime.tick(1);
+ assert.deepEqual(offsets,[undefined,16000,undefined]);assert.match(JSON.stringify(second),/tail/);
+ assert.equal((await f.runtime.get(1)).steps,2);assert.equal(f.executed.length,0);
+});
+
+test('stop during a segmented read discards its late result',async()=>{
+ let resolve,started;const ready=new Promise(r=>started=r);
+ const f=fixture({tools:{async observe(id,offset){if(offset===16000){started();return new Promise(r=>resolve=r);}return {url:'https://example.test/1',page:{elements:[]}};}},model:async()=>({text:JSON.stringify({reply:'read',action:'observe',value:16000})})});
+ await f.runtime.start(1,'Read');const job=f.runtime.tick(1);await ready;await f.runtime.stop(1);
+ resolve({url:'https://example.test/1',page:{text:'late tail',elements:[]}});await job;
+ assert.doesNotMatch(JSON.stringify(await f.runtime.get(1)),/late tail/);assert.equal(f.executed.length,0);
+});

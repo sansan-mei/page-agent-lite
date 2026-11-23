@@ -57,3 +57,5 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 同一数据库独立 global 对象仓库以 scope 为主键，唯一记录 {scope:'global',version,notes}，不使用虚拟 origin。笔记字段与每范围 32 条/64000 序列化字符、单条 2000 字符上限沿用网站笔记；独立版本和 readwrite CAS 保证原子性。clear 保留递增版本的空记录。
 
 只有可信设置页/侧栏可通过后台 task:global-memory 与 task:global-memory-change 管理，全局管理无需 tabId；内容脚本被拒绝。模型使用 global_memory_* 工具，每轮只看到 globalMemoryIndex，正文按需读取。用户修改前取消各站请求并暂停现存活动任务，清理全局读取结果、history_read 缓存及摘要；等待期限和 executing 检查点保留，继续时先恢复只读核对。模型写入使其他在途决定失效，后续按 globalMemoryVersion 重读。网站和全局分别清空/导出，不包含 API 配置。无同步、导入或账号隔离。
+
+正文分段读取沿用 task.results，保存 text、textRange 和 untrusted 标记；无新增存储键或恢复游标。普通上下文归档/压缩规则适用，不跨重启恢复。
