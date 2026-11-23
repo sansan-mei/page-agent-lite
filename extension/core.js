@@ -276,7 +276,9 @@ function agentClick(n,doc,hover=false){
  send('pointerup',true);if(pointer)send('mouseup');
  // Hover/focus handlers can replace a node or open an overlay. Never click through it.
  if(!n.isConnected||!target.isConnected||(r&&doc.elementFromPoint&&!n.contains(doc.elementFromPoint(x,y))))throw Object.assign(new Error('交互期间目标发生变化，尚未派发 click，请重新观察'),{code:'TARGET_CHANGED'});
- target.click();
+ // SVG hit targets have no HTMLElement.click(); keep the actual hit as event target.
+ if(typeof target.click==='function')target.click();
+ else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
  try{root.PageAgentPointer?.click();}catch{}
 }
 const api={endpoint,siteOrigin,byteSize,safe,cleanText,collect,validStyle,proposal,apply,describe,resolve,validRecord,restore,agentSnapshot,agentPlan,agentExecute,agentVerify};
