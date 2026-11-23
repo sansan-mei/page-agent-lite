@@ -135,3 +135,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA11 标准敏感字段排除
 
 185 项 Node 测试通过，新增大小写/section/billing autocomplete、textarea/input/select/contenteditable、label/aria-labelledby/区域文字及模型输入无 fixture 私密标记，普通字段保留，敏感目标缺失仍 unknown，后置敏感标记拒绝旧 fill 且核对不回值。Edge page-read-smoke 使用真实 DOM + 消息 stub 验证一次性验证码 textarea 不进入快照且缺失覆盖标记保守。未为本增量重跑完整扩展或真实模型，也不验证所有隐私泄漏模式。
+
+## PA1 区域内部文字分段
+
+186 项 Node 测试通过：2500 字符后尾部可读、范围/下一偏移、末段仍截断、缺失短语保持 unknown、超末尾空段、内容变化重读、敏感子树排除及非法组合拒绝。Edge page-read-smoke 通过真实 DOM + Chrome 消息 stub 的区域尾部读取，保留原控件/区域/离屏点击回归；未重跑完整扩展或真实模型验收。

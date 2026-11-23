@@ -16,6 +16,11 @@ const path=require('node:path');
    const sender={id:'test',url:'chrome-extension://test/background.js'};
    const send=message=>new Promise(resolve=>readListener(message,sender,resolve));
    const first=await send({type:'agent:observe'});
+   const textRegion=document.querySelector('section[aria-label="Result 0"]');textRegion.textContent='a'.repeat(2500)+'REGION_TAIL';
+   const segment=(await send({type:'agent:observe',textOffset:{regionQuery:'Result 0',regionTextOffset:2000,includeText:false}})).value;
+   if(!segment.page.regions[0].text.endsWith('REGION_TAIL')||segment.page.regions[0].textTruncated!==true||segment.page.regions[0].textRange.nextOffset!==null)throw Error('Region text segmentation failed');
+   textRegion.textContent='x'.repeat(1000);
+
    if(JSON.stringify(first.value.page).includes('PRIVATE_AUTOCOMPLETE_FIXTURE')||first.value.page.coverage.absenceComplete!==false)throw Error('Sensitive autocomplete leaked or absence coverage was overstated');
    const controlsOnly=await send({type:'agent:observe',textOffset:{includeText:false,query:'Entry 244'}});
    if(controlsOnly.value.page.text!==''||controlsOnly.value.page.textRange.omitted!==true||controlsOnly.value.page.coverage.textComplete!==false||controlsOnly.value.page.elements[0].label!=='Entry 244')throw Error('Controls-only observation contract failed');

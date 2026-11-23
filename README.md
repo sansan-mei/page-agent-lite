@@ -134,3 +134,5 @@ npm test
 支持 navigate 在当前任务的同一 origin 内打开明确的 HTTP/HTTPS 地址，拒绝嵌入凭据、内部协议和跨站目标；先校验权限及当前快照，再由后台导航并重新观察 URL。导航不等于业务完成，回执不明或 worker 恢复时只核对，不重发。跨站、多标签页仍未支持。
 
 明确标注 autocomplete=current-password/new-password/one-time-code/cc-number/cc-csc 的字段及其子树会从新增快照中排除，既有 password/file/hidden 排除不变。带 section-/billing 等前缀或大小写变化仍识别；标准标记不完整或网页另处复制的数据可能遗漏，普通表单仍可能含隐私。被排除不代表内容不存在，敏感字段不自动填写。
+
+单个长区域也可按其 textRange.nextOffset 继续读取：observe 指定区域名称片段 regionQuery 和 regionTextOffset，每段仍最多 1000 字符。后续片段不代表完整区域，页面内容变化后偏移可能移动；不会自动滚动或扩大操作权限。

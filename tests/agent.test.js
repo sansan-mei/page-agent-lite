@@ -271,3 +271,14 @@ test('sensitive autocomplete fields are excluded from values, labels, regions an
  const input=document.querySelector('[aria-label="Public"]'),before=C.agentSnapshot(document),target=before.page.elements.find(e=>e.label==='Public');input.setAttribute('autocomplete','one-time-code');
  assert.throws(()=>C.agentExecute({action:'fill',id:target.id,value:'changed'},before,document),e=>e.code==='STALE');assert.equal(input.value,'safe');assert.equal(C.agentVerify({action:'fill',id:target.id,value:'safe'},before).actual,undefined);
 });
+
+test('named region text segments reach the tail and never make partial absence conclusive',()=>{
+ const {document}=parseHTML('<html><body><section aria-label="Report">'+ 'a'.repeat(2500)+'TAIL<textarea autocomplete="one-time-code">PRIVATE</textarea></section></body></html>');
+ const first=C.agentSnapshot(document,{regionQuery:'Report',includeText:false});assert.equal(first.page.regions[0].textRange.nextOffset,1000);
+ const middle=C.agentSnapshot(document,{regionQuery:'Report',regionTextOffset:1000});assert.equal(middle.page.regions[0].textRange.nextOffset,2000);
+ const tail=C.agentSnapshot(document,{regionQuery:'Report',regionTextOffset:2000});assert.match(tail.page.regions[0].text,/TAIL$/);assert.equal(tail.page.regions[0].textRange.nextOffset,null);assert.equal(tail.page.regions[0].textTruncated,true);assert.doesNotMatch(JSON.stringify(tail.page),/PRIVATE/);
+ const G=require('../extension/conditions.js'),check=G.bind([{kind:'text_present',id:tail.page.regions[0].id,value:'not present'}],{...tail,documentId:'doc'});assert.equal(G.evaluate(check,{...tail,documentId:'doc'}).status,'unknown');
+ assert.equal(C.agentSnapshot(document,{regionQuery:'Report',regionTextOffset:999999}).page.regions[0].text,'');
+ document.querySelector('section').textContent='updated';assert.equal(C.agentSnapshot(document,{regionQuery:'Report',regionTextOffset:0}).page.regions[0].text,'updated');
+ for(const value of [{regionTextOffset:0},{regionTextOffset:-1,regionQuery:'Report'},{regionTextOffset:1.5,regionQuery:'Report'},{regionTextOffset:0,regionQuery:''}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Read',action:'observe',value}),first));
+});

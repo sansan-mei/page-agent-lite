@@ -154,7 +154,7 @@ function agentContext(n){
  return {path:path.reverse(),description:refs(n,'aria-describedby')};
 }
 function agentReadOptions(value){
- if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery','includeText'].includes(k))||value.includeText!==undefined&&typeof value.includeText!=='boolean'||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery','regionTextOffset','includeText'].includes(k))||value.regionTextOffset!==undefined&&(!Number.isSafeInteger(value.regionTextOffset)||value.regionTextOffset<0||typeof value.regionQuery!=='string'||!value.regionQuery.trim())||value.includeText!==undefined&&typeof value.includeText!=='boolean'||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
  return value;
 }
 function agentSnapshot(doc, textOffset=0){
@@ -244,8 +244,9 @@ function agentSnapshot(doc, textOffset=0){
   if(regions.length>=40||regionBudget<=0)continue;
   const copy=n.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();
   const raw=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
-  const limit=Math.min(1000,regionBudget),regionText=raw.slice(0,limit);regionBudget-=regionText.length;
-  regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textTruncated:raw.length>limit,visible:visible(n)});
+  const limit=Math.min(1000,regionBudget),regionStart=Math.min(reading.regionTextOffset||0,raw.length),regionText=raw.slice(regionStart,regionStart+limit);regionBudget-=regionText.length;
+  const textRange={start:regionStart,end:regionStart+regionText.length,total:raw.length,nextOffset:regionStart+regionText.length<raw.length?regionStart+regionText.length:null};
+  regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textRange,textTruncated:regionStart>0||textRange.nextOffset!==null,visible:visible(n)});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  regionsComplete=!reading.regionQuery&&regionOffset===0&&regions.length===matchedRegions;

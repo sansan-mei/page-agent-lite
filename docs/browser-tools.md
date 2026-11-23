@@ -53,7 +53,7 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 
 过期目标返回 STALE；加载阶段可返回 NAVIGATION。无法注入时说明需要点击扩展图标或重新授权。只支持当前可访问的同源页面。
 
-后续：单区域正文分段、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
+后续：快照差异、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
 
 ## 弹窗与核对证据
 
@@ -116,7 +116,7 @@ selected_equals 和 expanded_equals 接收布尔 value，分别只读核对明�
 
 observe 的对象 value 可加 regionOffset（非负安全整数）、regionQuery（非空纯文字，最多 180 字符），可与控件范围字段合用。regionQuery 仅匹配区域名称的不区分大小写字面子串，不搜索正文、不解释选择器或正则。`page.regionRange` 返回 start/end/total/nextOffset/query；范围计数在当前匹配集上，排序沿用弹窗/视口优先。仍限 40 项、总文字 5000、每区域 1000；因此跟随 nextOffset 而非固定加 40。超出末尾返回空列表；筛选/非零偏移 regionsComplete=false。
 
-下一轮使用已有 nextObservation 重新捕获范围，不持久化区域 ID，不增加模型预算或权限。按区域分页不会滚动网页；DOM 变化可能改变顺序。单个区域 textTruncated 仍保留，未提供其内部文字分页。
+下一轮使用已有 nextObservation 重新捕获范围，不持久化区域 ID，不增加模型预算或权限。按区域分页不会滚动网页；DOM 变化可能改变顺序。单个区域 textTruncated 仍保留，内部文字分页见下文。
 
 verify 和动作后核对会针对绑定条件中具名 region 进行额外只读名称查找，最多随 5 个条件读取并按节点 key 去重；不发送额外模型请求、不执行网页动作、不改变当前动作快照。语义匹配仍需唯一，重复名称保持 ambiguous。合并不提升原覆盖完整性：原全页读取不完整时，找不到目标仍是 unknown；原范围确已完整时保留既有缺失核对语义。额外读取不证明全文完整或服务器成功。
 
@@ -167,3 +167,9 @@ navigate 使用绝对 HTTP/HTTPS 字符串 value（最多 2000 字符），不�
 coverage.sensitiveExcluded 表明页面存在此类排除，absenceComplete=false，不将敏感目标未出现当作缺失证明。autocomplete 纳入目标签名；执行前及输入事件间重新检查，快照后新标记敏感的目标拒绝操作，agentVerify 不回传实际值。已发送的旧请求/历史不追溯删除。
 
 这不是凭据检测或全面脱敏：无标准标记、普通段落中的复制值、业务自定义组件及其他个人信息可能遗漏。普通字段、用户目标/指令与页面标题/URL 沿用既有行为，不提供任意 JS 过滤或自动处理支付/验证码的专用工具。
+
+## 单区域正文分段
+
+observe 对象可带 regionTextOffset（非负安全整数），必须同时指定非空 regionQuery，仍以区域名称的字面片段筛选。每个匹配区域在当前规范化文字中从此 UTF-16 字符偏移读取，单区域上限 1000、所有区域总预算 5000 不变；建议选择唯一名称，重复名称不会自动消歧。可与 includeText:false 合用。
+
+region.textRange 提供 start/end/total/nextOffset，超出末尾返回空文字且 nextOffset=null。非零实际 start 或仍有后文时 textTruncated=true；即使末段也不是完整正文。text_present 在片段命中仅证明当前片段，未命中且截断时仍 unknown；后续 verify 会按默认只读范围重新查找，不能用旧片段替代新证据。DOM 内容变化后应从 0 重读，不提供稳定游标或跨文档旧 ID。

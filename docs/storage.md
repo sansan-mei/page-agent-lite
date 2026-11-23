@@ -73,3 +73,5 @@ nextObservation.value 可选 includeText 布尔值，用于一次性的正文省
 同源 navigate 不改变任务归属或权限模型；pending.plan.value 是受限绝对 URL，check 保存自动 url_equals 和原 deadline，session 检查点恢复只核对不重复导航。原 origin 隔离、重启不恢复任务不变，尚无授权 origin 集合或多标签任务结构。
 
 记忆失效时 taskPlan 清空，当前 results/contextArchive 中 request.subgoals 及 pending.plan/check.request.subgoals 移除；仅删除计划元数据，不删除待核对动作、expected、deadline 或 dispatch。已归档对话的只读历史沿用既有保留规则，不重新作为当前任务模型输入。
+
+nextObservation.value 可选 regionTextOffset，必须配合 regionQuery；仅保存下一轮的受限文字偏移，不缓存区域正文或 DOM 引用，文档/代次边界仍使范围失效。
