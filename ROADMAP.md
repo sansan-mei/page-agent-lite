@@ -157,3 +157,5 @@
 - [x] PA2 原生字段输入兼容增量：原生 setter、聚焦/可取消 beforeinput/InputEvent、格式清洗前置保护、节点替换中断及异步回滚核对。156 项 Node 回归、Edge 真实 DOM + 消息 stub 通过；真实框架网站、组合输入和自定义选择器增强仍待验证/实现，PA2 未整体完成。
 
 - [x] PA2 ARIA 选择控件增量：listbox/唯一 combobox 归属分组、同名选项消歧、selected_equals/expanded_equals 只读核对与弹层归属变化后的旧目标拒绝。158 项 Node 测试及 Edge 真实 DOM + 消息 stub 通过；真实框架/模型、组合输入仍待验证/实现，不标记 PA2 整体完成。
+
+- [x] 通用目标 wheel 输入及动作派发状态保留：Edge 真实 DOM + 消息 stub 验证零窗口位移时触发监听器切换合成条目；Node 验证中断/停止不重放、点击核对超时保留 sent/unknown。原视频网站、完整扩展与真实模型待验证。

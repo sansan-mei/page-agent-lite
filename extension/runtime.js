@@ -449,7 +449,7 @@
         const expired=now()>=check.deadline;
         const pending=outcome.status!=='success'&&!expired;
         const reobserve=expired&&outcome.status==='unknown'&&check.kind==='action'&&check.action==='click'&&(t.verificationRecoveries||0)<2;
-        const finalOutcome=T.result({...outcome,operationId:check.operationId,status:pending?'pending':outcome.status,recovery:pending?'wait':outcome.status==='success'?'none':reobserve?'replan':'pause',
+        const finalOutcome=T.result({...outcome,operationId:check.operationId,dispatch:check.kind==='action'?(check.dispatch||'unknown'):outcome.dispatch,status:pending?'pending':outcome.status,recovery:pending?'wait':outcome.status==='success'?'none':reobserve?'replan':'pause',
           code:pending?'WAITING_CONDITIONS':outcome.status==='success'?'CONDITIONS_MATCH':expired&&!['verify','completion'].includes(check.kind)?'CONDITION_TIMEOUT':outcome.code});
         t.lastOutcome=finalOutcome;
         if(pending){t.status='waiting_page';t.phase='verifying';return;}
@@ -508,13 +508,14 @@
       // Checkpoint BEFORE emitting a side effect. On worker restart this phase
       // pauses for inspection rather than silently duplicating a click.
       await update(task.tabId,task.token,t=>{t.phase='executing';t.metrics={...t.metrics,actions:(t.metrics?.actions||0)+1};
-        t.check=pending.expected?.length?{operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
+        t.check=pending.expected?.length?{operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',dispatch:'unknown',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
       });
       if (!await live()) return;
       const result = T.normalize(await tools.execute(task.tabId,pending),{operationId:pending.operationId,documentId:pending.documentId});
       if (!await live()) return;
       await update(task.tabId,task.token,t=>{
         t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;
+        if(t.check)t.check.dispatch=result.dispatch;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
         else if(t.check){t.phase='verifying';t.status='waiting_page';}
         const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};

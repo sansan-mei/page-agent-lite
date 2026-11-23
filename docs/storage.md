@@ -61,3 +61,5 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 正文分段读取沿用 task.results，保存 text、textRange 和 untrusted 标记；无新增存储键或恢复游标。普通上下文归档/压缩规则适用，不跨重启恢复。
 
 任务可选 nextObservation={value:{elementOffset?,query?},url,documentId} 是一次性只读范围，不存 DOM 引用或待执行动作；旧任务缺省为空。下一 tick 消费，运行代次改变时清空；只存在 session，不跨浏览器重启恢复。
+
+动作 check 可选 dispatch 保存原动作的 sent/not_sent/unknown，执行前初始化 unknown，取得回执后更新；只读核对不覆盖。旧记录没有此字段时按 unknown，不推断从未执行。

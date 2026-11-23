@@ -581,3 +581,27 @@ test('cancelled input pauses without automatic replay, including after worker re
  assert.equal((await f.runtime.get(1)).status,'paused');assert.equal((await f.runtime.get(1)).lastOutcome.code,'INPUT_CANCELLED');assert.equal((await f.runtime.get(1)).lastOutcome.dispatch,'unknown');
  f.runtime=createRuntime(f.deps);await f.runtime.tick(1);assert.equal(attempts,1);
 });
+
+
+test('action verification preserves original dispatch across worker recovery and timeout',async()=>{
+ for(const dispatch of ['sent','unknown']){
+  let clock=0,executions=0;
+  const f=fixture({now:()=>clock,model:async()=>({text:JSON.stringify({reply:'Click',action:'click',id:'t0',expected:[{kind:'element_absent',id:'t0'}]})}),tools:{
+   async execute(){executions++;return {version:2,status:'unknown',dispatch,scope:'ui',code:'CONDITIONS_UNMET',recovery:'wait'};},
+   async verify(){return {version:2,status:'unknown',dispatch:'not_sent',scope:'page',code:'CONDITIONS_UNMET',evidence:[{code:'TARGET_MISSING'}]};}
+  }});
+  await f.runtime.start(1,'click');await f.runtime.tick(1);
+  assert.equal((await f.runtime.get(1)).check.dispatch,dispatch);
+  clock=20000;const recovered=createRuntime(f.deps);await recovered.tick(1);
+  const t=await recovered.get(1);assert.equal(t.lastOutcome.dispatch,dispatch);
+  assert.equal(t.lastOutcome.code,'CONDITION_TIMEOUT');assert.equal(executions,1);
+ }
+});
+
+test('wheel is checkpointed, interrupted execution and stop never replay it',async()=>{
+ const f=fixture({model:async()=>({text:JSON.stringify({reply:'Wheel',action:'wheel',id:'t0',value:'down'})})});
+ await f.runtime.start(1,'wheel');await f.runtime.tick(1);assert.equal(f.executed.length,1);assert.equal(f.executed[0].plan.action,'wheel');
+ let t=await f.runtime.get(1);t.phase='executing';t.check=null;await f.store.set(1,t);
+ const recovered=createRuntime(f.deps);await recovered.tick(1);assert.equal((await recovered.get(1)).reason,'uncertain');assert.equal(f.executed.length,1);
+ await recovered.stop(1);await createRuntime(f.deps).tick(1);assert.equal(f.executed.length,1);
+});

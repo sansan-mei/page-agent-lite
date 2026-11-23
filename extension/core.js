@@ -205,7 +205,7 @@ function agentVerify(plan,snap){
 function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','wheel','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
  if(p.action==='observe'&&p.value!==undefined){if(typeof p.value==='object')agentReadOptions(p.value);else if(!Number.isSafeInteger(p.value)||p.value<0)throw new Error('Invalid text offset');}
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
@@ -213,14 +213,14 @@ function agentPlan(raw,snap){
  if(p.expected!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;G.validate(p.expected);}
  if(p.action==='verify'&&!p.expected)throw new Error('验证需要明确条件');
  if(p.action==='wait'&&!p.expected&&p.timeoutMs===undefined)throw new Error('纯延时等待需要 timeoutMs');
- if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','hover','fill','check','select','scroll'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
+ if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','hover','fill','check','select','scroll','wheel'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
  if(['memory_write','memory_delete','site_memory_write','site_memory_delete','site_memory_read','global_memory_read','global_memory_write','global_memory_delete'].includes(p.action)&&(typeof p.id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(p.id)))throw new Error('记忆名称无效');
  if(p.action==='history_read'&&(typeof p.id!=='string'||!/^h[0-9]+$/.test(p.id)||(p.value!==undefined&&(!Number.isSafeInteger(p.value)||p.value<0))))throw new Error('历史记录读取参数无效');
  if(['memory_write','site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
- if(['click','hover','fill','check','select'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
+ if(['click','hover','fill','check','select','wheel'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
  if(p.action==='check'&&typeof p.value!=='boolean')throw new Error('勾选状态无效');
- if(p.action==='scroll'){
+ if(p.action==='scroll'||p.action==='wheel'){
   if(!['up','down','left','right'].includes(p.value))throw new Error('滚动方向无效');
   if(p.id!==undefined&&!snap.nodes.has(p.id))throw new Error('滚动目标无效');
  }
@@ -234,6 +234,7 @@ function agentExecute(p,snap,doc){
  const win=doc.defaultView;
  for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});}
  if(p.action==='scroll')return agentScroll(p,n,doc,false);
+ if(p.action==='wheel')return agentWheel(p,n,doc);
  // Visual feedback never gates or changes the actual operation.
  try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,doc);}catch{}
  if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover');return;}
@@ -280,6 +281,20 @@ function agentScroll(p,n,doc,page){
  if(page)doc.defaultView.scrollBy(x,y);else n.scrollBy({left:x,top:y,behavior:'instant'});
  const after=agentScrollInfo(n),delta=after[axis]-before[axis];
  return {axis,before:before[axis],after:after[axis],delta,atStart:after[axis]<=0,atEnd:after[axis]>=max};
+}
+function agentWheel(p,n,doc){
+ const win=doc.defaultView;
+ if(!win?.WheelEvent)throw Object.assign(new Error('浏览器不支持滚轮事件'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
+ n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
+ const r=n.getBoundingClientRect(),x=(Math.max(0,r.left)+Math.min(win.innerWidth,r.right))/2,y=(Math.max(0,r.top)+Math.min(win.innerHeight,r.bottom))/2;
+ const hit=doc.elementFromPoint(x,y);
+ if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡或不在可操作区域，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ try{root.PageAgentPointer?.show(n,doc);}catch{}
+ const horizontal=['left','right'].includes(p.value),amount=['up','left'].includes(p.value)?-600:600;
+ const deltaX=horizontal?amount:0,deltaY=horizontal?0:amount;
+ const accepted=hit.dispatchEvent(new win.WheelEvent('wheel',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,deltaX,deltaY,deltaMode:0}));
+ // Synthetic wheel invokes page listeners, never claims native default scrolling.
+ return {input:'wheel',deltaX,deltaY,defaultPrevented:!accepted};
 }
 function agentClick(n,doc,hover=false){
  const win=doc.defaultView;

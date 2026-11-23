@@ -105,3 +105,9 @@ fill 仍只接受现有 input 类型及 textarea。使用原型 value setter 绕
 listbox 内控件优先按 listbox 分组（包括位于 dialog 内或独立挂载的弹层）；名称先用自身 aria-label/aria-labelledby/标题，再用唯一可见 combobox 的名称。通过 aria-controls/aria-owns 的 DOM ID 引用关联，不执行选择器；多 owner 时不任取一个，不以选项文字冒充控件名称。listbox 也作为可读 region，仍受原预算限制。弹层节点或归属关联改变使旧目标签名失效。
 
 selected_equals 和 expanded_equals 接收布尔 value，分别只读核对明确的 aria-selected/aria-expanded；缺失或非 true/false 状态为 unknown，不能默认为 false。这两个条件沿用 expected、wait、verify、done 及证据展示，不新增选择器专用动作。先 click 打开，再按新快照分组挑选选项；选项 click 后派发不等于选中成功。选项消失/隐藏后不能核实 selected_equals，应核对 combobox 值或指定结果区域。不推断键盘焦点等于选中，不派发可信键盘事件。
+
+## 目标滚轮输入
+
+`wheel` 必须提供当前快照元素 id 和 up/down/left/right 的 value。检查签名、状态和遮挡，向命中子元素派发一次冒泡、可取消的 WheelEvent（像素模式，指定轴 ±600），不接收坐标/选择器，不自动回退其他容器。observed.input=wheel、deltaX/deltaY 是输入量，defaultPrevented 只是监听器取消标志，不是实际位移或成功证据。合成 wheel 只触发监听器，没有原生默认滚动或 isTrusted；普通 scroll 不变。窗口不动时可据当前页面尝试 wheel，但必须核对可识别的内容变化，播放计时变化不能证明切换。
+
+只读 verify 自身的 dispatch=not_sent 不得覆盖原动作派发状态；运行器核对回执沿用 action 检查点的 sent/unknown，旧检查点缺失时为 unknown。
