@@ -5,6 +5,7 @@
     const area=chrome.storage.session;
     const key=id=>'task:'+id;
     const rootKey=id=>'taskRoot:'+id;
+    const originKey=(id,taskId,origin)=>'conversation-origin:'+id+':'+taskId+':'+encodeURIComponent(origin);
     const serial=fn=>{const operation=(taskStoreWrites.get(area)||Promise.resolve()).catch(()=>{}).then(fn);taskStoreWrites.set(area,operation);return operation;};
     const readRegistry=async()=>{const value=(await area.get('taskRegistry')).taskRegistry;return value||{version:1,revision:0,bindings:{}};};
     const scopeError=()=>Object.assign(new Error('任务归属记录未完成，请重新加载扩展以只读核对'),{code:'TASK_SCOPE_INCONSISTENT'});
@@ -29,6 +30,16 @@
       await area.set({taskRegistry:{version:1,revision:registry.revision+1,bindings}});
       try{await area.remove(rootKey(task.taskId));}catch{ /* Archived unbound root is cleaned at startup. */ }
       return ended;
+    }
+    async function originView(id,taskId,origin,current){
+      const base=current?.taskId===taskId?current:(await area.get('conversation:'+id+':'+taskId))['conversation:'+id+':'+taskId];
+      if(!base||!(base.allowedOrigins||[base.origin]).includes(origin))return null;
+      const saved=(await area.get(originKey(id,taskId,origin)))[originKey(id,taskId,origin)];
+      const parts=(saved?.segments||[]).map(segment=>segment.view);
+      if(base.origin===origin)parts.push(base);
+      if(!parts.length)return null;
+      const {token,pending,check,...view}=parts.at(-1);
+      return {...view,taskId,origin,archived:base.origin!==origin||!!base.archived,results:parts.flatMap(v=>v.results||[]),events:parts.flatMap(v=>v.events||[]),contextArchive:parts.flatMap(v=>v.contextArchive||[])};
     }
     function rooted(id,task,revision,previous=null){
       if(!Number.isInteger(id)||id<0||task.tabId!==id||typeof task.taskId!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(task.taskId))throw new Error('任务根记录身份无效');
@@ -72,17 +83,37 @@
         await area.set({taskRegistry:{version:1,revision,bindings:{...registry.bindings,[id]:next}}});
         return record;
       });},
+      async switchOrigin(id,{taskId,expectedRevision,expectedToken,origin,token,updatedAt,proof=null}){return serial(async()=>{
+        const registry=await readRegistry();if(registry.pending)throw scopeError();
+        const task=await get(id),binding=registry.bindings[id];
+        if(!task||task.taskId!==taskId||task.token!==expectedToken||binding?.revision!==expectedRevision||!(task.allowedOrigins||[task.origin]).includes(origin))throw scopeError();
+        const url=new URL(origin);if(url.origin!==origin||!['http:','https:'].includes(url.protocol)||url.username||url.password||origin===task.origin)throw scopeError();
+        const name=originKey(id,taskId,task.origin),saved=(await area.get(name))[name]||{version:1,taskId,tabId:id,origin:task.origin,segments:[]};
+        const {token:oldToken,pending,check,...view}=task;
+        if(proof)view.results=(view.results||[]).concat({action:check?.action||'navigate',request:check?.request,time:updatedAt,origin:task.origin,tabRef:'tab0',outcome:proof});
+        if(!saved.segments.some(segment=>segment.id===task.scopeRevision))saved.segments.push({id:task.scopeRevision,view:{...view,archived:true}});
+        if(JSON.stringify(saved).length>1000000)throw new Error('本站历史超过 100 万字符，未切换任务；原记录已保留');
+        const destination=(await area.get(originKey(id,taskId,origin)))[originKey(id,taskId,origin)];
+        const uncertainClicks=(destination?.segments.at(-1)?.view.uncertainClicks||[]).filter(guard=>{try{return new URL(guard.url).origin===origin;}catch{return false;}}).slice(-2);
+        const revision=registry.revision+1,next={taskId,revision};
+        const record={version:3,taskId,token,tabId:id,origin,uncertainClicks,initialTabId:task.initialTabId,initialOrigin:task.initialOrigin,activeTabId:id,activeOrigin:origin,allowedOrigins:task.allowedOrigins,members:task.members,scopeRevision:revision,goal:task.goal,instructions:task.instructions||[],prefs:task.prefs,steps:task.steps,metrics:{...task.metrics,...(proof?{verifications:(task.metrics?.verifications||0)+1}:{})},updatedAt,status:'running',phase:'observe',results:[],contextArchive:[],events:[{time:updatedAt,text:'已切换站点，重新观察；旧站点内容不进入当前请求'}],pending:null,check:null,retries:0};
+        await area.set({taskRegistry:{...registry,pending:{kind:'origin_changed',tabId:id,binding:next,previousTaskId:taskId,sourceOrigin:task.origin,sourceRevision:task.scopeRevision}}});
+        await area.set({[name]:saved});
+        await area.set({[rootKey(taskId)]:record});
+        await area.set({taskRegistry:{version:1,revision,bindings:{...registry.bindings,[id]:next}}});
+        return record;
+      });},
       async history(id,origin){
-        const all=await area.get(null),current=await get(id);
-        const records=Object.entries(all).filter(([k])=>k.startsWith('conversation:'+id+':')).map(([,v])=>v);
-        if(current)records.push(current);
-        return records.filter(t=>t.origin===origin).sort((a,b)=>b.updatedAt-a.updatedAt).map(t=>({taskId:t.taskId,goal:t.goal,status:t.status,updatedAt:t.updatedAt,archived:!!t.archived}));
+        const all=await area.get(null),current=await get(id),ids=new Set();
+        for(const [name,record] of Object.entries(all))if(name.startsWith('conversation:'+id+':')||name.startsWith('conversation-origin:'+id+':'))ids.add(record.taskId);
+        if(current)ids.add(current.taskId);
+        const views=await Promise.all([...ids].map(taskId=>originView(id,taskId,origin,current)));
+        return views.filter(Boolean).sort((a,b)=>b.updatedAt-a.updatedAt).map(t=>({taskId:t.taskId,goal:t.goal,status:t.status,updatedAt:t.updatedAt,archived:!!t.archived}));
       },
       async historyGet(id,origin,taskId){
-        const current=await this.get(id);
-        const record=current?.taskId===taskId?current:(await area.get('conversation:'+id+':'+taskId))['conversation:'+id+':'+taskId];
-        if(!record||record.origin!==origin)throw new Error('对话不存在或不属于当前网站');
-        const {token,pending,check,...view}=record;return view;
+        const view=await originView(id,taskId,origin,await get(id));
+        if(!view)throw new Error('对话不存在或不属于当前授权网站');
+        return view;
       },
       async closeMember(id,expectedTaskId,closedAt){return serial(async()=>{
         const registry=await readRegistry();if(registry.pending)throw scopeError();
@@ -94,11 +125,12 @@
         return finishMemberClose(journal);
       });},
       async removeHistory(id){
-        for(const name of Object.keys(await area.get(null)))if(name.startsWith('conversation:'+id+':'))await area.remove(name);
+        for(const name of Object.keys(await area.get(null)))if(name.startsWith('conversation:'+id+':')||name.startsWith('conversation-origin:'+id+':'))await area.remove(name);
       },
       async remove(id){return serial(async()=>{
         const registry=await readRegistry();if(registry.pending)throw scopeError();const binding=registry.bindings[id],bindings={...registry.bindings};delete bindings[id];
         // Remove compatibility alias before releasing ownership; roots remain authoritative.
+        if(binding)for(const name of Object.keys(await area.get(null)))if(name.startsWith('conversation-origin:'+id+':'+binding.taskId+':'))await area.remove(name);
         await area.remove(key(id));await area.set({taskRegistry:{...registry,revision:registry.revision+1,bindings}});
         if(binding)await area.remove(rootKey(binding.taskId));
       });},
@@ -116,6 +148,10 @@
         if(intent.kind==='member_closed'){await finishMemberClose(registry);return;}
         const id=intent.tabId,newBinding=intent.binding,root=(await area.get(rootKey(newBinding.taskId)))[rootKey(newBinding.taskId)];
         const binding=root?.scopeRevision===newBinding.revision&&root.tabId===id?newBinding:registry.bindings[id];
+        if(intent.kind==='origin_changed'&&binding?.revision!==newBinding.revision){
+          const name=originKey(id,newBinding.taskId,intent.sourceOrigin),saved=(await area.get(name))[name];
+          if(saved){saved.segments=saved.segments.filter(segment=>segment.id!==intent.sourceRevision);if(saved.segments.length)await area.set({[name]:saved});else await area.remove(name);}
+        }
         const record=binding?(await area.get(rootKey(binding.taskId)))[rootKey(binding.taskId)]:(await area.get(key(id)))[key(id)];
         if(binding?.taskId===newBinding.taskId&&intent.previousTaskId&&intent.previousTaskId!==newBinding.taskId){
           const previous=(await area.get(rootKey(intent.previousTaskId)))[rootKey(intent.previousTaskId)];

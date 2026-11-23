@@ -129,3 +129,20 @@ test('task origin scope is bounded without evicting earlier explicit grants',asy
  for(let i=1;i<16;i++){const task=await store.get(1);await store.changeOrigins(1,{taskId:task.taskId,expectedRevision:task.scopeRevision,action:'add',origin:'https://site'+i+'.test',token:'new',updatedAt:100});}
  const before=await store.get(1);await assert.rejects(()=>store.changeOrigins(1,{taskId:before.taskId,expectedRevision:before.scopeRevision,action:'add',origin:'https://overflow.test',token:'new',updatedAt:101}),/16/);assert.deepEqual(await store.get(1),before);
 });
+
+
+test('origin transition archives source before publication and rollback removes provisional source segments',async()=>{
+ for(const stage of ['archive','root','commit']){
+  const data={};let fail=false;const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){if(fail&&(stage==='archive'&&Object.keys(v).some(k=>k.startsWith('conversation-origin:'))||stage==='root'&&Object.keys(v).some(k=>k.startsWith('taskRoot:'))||stage==='commit'&&v.taskRegistry&&!v.taskRegistry.pending))throw Error('interrupted');Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+  const store=createTaskStore({storage:{session:area}});await store.set(1,{taskId:'origins',tabId:1,origin:'https://a.test',goal:'Visit A B',status:'paused',steps:31,token:'old',results:[{result:'A_PRIVATE'}],events:[]});let t=await store.get(1);await store.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test',token:'changed',updatedAt:1});t=await store.get(1);
+  fail=true;await assert.rejects(()=>store.switchOrigin(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,expectedToken:t.token,origin:'https://b.test',token:'destination',updatedAt:2}),/interrupted/);await assert.rejects(()=>store.get(1),e=>e.code==='TASK_SCOPE_INCONSISTENT');fail=false;const restarted=createTaskStore({storage:{session:area}});await restarted.migrate();const after=await restarted.get(1);assert.equal(after.origin,stage==='commit'?'https://b.test':'https://a.test');assert.equal(after.status,'paused');assert.equal(after.steps,31);
+  const history=await restarted.historyGet(1,'https://a.test',t.taskId);assert.equal(history.results.filter(result=>result.result==='A_PRIVATE').length,1);if(stage!=='commit')assert.equal(Object.keys(data).some(k=>k.startsWith('conversation-origin:')),false);else assert.equal(JSON.stringify(after).includes('A_PRIVATE'),false);
+ }
+});
+
+test('origin history remains read-only, respects task revocation and is removed by explicit current task clearing',async()=>{
+ const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}},store=createTaskStore({storage:{session:area}});
+ await store.set(1,{taskId:'history-origin',tabId:1,origin:'https://a.test',status:'paused',token:'old',goal:'Visit',results:[{result:'A_PRIVATE'}]});let t=await store.get(1);await store.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test',token:'scope',updatedAt:1});t=await store.get(1);await store.switchOrigin(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,expectedToken:t.token,origin:'https://b.test',token:'new',updatedAt:2});t=await store.get(1);
+ const view=await store.historyGet(1,'https://a.test',t.taskId);assert.equal(view.token,undefined);assert.equal(view.pending,undefined);assert.ok(JSON.stringify(view).includes('A_PRIVATE'));assert.equal((await store.list()).length,1);
+ await store.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'remove',origin:'https://a.test',token:'revoked',updatedAt:3});await assert.rejects(()=>store.historyGet(1,'https://a.test',t.taskId),/授权网站/);assert.deepEqual(await store.history(1,'https://a.test'),[]);await store.remove(1);assert.equal(Object.keys(data).some(k=>k.startsWith('conversation-origin:')),false);
+});

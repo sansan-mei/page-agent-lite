@@ -5,7 +5,7 @@
   let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false;
   async function refreshTask(){
     const target=tabId,view=selection,version=++taskRefresh;if(target===null)return;
-    try{const value=await send('task:get');if(target!==tabId||view!==selection||version!==taskRefresh)return;const previousId=task?.taskId;task=value;if(historyTask?.taskId===task?.taskId)historyTask=task;render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
+    try{const value=await send('task:get');if(target!==tabId||view!==selection||version!==taskRefresh)return;const previousId=task?.taskId;task=value;render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
     catch(error){if(target===tabId&&view===selection&&version===taskRefresh&&!scopePending)$('status').textContent=error.message;}
   }
   function invalidateTask(){if(busy){++taskRefresh;refreshAfterAction=true;}else void refreshTask();}
@@ -85,7 +85,7 @@
       for(const origin of current?.allowedOrigins||[]){const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');label.textContent=origin;button.type='button';button.textContent='移出任务';button.dataset.origin=origin;button.disabled=busy||!editableScope;li.append(label,button);$('scope-origins').append(li);}
     }
     const list=$('conversation-list');list.replaceChildren();
-    const items=historyIndex.map(item=>item.taskId===current?.taskId?current:item);
+    const items=historyIndex.map(item=>item.taskId===current?.taskId&&current.origin===tabOrigin?current:item);
     if(current?.taskId&&current.origin===tabOrigin&&!items.some(t=>t.taskId===current.taskId))items.unshift(current);
     for(const item of items){
       const button=document.createElement('button');button.type='button';button.className='conversation-item';button.dataset.taskId=item.taskId;
@@ -124,7 +124,7 @@
     $('task-meta').textContent=task?`任务 ${task.taskId||'—'} · 更新 ${new Date(task.updatedAt||Date.now()).toLocaleTimeString()}`:'';
     const phases={observe:'读取页面',thinking:'请求模型',executing:'执行操作',verifying:'核对结果',confirm:'等待确认',compacting:'整理上下文',idle:'空闲'};
     $('metrics').textContent=task?`阶段：${phases[task.phase]||task.phase||'—'} · 观察 ${task.metrics?.observations||0} · 操作 ${task.metrics?.actions||0} · 核对 ${task.metrics?.verifications||0}${task.reason?' · 暂停/失败代码：'+task.reason:''}`:'';
-    $('export-diagnostics').hidden=!task||task.taskId!==current?.taskId;
+    $('export-diagnostics').hidden=!task||task.taskId!==current?.taskId||task.origin!==current?.origin;
     $('export-diagnostics').disabled=busy;
     const timingLabels={model:'模型请求',summary:'摘要请求',tool:'工具派发'};
     for(const [kind,label] of Object.entries(timingLabels)){
@@ -215,7 +215,7 @@
     $('stop').disabled=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
     $('resume').disabled=busy||!task||['running','waiting_page','ended'].includes(task.status);
     $('finish').disabled=busy||!current||current.status==='ended';
-    $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId);
+    $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
   }
   async function selectTab(){

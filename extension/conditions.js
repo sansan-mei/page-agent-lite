@@ -26,14 +26,14 @@
     if(!d.label&&!d.name)d.key=item.key||'';
     return d;
   }
-  function bind(list,snapshot){
+  function bind(list,snapshot,policy=null){
     if(Array.isArray(list)&&!list.length)return [];
     validate(list);
     return list.map(c=>{
       const next={...c,documentId:snapshot.documentId||null};
       if(c.kind.startsWith('url_')){
         next.beforeURL=snapshot.url;
-        if(c.kind==='url_equals'&&new URL(c.value).origin!==new URL(snapshot.url).origin)throw new Error('验证目标超出当前站点');
+        if(c.kind==='url_equals'&&new URL(c.value).origin!==new URL(snapshot.url).origin&&!policy?.allowedOrigins?.includes(new URL(c.value).origin))throw new Error('验证目标超出当前站点');
       }else if(c.id){
         const item=[...snapshot.page.elements,...snapshot.page.regions||[]].find(e=>e.id===c.id);
         if(!item)throw new Error('验证目标不在当前快照中');

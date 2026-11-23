@@ -45,13 +45,13 @@ fill/check/select 自动添加实际 value/checked 相符条件。字段节点�
 
 code 为稳定机器代码，控制流不依赖中文 message。旧 navigation/connection/verification 由 tool-protocol.js 适配；回执丢失一律 unknown，恢复后也不假装原动作已成功。
 
-expected 为 1–5 个 AND 条件，每项 `{kind, id, value?}`，或 `{kind, target, value?}`。target 为受限语义目标 `{category: 'element'|'region', label, role?, name?, group?}`，不接受选择器/脚本。支持 field_equals、checked_equals、selected_equals、expanded_equals、element_visible、element_absent、text_present、url_changed、url_equals。text_present 必须指向具体可读取区域；URL 比较仍受同源限制。
+expected 为 1–5 个 AND 条件，每项 `{kind, id, value?}`，或 `{kind, target, value?}`。target 为受限语义目标 `{category: 'element'|'region', label, role?, name?, group?}`，不接受选择器/脚本。支持 field_equals、checked_equals、selected_equals、expanded_equals、element_visible、element_absent、text_present、url_changed、url_equals。text_present 必须指向具体可读取区域；普通 wait/verify/done 的 URL 条件仍受当前来源限制；navigate 的跨来源目标须由可信运行器授权集合校验。
 
 示例：`{"action":"click","id":"t2","reply":"保存","expected":[{"kind":"text_present","id":"r0","value":"保存成功"}]}`。运行器会保存语义目标、原文档和 deadline，区域中的新反馈才可满足条件，其他位置的同名提示不算证据。
 
 memory_read/write/delete/clear 在后台执行，不送到网页；占用普通模型轮数，不经过点击确认。记忆协议见 [上下文](context-and-skills.md)。
 
-过期目标返回 STALE；加载阶段可返回 NAVIGATION。无法注入时说明需要点击扩展图标或重新授权。只支持当前可访问的同源页面。
+过期目标返回 STALE；加载阶段可返回 NAVIGATION。无法注入时说明需要点击扩展图标或重新授权。只在当前任务已授权且具备主机权限的来源执行，仍为单标签。
 
 后续：快照差异、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
 
@@ -150,13 +150,13 @@ observe 对象 value 支持 includeText 布尔值，可独立使用或与控件/
 
 响应可选 subgoals 描述公开任务里程碑，不是网页工具：后台核对其中 completed.checks 后保存历史进度，不触发 DOM 执行。checks 沿用 expected 的有限条件，副作用和任务最终完成仍走原有协议；详情见运行器文档。
 
-## 可信同源导航（PA7 基础）
+## 可信导航（PA7 单标签）
 
-navigate 使用绝对 HTTP/HTTPS 字符串 value（最多 2000 字符），不接受元素 id、凭据、脚本或内部协议。运行器自动绑定 url_equals 到规范化目标 URL；目标须与当前任务 origin 相同，沿用现有站点边界。只应使用用户给定或当前页面有依据的目标，不通过猜测业务动作 URL 绕过控件流程。
+navigate 使用绝对 HTTP/HTTPS 字符串 value（最多 2000 字符），不接受元素 id、凭据、脚本或内部协议。运行器自动绑定 url_equals 到规范化目标 URL；目标须属于用户给当前任务明确授权的 allowedOrigins，且具备浏览器主机权限。只应使用用户给定或当前页面有依据的目标，不通过猜测业务动作 URL 绕过控件流程。
 
-浏览器适配层检查源/目标同 origin、当前主机权限与当前标签页 URL，再调用仅可信后台可用的 agent:prepare-navigation：内容脚本校验 documentId/snapshotId/URL 并消费快照，不修改网页。随后后台仅调用一次 tabs.update；内容脚本拒绝直接执行 navigate。tabs.update 正常回执为 NAVIGATION_DISPATCHED、dispatch=sent，但 status=unknown，仍需核对目标；回执失败为 NAVIGATION_UNKNOWN、dispatch=unknown，只读等待 URL，不自动补发。权限缺失、来源变化和非法目标在派发前拒绝。
+浏览器适配层检查目标在可信授权集合内、源/目标主机权限与当前标签页 URL，再调用仅可信后台可用的 agent:prepare-navigation：内容脚本校验 documentId/snapshotId/URL 并消费快照，不修改网页。随后后台仅调用一次 tabs.update；内容脚本拒绝直接执行 navigate。tabs.update 正常回执为 NAVIGATION_DISPATCHED、dispatch=sent，但 status=unknown，仍需核对目标；回执失败为 NAVIGATION_UNKNOWN、dispatch=unknown，只读等待 URL，不自动补发。权限缺失、来源变化和非法目标在派发前拒绝。
 
-导航使用既有 executing/action 检查点和原等待 deadline，worker 重建后仅验证；任务 ID/轮数不重置。跳转或重定向越过原 origin 会被既有站点边界暂停，不读取跨站页面；不支持指定额外标签页、跨站任务授权集合或任意 URL 执行脚本。
+导航使用既有 executing/action 检查点和原等待 deadline，worker 重建后仅验证；任务 ID/轮数不重置。跨 origin 只接受 URL 条件，采用浏览器当前 URL 核对；禁止在新来源核对旧 DOM。未授权目的地、未预期重定向或原操作未知且无 URL 证据时暂停，不读取目标 DOM、不重发。旧模型/摘要在 URL 变化或加载时取消，切换后重新观察；不支持指定额外标签页或执行 URL 脚本。
 
 工具动作目录与策略由 core.js 的静态冻结注册表提供，模型/网页不能注册或更改。注册表统一必需目标、超时许可与防重放分类；内容执行器拒绝 runtime/browser 路由的动作，不因提供当前元素 ID 就执行后台记忆或可信导航。值类型/URL/条件仍按各工具规则严格校验。
 

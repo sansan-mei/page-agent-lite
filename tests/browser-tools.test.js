@@ -62,3 +62,16 @@ test('startup tab inventory returns IDs only and propagates query failure',async
  const chrome={tabs:{async query(options){assert.deepEqual(options,{});return [{id:1,url:'https://private.test',title:'Private'},{id:2},{id:null}];}}};
  assert.deepEqual(await createBrowserTools(chrome).existingTabIds(),[1,2]);chrome.tabs.query=async()=>{throw Error('unavailable');};await assert.rejects(()=>createBrowserTools(chrome).existingTabIds(),/unavailable/);
 });
+
+
+test('destination host permission and final cancellation are checked before cross-origin tabs.update',async()=>{
+ const calls=[];let destinationGranted=false,live=true;
+ const chrome={permissions:{async contains({origins}){return origins[0].startsWith('https://a.test')||destinationGranted;}},tabs:{async get(){return {url:'https://a.test/start'};},async sendMessage(id,message){calls.push(message.type);return {ok:true,value:{prepared:true}};},async update(){calls.push('update');}}};
+ const tools=createBrowserTools(chrome),pending={url:'https://a.test/start',plan:{action:'navigate',value:'https://b.test/next'}},policy={origin:'https://a.test',allowedOrigins:['https://a.test','https://b.test']};
+ await assert.rejects(()=>tools.execute(1,pending,policy,async()=>live),e=>e.code==='PERMISSION_DENIED');assert.deepEqual(calls,[]);destinationGranted=true;live=false;await assert.rejects(()=>tools.execute(1,pending,policy,async()=>live),e=>e.code==='CANCELLED');assert.deepEqual(calls,['agent:prepare-navigation']);live=true;await tools.execute(1,pending,policy,async()=>live);assert.equal(calls.filter(c=>c==='update').length,1);
+});
+
+test('origin policy prevents destination injection, observation and verification after a boundary change',async()=>{
+ const calls=[];const chrome={permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://c.test/unapproved'};},async sendMessage(){calls.push('read');}},scripting:{async executeScript(){calls.push('inject');}}},tools=createBrowserTools(chrome),policy={origin:'https://a.test',allowedOrigins:['https://a.test','https://b.test']};
+ for(const run of [()=>tools.observe(1,0,policy),()=>tools.verify(1,{expected:[]},policy),()=>tools.inject(1,policy)])await assert.rejects(run,e=>e.code==='ORIGIN_BOUNDARY');assert.deepEqual(calls,[]);
+});

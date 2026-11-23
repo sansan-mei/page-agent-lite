@@ -48,7 +48,7 @@ check 保存 operationId、expected、deadline、kind 及完成说明；条件�
 
 停止不等于结束，明确结束后不能通过继续按钮复活；可发送新任务。追加指令不重置预算，已耗尽时仍需点击继续开启预算。已发出的页面事件不能撤销；新一轮等旧 tick 退出后观察当前页面。
 
-跨站和完整计划分解仍为后续能力。
+单标签跨已授权来源已实现（见下文），完整计划分解仍未完成。
 
 ## 网站长期记忆
 
@@ -104,7 +104,7 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 
 模型响应诊断使用 MODEL_RESPONSE_INVALID、MODEL_OUTPUT_TRUNCATED、MODEL_OUTPUT_REFUSED、MODEL_TOOL_CALL_UNSUPPORTED、MODEL_FINISH_UNSUPPORTED、MODEL_CONTENT_UNSUPPORTED、MODEL_OUTPUT_EMPTY、MODEL_OUTPUT_TOO_LARGE。它们不是临时网络/429/5xx 自动重试条件；动作尚未形成时记录 dispatch=not_sent，不把模型异常解释为网页派发未知。工具异常已有 V2 派发语义保持不变。
 
-## 跨站/多标签后续设计（未实现）
+## 跨站/多标签分阶段设计
 
 [任务站点集合与标签归属设计](task-scope-v3.md) 规定以 taskId 调度、任务级取消/范围版本、原标签未确定副作用核对及用户标签关闭策略；当前控制器/调度身份已迁至 taskId，tabId 仍为单成员兼容 API。单成员对账及关闭已实现，再分阶段开放授权站点集合及标签工具，不能据设计推断已具备。
 
@@ -124,4 +124,14 @@ memberClosed(tabId) 先同步 abort 该标签对应 taskId 的请求，再在发
 
 changeOrigins 可信请求匹配 taskId/scopeRevision，增加来源时确认浏览器已有主机权限；不由后台弹窗。有效变更先 abort/取消调度，再交存储提交新 token/范围版本并暂停。普通 set 无授权能力。turn 在观察前核对当前 origin 属任务范围且有主机权限；每次 live 检查也核对权限，迟到模型/摘要不能继续执行。resume/补充指令不绕过已移除的当前来源。
 
-浏览器 permissions.onRemoved 触发 reviewPermissions，只暂停缺少当前主机权限的任务，不修改授权集合。scope_changed/permission_denied 的暂停保留 executing/check；恢复沿用原条件/期限仅核对，不重放。此类未知操作须先点击继续核对，不能用补充指令清掉。当前仍不允许跨站导航；后续需要专门 origin 切换与上下文隔离，不能仅放宽 URL 检查。
+浏览器 permissions.onRemoved 触发 reviewPermissions，只暂停缺少当前主机权限的任务，不修改授权集合。scope_changed/permission_denied 的暂停保留 executing/check；恢复沿用原条件/期限仅核对，不重放。此类未知操作须先点击继续核对，不能用补充指令清掉。单标签跨站导航现经专用 origin 切换及上下文分区接入，不能绕过任务授权或直接修改 origin。
+
+## 单标签跨已授权来源导航
+
+每次 turn 先读浏览器 URL。来源变化时 adoptOrigin 验证任务授权及主机权限；原操作只有 URL 条件且实际 URL 满足时，用浏览器 URL 只读核对后切换。无条件的 executing、旧 DOM 条件或未预期重定向暂停并保留原 check/deadline/dispatch，不在新站点求值旧字段。原操作已核实后清检查点并重新观察，不延长期限或重发导航；scope_reconciled 恢复仍只核对。
+
+URL 变化或主文档开始加载触发 navigationChanged，取消旧模型/摘要并轮换 token；普通同源链接跳转记录 unknown 与防重放约束后新观察，不把导航当服务器业务成功。跨来源 switchOrigin 是单独发布步骤，保存旧来源只读历史，新根只带用户原目标/补充、预算/累计统计和授权目录。旧计划、摘要、事件/结果、笔记读取正文和目标不交给目标站点模型；返回旧来源也不恢复这些内容，只有对应来源未确定点击约束保留防重放。
+
+observe/verify/reconnect 携带可信当前来源策略，浏览器层检查 URL/权限，内容端在 DOM capture 前检查 expectedOrigin；页面在消息间切换到另一来源时拒读。模型收到 taskScope 的当前来源及授权集合，但不能扩大范围。navigate 在绑定跨来源 URL 条件前验证授权/权限，内容端仍只消费快照，最终派发前再核对源 URL 和 live。跨来源只支持 URL 条件；普通 wait/verify/done 的条件绑定仍限定当前来源。
+
+统计中的轮数、观察/执行/核对和耗时累计跨来源保留；当前结果分布仅含当前来源保留的结果，不代表所有来源完整轨迹。临时记忆及 IDB 网站笔记每轮只用当前 origin，全球笔记独立按需读取，不自动将旧网站正文提升为全局经验。

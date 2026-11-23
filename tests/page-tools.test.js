@@ -58,3 +58,10 @@ test('content endpoint rejects a runtime-only plan before any page mutation',asy
  const result=await send({type:'agent:execute',snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,plan:{reply:'Runtime only',action:'memory_clear',id:'t0'}});
  assert.equal(result.ok,false);assert.equal(result.code,'UNSUPPORTED_ACTION');assert.equal(result.result.dispatch,'not_sent');assert.equal(document.querySelector('input').value,'original');
 });
+
+
+test('content origin guard rejects a raced destination before capturing any DOM',async()=>{
+ let listener,captures=0;const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async sendMessage(){}}};
+ vm.runInNewContext(fs.readFileSync('extension/content.js','utf8'),{PageAgentCore:{agentSnapshot(){captures++;throw Error('must not capture');}},PageAgentConditions:require('../extension/conditions.js'),PageAgentProtocol:require('../extension/tool-protocol.js'),chrome,document:{readyState:'complete'},location:{href:'https://c.test/',origin:'https://c.test'},crypto,setTimeout});
+ for(const type of ['agent:observe','agent:verify']){const result=await new Promise(resolve=>listener({type,expectedOrigin:'https://a.test',expected:[]},{id:'test',url:'chrome-extension://test/background.js'},resolve));assert.equal(result.ok,false);assert.equal(result.code,'ORIGIN_BOUNDARY');}assert.equal(captures,0);
+});

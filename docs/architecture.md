@@ -75,7 +75,7 @@ PA5 的 includeText=false 由 core.js 跳过整页 body 克隆与提取，仍生
 
 PA6 子目标由 core.js 校验响应结构，runtime.js 在现有模型轮次内核对/更新 session taskPlan，prompts.js 注入历史进度，sidepanel.js 以安全文本显示。没有独立计划执行器、隐藏思维记录或额外规划请求。
 
-同源 navigate 由 runtime.js 记录检查点，browser-tools.js 校验权限/URL 并请求 content.js 消费快照后仅一次 tabs.update；内容脚本不直接导航、不保存目标。conditions.js 自动生成 URL 目标核对，仍是单标签单 origin 运行器。
+navigate 由 runtime.js 记录检查点，browser-tools.js 校验权限/URL 并请求 content.js 消费快照后仅一次 tabs.update；内容脚本不直接导航、不保存目标。conditions.js 自动生成 URL 目标核对，当前为单标签、用户授权 origin 集合内的运行器。
 
 ## 静态可信工具策略（PA9 基础）
 
@@ -91,12 +91,14 @@ PA13 统计导出由可信 background.js 路由至 runtime.diagnostics，按固�
 
 PA12 backend.js 的 parseChatResponse 统一解析非流式兼容文本与 usage；仅通过的字符串交给既有严格 JSON 动作/摘要校验器。结束状态不支持、截断或拒绝不做修补/回退，后台不回显服务响应正文。没有引入原生 function calling 执行路径。
 
-PA7/PA8 下一步实施依据为 [任务站点集合与标签归属设计](task-scope-v3.md)（未实现）。设计覆盖 root/registry 双记录一致性、任务级调度、显式站点/成员授权及只读恢复；当前架构仍是单标签单 origin，不因设计新增可调用工具或权限。
+PA7/PA8 分阶段实施依据为 [任务站点集合与标签归属设计](task-scope-v3.md)（多成员仍未实现）。设计覆盖 root/registry 双记录一致性、任务级调度、显式站点/成员授权及只读恢复；当前架构仍为单标签、授权 origin 集合，不因设计新增可调用工具或权限。
 
-PA7/PA8 存储第一步已实现：task-store.js 以 taskRoot:taskId + taskRegistry 单成员归属解析旧 tabId API，task:tabId 仅为旧版迁移输入，侧栏监听根/索引变化后经后台刷新；意图中断只读对账后暂停。任务级调度已迁移（见下文），尚未开放多成员或跨 origin 授权。
+PA7/PA8 存储第一步已实现：task-store.js 以 taskRoot:taskId + taskRegistry 单成员归属解析旧 tabId API，task:tabId 仅为旧版迁移输入，侧栏监听根/索引变化后经后台刷新；意图中断只读对账后暂停。任务级调度已迁移（见下文），已开放逐任务 origin 授权与单标签跨源导航，尚未开放多成员。
 
 任务运行资源已从 tabId 身份迁至 taskId：runtime 的 jobs/请求控制器/运行锁与后台 timers、task-id:taskId alarm；tab 发布队列及 API 仍作为替换/兼容边界。store.getByTaskId 仅解析已提交的当前归属。新调度携带 expectedTaskId，旧任务唤醒不能操作同标签新任务；旧 task:tabId alarm 清理并通过当前归属升级调度。
 
 成员关闭由 background.js 的 tabs.onRemoved 路由 runtime.memberClosed；运行器立即取消控制器，在标签发布/任务锁内取消调度并调用 store.closeMember，存储层用关闭意图完成终态归档和归属释放。不会复用 runtime.remove 或删除历史。恢复先由 browser-tools.existingTabIds 提供只含 ID 的可信清单，缺失成员走同一路径，清单查询失败则不做关闭推断；目录不发送给模型，不引入新工具动作或权限。当前只支持最后一个成员关闭，多成员暂停/移除策略仍待实现。
 
-任务范围面板由 sidepanel.js 用户手势申请可选主机权限，再发 task:scope-change；background.js 只允许顶层侧栏来源并筛选参数，runtime.js 校验任务/范围版本与主机权限，task-store.js 专用 changeOrigins 发布范围版本。普通检查点 set 保留权威授权集合及初始成员，模型无范围修改工具。运行器在观察/派发前门禁，浏览器撤销事件触发权限复核。此阶段新增的是授权管理与撤销，跨 origin 导航和内容分区仍未实现。
+任务范围面板由 sidepanel.js 用户手势申请可选主机权限，再发 task:scope-change；background.js 只允许顶层侧栏来源并筛选参数，runtime.js 校验任务/范围版本与主机权限，task-store.js 专用 changeOrigins 发布范围版本。普通检查点 set 保留权威授权集合及初始成员，模型无范围修改工具。运行器在观察/派发前门禁，浏览器撤销事件触发权限复核。授权管理与撤销现已接入单标签跨 origin 导航和内容分区；模型不能添加授权。
+
+单标签跨来源由 runtime.adoptOrigin + task-store.switchOrigin 提交，不通过普通检查点改 origin。浏览器适配和内容端 expectedOrigin 门禁保护观察/核对/重连；导航只由可信后台检查任务范围与主机权限后派发。来源历史保存在独立 session 分区，history API 为只读用户视图；模型不接收这些分区目录或旧正文，返回旧来源仍重建上下文。不同来源共享的是用户原目标/补充、任务身份及累计预算，不共享自动提取的网页内容；旧 DOM 条件和不明副作用必须暂停或只读 URL 核对。

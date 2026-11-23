@@ -144,6 +144,7 @@ chrome.alarms.onAlarm.addListener(alarm=>{
   const id=Number(alarm.name.slice(5));if(Number.isInteger(id))void ready.then(async ok=>{await chrome.alarms.clear(alarm.name);if(ok)schedule(id);}).catch(()=>{});
 });
 chrome.tabs.onUpdated.addListener((id,change)=>{
+  if(change.url||change.status==='loading'){void ready.then(ok=>ok&&runtime.navigationChanged(id,change.url)).catch(()=>{});return;}
   if(change.status==='complete')void ready.then(async ok=>{
     if(!ok)return;const task=await runtime.get(id);
     if(task&&['running','waiting_page'].includes(task.status))schedule(id);

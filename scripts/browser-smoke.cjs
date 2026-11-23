@@ -210,13 +210,16 @@ async function assertNoModelExec() {
 }
 
 // ── Server: stub page + deterministic model response ─────────────────────
-let server, serverPid, failNext = false, invalidEdit = false;
-let persistedCount=0;
+let server, secondaryServer, secondaryOrigin, serverPid, failNext = false, invalidEdit = false;
+let persistedCount=0;const crossHits={};
 const serverErrors = [];
 
 async function startServer() {
   const svc = http.createServer((req, res) => {
     void (async () => {
+      if(req.method==='GET'&&['/cross-a','/cross-b','/cross-a-return'].includes(req.url)){
+        crossHits[req.url]=(crossHits[req.url]||0)+1;res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end('<html><body><h1>'+(req.url==='/cross-a'?'A_PAGE_PRIVATE':req.url==='/cross-b'?'B_PAGE_PRIVATE':'Returned to A')+'</h1></body></html>');return;
+      }
       if(req.method==='POST'&&req.url==='/persist'){persistedCount++;res.writeHead(200);res.end('ok');return;}
       if (req.method === 'GET' && ['/article','/task-one','/task-two','/judgment','/general','/dialog','/coverage'].includes(req.url)) {
         res.writeHead(200, {
@@ -285,6 +288,16 @@ async function startServer() {
       }
       if(task==='agent'){
         const data=JSON.parse(input),field=data.page.elements.find(e=>e.tag==='input'),link=data.page.elements.find(e=>e.tag==='a');
+        if(data.goal==='Cross origin smoke'){
+          const current=new URL(data.page.url),text=JSON.stringify(data);let plan;
+          if(current.pathname==='/cross-a')plan=data.results.some(result=>result.action==='memory_read')?{reply:'Visit B',action:'navigate',value:secondaryOrigin+'/cross-b'}:{reply:'Read A temp note',action:'memory_read'};
+          else if(current.pathname==='/cross-b'){
+            for(const marker of ['A_BODY_PRIVATE','A_PAGE_PRIVATE','A_SUMMARY_PRIVATE'])assert.equal(text.includes(marker),false,'B excludes '+marker);
+            assert.ok(data.memoryIndex.some(note=>note.id==='cross-b'));
+            plan=data.results.some(result=>result.action==='memory_read')?{reply:'Return to A',action:'navigate',value:'http://'+server.address().address+':'+server.address().port+'/cross-a-return'}:{reply:'Read B temp note',action:'memory_read'};
+          }else{for(const marker of ['A_BODY_PRIVATE','B_BODY_PRIVATE','B_PAGE_PRIVATE','A_SUMMARY_PRIVATE'])assert.equal(text.includes(marker),false,'A return excludes cached '+marker);assert.deepEqual(data.historyIndex,[]);plan={reply:'Fresh A context confirmed',action:'done'};}
+          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
+        }
         if(data.goal==='Dialog recovery'){
           const result=data.page.regions.find(r=>r.label==='Confirmation result');
           const dialog=data.page.groups.find(g=>g.label==='Confirm changes');
@@ -366,6 +379,7 @@ async function startServer() {
   });
   await new Promise((ok, bad) => { svc.once('error', bad); svc.listen(0, '127.0.0.1', ok); });
   server = svc;
+  secondaryServer=http.createServer(svc.listeners('request')[0]);await new Promise((ok,bad)=>{secondaryServer.once('error',bad);secondaryServer.listen(0,'127.0.0.1',ok);});secondaryOrigin='http://127.0.0.1:'+secondaryServer.address().port;
   const port = server.address().port;
   return `http://127.0.0.1:${port}`;
 }
@@ -697,6 +711,19 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   const dialogTask=(await command('task:get')).value;assert.equal(dialogTask.completionEvidence,'verified');
   assert.ok(dialogTask.results.some(r=>r.outcome?.code==='CONDITION_TIMEOUT'&&r.outcome.recovery==='replan'));
   pass('unknown click expectation automatically rereads a late dialog beyond 120 background controls and confirms once without user continuation');
+  await command('task:clear');await page.goto(origin+'/cross-a');await page.bringToFront();
+  await panel.evaluate(async({tabId,origin,secondaryOrigin})=>{
+    await import(chrome.runtime.getURL('task-store.js'));const store=PageAgentTaskStore.createTaskStore(chrome);
+    await store.set(tabId,{taskId:'cross-origin-smoke',token:'cross-seed',tabId,origin,goal:'Cross origin smoke',status:'paused',phase:'observe',steps:0,prefs:{maxSteps:50,contextTokens:100000},results:[],events:[],contextSummary:{content:{completed:[],remaining:[],facts:['A_SUMMARY_PRIVATE'],failed:[],uncertain:[]}},updatedAt:Date.now()});
+    await store.setMemory(tabId,origin,[{id:'cross-a',text:'A_BODY_PRIVATE'}]);await store.setMemory(tabId,secondaryOrigin,[{id:'cross-b',text:'B_BODY_PRIVATE'}]);
+  },{tabId,origin,secondaryOrigin});
+  const scoped=(await command('task:get')).value;assert.equal((await command('task:scope-change',{taskId:scoped.taskId,expectedRevision:scoped.scopeRevision,action:'add',origin:secondaryOrigin})).ok,true);assert.equal((await command('task:resume')).ok,true);
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','cross-origin A B A isolated task',20000);
+  const crossed=(await command('task:get')).value;assert.equal(crossed.taskId,'cross-origin-smoke');assert.equal(crossed.initialOrigin,origin);assert.equal(crossed.origin,origin);assert.equal(crossed.steps,5);assert.equal(crossed.metrics.actions,2);assert.deepEqual(crossHits,{'/cross-a':1,'/cross-b':1,'/cross-a-return':1});
+  const crossHistory=await panel.evaluate(async({tabId,origin,secondaryOrigin})=>{const store=PageAgentTaskStore.createTaskStore(chrome);return {a:await store.historyGet(tabId,origin,'cross-origin-smoke'),b:await store.historyGet(tabId,secondaryOrigin,'cross-origin-smoke')};},{tabId,origin,secondaryOrigin});
+  assert.ok(JSON.stringify(crossHistory.a).includes('A_BODY_PRIVATE'));assert.equal(JSON.stringify(crossHistory.a).includes('B_BODY_PRIVATE'),false);assert.ok(JSON.stringify(crossHistory.b).includes('B_BODY_PRIVATE'));assert.equal(JSON.stringify(crossHistory.b).includes('A_BODY_PRIVATE'),false);
+  pass('two real origins navigate A B A with one task and cumulative budget, fresh isolated model inputs, scoped notes and separate read-only history');
+
   await command('task:clear');
   await page.goto(origin+'/general');await page.bringToFront();
   assert.equal((await command('task:submit',{goal:'General wait'})).ok,true);
@@ -893,6 +920,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   try { if (context) await context.close(); }
   catch (e) { report.cleanupError = e.message; if (report.status !== 'failed') { report.status = 'failed'; process.exitCode = 1; } }
   try { if(server){server.closeAllConnections?.(); await new Promise(ok => server.close(ok));} } catch {}
+  if(secondaryServer)await new Promise(resolve=>secondaryServer.close(resolve));
   try { await fs.rm(fixtureBase ?? '', { recursive: true, force: true }); } catch {}
 
   await fs.mkdir(outputDir, { recursive: true });

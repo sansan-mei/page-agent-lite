@@ -1,19 +1,19 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(registered=[]){
- let listener,removed,permissionRemoved;const calls=[];
- const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async changeOrigins(id,p){calls.push(['scope-change',id,p]);return {status:'paused'};},async reviewPermissions(){calls.push(['review-permissions']);},async tick(){}};
+ let listener,removed,permissionRemoved,updated;const calls=[];
+ const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async changeOrigins(id,p){calls.push(['scope-change',id,p]);return {status:'paused'};},async reviewPermissions(){calls.push(['review-permissions']);},async navigationChanged(id){calls.push(['navigation-changed',id]);},async tick(){}};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
  permissions:{onRemoved:{addListener(fn){permissionRemoved=fn;}}},storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
  scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
  alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},
- tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(fn){removed=fn;}}},action:{onClicked:{addListener(){}}}};
+ tabs:{onUpdated:{addListener(fn){updated=fn;}},onRemoved:{addListener(fn){removed=fn;}}},action:{onClicked:{addListener(){}}}};
  vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,URL,setTimeout,clearTimeout,importScripts(){},
   PageAgentCore:{},PageAgentSiteMemory:{createSiteMemory(){return {};}},PageAgentBackend:{createService(){return {async init(){},async handle(){return 'service';}};}},
   PageAgentTaskStore:{createTaskStore(){return {async migrate(){}};}},
   PageAgentBrowserTools:{createBrowserTools(){return {async inject(){calls.push(['tools.inject']);}};}},
   PageAgentRuntime:{createRuntime(){return runtime;}}});await flush();
- return {calls,removed,permissionRemoved,send:(m,s)=>new Promise(r=>listener(m,s,r))};
+ return {calls,removed,permissionRemoved,updated,send:(m,s)=>new Promise(r=>listener(m,s,r))};
 }
 const panel={id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0};
 test('only trusted sidepanel owns runtime commands; content cannot create/read/stop tasks',async()=>{
@@ -84,4 +84,9 @@ test('only trusted sidepanel can change task origins and unrecognized mutation f
 
 test('browser host revocation triggers task permission review without granting task scope',async()=>{
  const f=await fixture();f.permissionRemoved({origins:['https://one.test/*']});await flush();assert.deepEqual(f.calls,[['review-permissions']]);
+});
+
+
+test('browser URL changes cancel through the runtime before scheduling a new observation',async()=>{
+ const f=await fixture();f.updated(7,{url:'https://new.test/page',status:'complete'});await flush();assert.deepEqual(f.calls,[['navigation-changed',7]]);
 });

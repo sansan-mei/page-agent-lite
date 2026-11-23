@@ -8,7 +8,7 @@
 <main id="conversation" aria-label="当前任务对话">
 <div id="empty-state"><img class="welcome-art" src="icons/welcome-assistant.png" width="240" height="240" alt="" aria-hidden="true"><h2>这页交给我吧</h2><p>读内容、填表单，从一句话开始。</p></div>
 <section id="task" hidden aria-label="你的目标"><p id="goal"></p></section>
-<details id="task-scope" hidden><summary>任务授权范围</summary><p>仅对当前任务生效，与浏览器网站权限分开。修改后任务会暂停；当前执行仍限起始网站。</p><ul id="scope-origins"></ul><form id="scope-form"><label for="scope-origin">添加完整站点来源</label><input id="scope-origin" type="url" maxlength="300" placeholder="https://example.com" required><button id="scope-add" type="submit">授权并加入任务</button></form><p id="scope-status" role="status" aria-live="polite"></p></details>
+<details id="task-scope" hidden><summary>任务授权范围</summary><p>仅对当前任务生效，与浏览器网站权限分开。修改后任务会暂停；只可导航到已加入范围且具备浏览器权限的网站，切换后重新观察。</p><ul id="scope-origins"></ul><form id="scope-form"><label for="scope-origin">添加完整站点来源</label><input id="scope-origin" type="url" maxlength="300" placeholder="https://example.com" required><button id="scope-add" type="submit">授权并加入任务</button></form><p id="scope-status" role="status" aria-live="polite"></p></details>
 <div id="timeline" role="log" aria-label="任务消息" aria-live="polite"></div>
 <section id="important-notice" hidden role="status" aria-live="polite"></section>
 <details id="task-plan" hidden><summary>任务计划（历史进度）</summary><p>已核对仅代表记录时的页面状态；最终结果需重新验证。</p><ol id="task-plan-items"></ol></details><form id="choice-form" hidden><fieldset><legend id="choice-question"></legend><div id="choice-options"></div></fieldset><button id="choice-submit" type="submit">提交选择并继续</button></form>

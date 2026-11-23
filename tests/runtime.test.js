@@ -835,3 +835,52 @@ test('stop while an asynchronous host access check is pending cannot dispatch a 
  const f=fixture({tools:{async hasOriginAccess(){if(returned&&!resolveAccess)return new Promise(r=>resolveAccess=r);return true;}},model:async()=>{returned=true;return {text:'{"reply":"Click","action":"click","id":"t0"}'};}});
  await f.runtime.start(1,'Work');const tick=f.runtime.tick(1);while(!resolveAccess)await new Promise(r=>setImmediate(r));await f.runtime.stop(1);resolveAccess(true);await tick;assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).status,'stopped');
 });
+
+
+function crossFixture(options={}){
+ const {createTaskStore}=require('../extension/task-store.js'),raw={},state={url:'https://a.test/start'},reads=[],payloads=[],dispatches=[];
+ const area={async get(k){return structuredClone(k===null?raw:{[k]:raw[k]});},async set(v){Object.assign(raw,structuredClone(v));},async remove(k){delete raw[k];}},store=createTaskStore({storage:{session:area}});
+ const f=fixture({store,...options,model:async(text,signal)=>{payloads.push(JSON.parse(text));return options.model?options.model(JSON.parse(text),signal):{text:JSON.stringify({reply:'Continue',action:new URL(state.url).origin==='https://a.test'?'navigate':'done',value:new URL(state.url).origin==='https://a.test'?'https://b.test/next':undefined})};},tools:{async tab(id){return {id,url:state.url,status:'complete'};},async hasOriginAccess(origin){return options.hasOriginAccess?options.hasOriginAccess(origin):true;},async observe(){reads.push(state.url);return {url:state.url,documentId:state.url,snapshotId:'s',page:{text:'Fresh page',elements:[{id:'t0',tag:'input',label:'Field'}]}};},async execute(id,pending){dispatches.push(pending);state.url=pending.plan.value;return {version:2,status:'unknown',dispatch:'unknown',code:'NAVIGATION_UNKNOWN',navigation:true};},...options.tools}});
+ return {...f,store,raw,state,reads,payloads,dispatches};
+}
+
+test('authorized A to B to A navigation keeps one task and budget while each origin receives fresh isolated context',async()=>{
+ let aCalls=0;const f=crossFixture({siteMemory:{async read(origin){return {version:0,notes:[{id:origin==='https://a.test'?'A_NOTE_ID':'B_NOTE_ID'}]};}},globalMemory:{async read(){return {version:0,notes:[{id:'GLOBAL_SHARED'}]};}},model:async data=>{
+  if(data.page.url.startsWith('https://a.test')){aCalls++;if(aCalls===1){assert.ok(JSON.stringify(data).includes('A_BODY_SECRET'));return {text:'{"reply":"To B","action":"navigate","value":"https://b.test/next"}'};}assert.equal(JSON.stringify(data).includes('A_BODY_SECRET'),false);assert.equal(JSON.stringify(data).includes('B_BODY_SECRET'),false);return {text:'{"reply":"Finished","action":"done"}'};}
+  const text=JSON.stringify(data);for(const marker of ['A_BODY_SECRET','A_SUMMARY_SECRET','A_PLAN_SECRET','A_GUARD_PRIVATE','A_TEMP_ID','A_NOTE_ID'])assert.equal(text.includes(marker),false,marker);assert.ok(text.includes('B_NOTE_ID'));assert.ok(text.includes('B_TEMP_ID'));assert.ok(text.includes('GLOBAL_SHARED'));assert.ok(text.includes('USER_SHARED'));
+  return {text:'{"reply":"To A","action":"navigate","value":"https://a.test/back"}'};
+ }});
+ await f.runtime.start(1,'USER_SHARED visit the two authorized sites');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);t=await f.store.get(1);
+ await f.store.set(1,{...t,steps:17,results:[{action:'site_memory_read',result:'A_BODY_SECRET'}],contextSummary:{content:{facts:['A_SUMMARY_SECRET']}},contextArchive:[{id:'h1',from:1,to:1,results:[{result:'A_BODY_SECRET'}]}],taskPlan:[{id:'p',title:'A_PLAN_SECRET'}],uncertainClicks:[{url:'https://a.test/start',documentId:'old-document',target:{category:'element',label:'A_GUARD_PRIVATE'}}]});await f.store.setMemory(1,'https://a.test',[{id:'A_TEMP_ID',text:'A_BODY_SECRET'}]);await f.store.setMemory(1,'https://b.test',[{id:'B_TEMP_ID',text:'B_BODY_SECRET'}]);
+ await f.runtime.tick(1);const deadline=(await f.store.get(1)).check.deadline;await f.runtime.tick(1);let b=await f.store.get(1);assert.equal(b.origin,'https://b.test');assert.equal(b.initialOrigin,'https://a.test');assert.equal(b.steps,18);assert.equal(b.contextSummary,undefined);assert.deepEqual(b.contextArchive,[]);assert.deepEqual(b.results,[]);assert.equal(b.check,null);
+ await f.store.set(1,{...b,results:[{action:'memory_read',result:'B_BODY_SECRET'}]});await f.runtime.tick(1);await f.runtime.tick(1);await f.runtime.tick(1);
+ const ended=await f.store.get(1);assert.equal(ended.taskId,t.taskId);assert.equal(ended.steps,20);assert.equal(ended.status,'completed');assert.equal(ended.origin,'https://a.test');assert.equal(ended.initialOrigin,'https://a.test');assert.equal(ended.uncertainClicks[0].target.label,'A_GUARD_PRIVATE');assert.equal(f.dispatches.length,2);assert.equal(f.payloads.length,3);assert.ok(deadline>0);
+ const aHistory=await f.store.historyGet(1,'https://a.test',t.taskId),bHistory=await f.store.historyGet(1,'https://b.test',t.taskId);assert.ok(JSON.stringify(aHistory).includes('A_BODY_SECRET'));assert.equal(JSON.stringify(aHistory).includes('B_BODY_SECRET'),false);assert.ok(JSON.stringify(bHistory).includes('B_BODY_SECRET'));assert.equal(JSON.stringify(bHistory).includes('A_BODY_SECRET'),false);
+});
+
+test('browser-wide host permission alone never authorizes cross-origin navigation or destination reads',async()=>{
+ const f=crossFixture();await f.runtime.start(1,'No implicit grants');await f.runtime.tick(1);assert.equal(f.dispatches.length,0);assert.equal((await f.store.get(1)).lastOutcome.code,'NAVIGATION_DENIED');assert.deepEqual((await f.store.get(1)).allowedOrigins,['https://a.test']);
+ const denied=crossFixture({hasOriginAccess:origin=>origin==='https://a.test'});await denied.runtime.start(1,'No grant');const t=await denied.store.get(1);await assert.rejects(()=>denied.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'}),/授权/);denied.state.url='https://b.test/next';await denied.runtime.tick(1);assert.equal(denied.reads.length,0);assert.equal((await denied.store.get(1)).status,'paused');
+});
+
+test('cross-origin worker recovery only checks the browser URL and never replays the saved navigation',async()=>{
+ const f=crossFixture();await f.runtime.start(1,'Recover');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);await f.runtime.tick(1);t=await f.store.get(1);const deadline=t.check.deadline;await f.store.set(1,{...t,phase:'executing',check:{...t.check,dispatch:'unknown'}});
+ const replacement=createRuntime(f.deps);await replacement.recover();await replacement.tick(1);assert.equal((await f.store.get(1)).origin,'https://b.test');assert.equal(f.dispatches.length,1);assert.equal(f.payloads.length,1);assert.equal(f.reads.length,1);assert.equal(t.check.deadline,deadline);await replacement.tick(1);assert.equal((await f.store.get(1)).status,'completed');assert.equal(f.dispatches.length,1);
+});
+
+test('unapproved redirects and old DOM expectations pause before destination observation and retain original deadlines',async()=>{
+ for(const domCheck of [false,true]){
+  const f=crossFixture();await f.runtime.start(1,'Boundary');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);await f.runtime.tick(1);t=await f.store.get(1);
+  if(domCheck)await f.store.set(1,{...t,check:{...t.check,expected:[{kind:'field_equals',id:'t0',value:'Old private value'}]}});else f.state.url='https://c.test/redirect';
+  await f.runtime.tick(1);const paused=await f.store.get(1);assert.equal(paused.status,'paused');assert.equal(paused.origin,'https://a.test');assert.equal(paused.check.deadline,t.check.deadline);assert.equal(paused.check.dispatch,'unknown');assert.equal(f.reads.length,1);assert.equal(f.payloads.length,1);assert.equal(f.dispatches.length,1);
+ }
+});
+
+test('a URL change aborts a pending source model and its late click cannot reach the new origin',async()=>{
+ let resolve,signal;const f=crossFixture({model:async(data,s)=>{signal=s;return new Promise(r=>resolve=r);}});await f.runtime.start(1,'Pending source');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);const tick=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));f.state.url='https://b.test/next';const changed=f.runtime.navigationChanged(1);assert.equal(signal.aborted,true);await changed;resolve({text:'{"reply":"Old","action":"click","id":"t0"}'});await tick;await f.runtime.tick(1);assert.equal((await f.store.get(1)).origin,'https://b.test');assert.equal(f.dispatches.length,0);assert.equal(f.payloads.length,1);
+});
+
+
+test('origin history capacity failure pauses with the original source intact instead of retrying or trimming',async()=>{
+ const f=crossFixture();await f.runtime.start(1,'Large source');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);t=await f.store.get(1);const large='x'.repeat(1000001);await f.store.set(1,{...t,results:[{result:large}]});f.state.url='https://b.test/next';await f.runtime.tick(1);const paused=await f.store.get(1);assert.equal(paused.status,'paused');assert.equal(paused.reason,'origin_storage');assert.equal(paused.origin,'https://a.test');assert.equal(paused.results[0].result,large);assert.equal(f.reads.length,0);assert.equal(f.payloads.length,0);assert.equal(paused.steps,0);
+});

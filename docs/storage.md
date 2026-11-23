@@ -10,6 +10,7 @@
 | IndexedDB page-agent-memory / sites | 按完整 origin 保存长期笔记和版本 | 本机跨重启；用户删除或卸载/清理存储后消失 |
 | IndexedDB page-agent-memory / global | 独立 scope=global 记录，全局偏好和通用经验及版本 | 本机跨站/任务/标签页/重启共享，不同步 |
 | session task:tabId | 旧版迁移记录（不再双写） | 成功迁移/核对根记录后删除 |
+| session conversation-origin:tabId:taskId:encodedOrigin | 切换离开来源前的只读分段历史；模型不可按需恢复此分区 | session；当前任务清空时删除其分区，关闭保留只读归档 |
 | session memory:tabId | 按 origin 保存的临时笔记 | 模型决定维护；任务结束保留，清空任务或关标签删除 |
 
 API 初始化强制 local 为 TRUSTED_CONTEXTS；缺少该 API 拒绝初始化，不降低密钥隔离要求。session 默认仅可信扩展上下文访问。
@@ -48,7 +49,7 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 
 替换不同 taskId 时，task-store 在同一次 session.set 中保存 `conversation:tabId:taskId` 并写入新的 `taskRoot:taskId`（完整发布协议见 V3 章节）；存储失败则不主动删除旧记录。普通替换归档移除 token、pending、check；成员关闭归档保留未知操作证据（见下文），不参与 runtime.list/recover，也不提供恢复执行入口。相同 taskId 的更新不额外生成对话，停止/暂停后的补充指令仍属于原对话。
 
-历史目录只返回标题、状态、更新时间和 taskId；正文按需读取。后台仅接受可信侧栏的 task:history / task:history-get，按当前标签页完整 origin 校验。查看记录不请求模型、不改变活动任务，也不自动继承原任务上下文。关闭标签页删除其所有对话；清空当前任务不删除其他归档。继承 session 的生命周期与容量限制，配额不足时创建新任务可能失败，不静默裁剪旧历史。
+历史目录只返回标题、状态、更新时间和 taskId；正文按需读取。后台仅接受可信侧栏的 task:history / task:history-get，按当前标签页完整 origin 校验。查看记录不请求模型、不改变活动任务，也不自动继承原任务上下文。关闭标签页会归档终态对话并在 session 保留；清空当前任务删除其来源分区，但不删除其他对话归档。继承 session 的生命周期与容量限制，配额不足时创建新任务可能失败，不静默裁剪旧历史。
 
 保留的是任务已有的滚动消息、工具结果、摘要与 contextArchive；不补齐此前已被裁剪的状态消息，不是完整无限轨迹，也不能恢复功能上线前已被覆盖的对话。暂不支持跨标签页历史列表、跨重启保存、搜索、导入或逐条删除归档。
 
@@ -70,7 +71,7 @@ nextObservation.value 可选 includeText 布尔值，用于一次性的正文省
 
 任务可选 taskPlan 数组（默认空）保存 PA6 公开子目标、验证结果、记录时间及文档来源；沿用 session task 和只读对话归档，不新增数据库，不跨浏览器重启恢复。验证证据是历史数据，不是待执行检查点或动作，恢复先重新观察。
 
-同源 navigate 不改变任务归属或权限模型；pending.plan.value 是受限绝对 URL，check 保存自动 url_equals 和原 deadline，session 检查点恢复只核对不重复导航。原 origin 隔离、重启不恢复任务不变，尚无授权 origin 集合或多标签任务结构。
+navigate 保留任务归属与累计轮数；pending.plan.value 是受限绝对 URL，check 保存自动 url_equals、原来源/标签/范围版本和原 deadline。跨已授权来源的切换协议见下文；会话恢复只核对不重复导航，不支持跨浏览器重启恢复或多标签任务。
 
 记忆失效时 taskPlan 清空，当前 results/contextArchive 中 request.subgoals 及 pending.plan/check.request.subgoals 移除；仅删除计划元数据，不删除待核对动作、expected、deadline 或 dispatch。已归档对话的只读历史沿用既有保留规则，不重新作为当前任务模型输入。
 
@@ -80,13 +81,13 @@ metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/complet
 
 诊断统计 JSON 为用户点击时从现有 session 记录只读生成，不增加存储键或自动落盘；仅当前任务且 origin/taskId 匹配。文件不包含任务/标签标识、URL、令牌或自由文本，不能导入恢复。
 
-## 跨站/多标签任务设计（未实现）
+## 跨站/多标签任务分阶段设计
 
-下一步根记录、成员索引、修订一致性、迁移及配额失败恢复见 [任务站点集合与标签归属设计](task-scope-v3.md)。已实现下文 V3 单成员 root/registry，调度仍按 tabId；设计中的 session 多键更新不假设事务，执行前须索引/根记录一致。不得仅改 tabId 或放宽 origin 验证开放标签工具。
+下一步根记录、成员索引、修订一致性、迁移及配额失败恢复见 [任务站点集合与标签归属设计](task-scope-v3.md)。已实现下文 V3 单成员 root/registry，调度身份已迁至 taskId，单标签跨已授权来源已接入；设计中的 session 多键更新不假设事务，执行前须索引/根记录一致。不得仅改 tabId 或放宽 origin 验证开放标签工具。
 
 ## V3 单成员根记录（已实现基础）
 
-任务主记录为 session taskRoot:taskId，version=3；taskRegistry={version:1,revision,bindings:{tabId:{taskId,revision}},pending?} 为单成员归属权威。根记录 scopeRevision 须与 binding 对应；同一 taskId 不可归属两个标签。当前 root 固定 initialTabId=activeTabId=tabId、initialOrigin=activeOrigin=origin，members 只有 kind=initial/tabRef=tab0 一项；新任务 allowedOrigins=[origin]。普通 set 保留已有授权集合、initialOrigin 与成员，不接受调用方扩大范围或修改 origin；任务范围只能经专用可信 changeOrigins 修改。
+任务主记录为 session taskRoot:taskId，version=3；taskRegistry={version:1,revision,bindings:{tabId:{taskId,revision}},pending?} 为单成员归属权威。根记录 scopeRevision 须与 binding 对应；同一 taskId 不可归属两个标签。当前 root 固定 initialTabId=activeTabId=tabId、activeOrigin=origin，initialOrigin 保留创建来源，members 只有 kind=initial/tabRef=tab0 一项；新任务 allowedOrigins=[origin]。普通 set 保留已有授权集合、initialOrigin 与成员，不接受调用方扩大范围或修改 origin；任务范围只能经专用可信 changeOrigins 修改。
 
 现有 store.get/set/history/list(tabId) 接口保留；task:tabId 仅为旧版迁移输入，不再双写整份任务。侧栏监听根记录/归属索引作为失效信号，通过可信 task:get 读取当前任务，忽略旧键事件内容；pending 归属期间暂停刷新，取消迟到读取。外部直接改旧键不覆盖已有 binding 的根记录；生产后台统一经 store 写。临时记忆及 conversation 历史键仍不变。
 
@@ -94,7 +95,7 @@ metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/complet
 
 同一成员普通检查点更新不改变 scopeRevision，根记录始终权威。成功发布归属后清理旧键；启动迁移在验证已有根记录后重试清理，根缺失则保留迁移证据并报错。当前 worker 同一 session 对象的存储实例共享短写队列。成功替换后删除旧活动 root；未绑定 root 不进入 list/调度，启动只清理存在归档凭据的旧 root。remove 先清遗留旧键再释放归属，避免旧记录变回运行任务。
 
-V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。tabId API 保留，单成员页面关闭改为独立终态归档（见下文），任务级调度见下文；跨站和多标签仍未实现。
+V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。tabId API 保留，单成员页面关闭改为独立终态归档（见下文），任务级调度见下文；单标签跨已授权来源已实现，多标签仍未实现。
 
 任务级调度仅由 taskRegistry 已提交 binding 的 getByTaskId 解析，不扫描未绑定 root 或历史对话作为运行任务。alarm 名为 task-id:taskId，旧 task:tabId alarm 只作清理/升级；timer/控制器/运行锁为 worker 内存资源，不新增持久任务键，恢复仍使用根记录原检查点/deadline。
 
@@ -106,6 +107,14 @@ pending 期间读取拒绝执行；启动 reconcile 识别关闭意图，只读�
 
 ## 任务站点范围修改
 
-changeOrigins 仅供可信后台调用，按 taskId/expectedRevision 核对当前 binding；HTTP/HTTPS canonical 完整 origin（无路径/查询/片段/凭据/通配符），最多 16 项，协议、子域和端口各自独立。模型和普通 set 不可扩大集合。增删改 scopeRevision/token，使用同一 pending→root→binding 协议；失败由启动 reconcile 采用旧或新完整范围并暂停，不自动执行。初始 origin 不变，当前仍为单成员同源运行器。
+changeOrigins 仅供可信后台调用，按 taskId/expectedRevision 核对当前 binding；HTTP/HTTPS canonical 完整 origin（无路径/查询/片段/凭据/通配符），最多 16 项，协议、子域和端口各自独立。模型和普通 set 不可扩大集合。增删改 scopeRevision/token，使用同一 pending→root→binding 协议；失败由启动 reconcile 采用旧或新完整范围并暂停，不自动执行。初始 origin 不变，当前仍为单成员运行器，站点切换走专用 switchOrigin，普通 set 不能改变 origin。
 
-修改成功置 paused/reason=scope_changed，清一次观察范围、摘要、usage 锚点、任务计划及问题缓存，保留原结果/归档和 executing/pending/check/deadline/steps；这些仍属于同 origin，不自动携带到其他来源。撤销允许空集合，重新添加当前 origin 才能继续；新任务重新从初始 origin 授权，不沿用旧对话集合。浏览器主机权限不写入 allowedOrigins；权限撤销不改用户范围，但禁止运行并以 permission_denied 暂停。跨 origin 的上下文分区/历史筛选尚待接入。
+修改成功置 paused/reason=scope_changed，清一次观察范围、摘要、usage 锚点、任务计划及问题缓存，保留原结果/归档和 executing/pending/check/deadline/steps；这些仍属于同 origin，不自动携带到其他来源。撤销允许空集合，重新添加当前 origin 才能继续；新任务重新从初始 origin 授权，不沿用旧对话集合。浏览器主机权限不写入 allowedOrigins；权限撤销不改用户范围，但禁止运行并以 permission_denied 暂停。跨 origin 上下文分区和历史筛选见下文；范围增删本身不发起导航。
+
+## 单标签跨来源切换与只读历史
+
+switchOrigin 按 taskId/token/scopeRevision 核对旧根，目标必须在 allowedOrigins；普通 set 仍禁止改 origin。先写 kind=origin_changed 的 registry.pending，再保存旧来源只读分段，之后写新根并提交 binding。新根保留 initialOrigin、taskId、steps/prefs、累计 metrics、用户目标和补充；origin/activeOrigin 改为浏览器确认的目标，token/范围版本更新。结果、摘要、压缩归档、问题、完成条件、笔记版本/读取缓存和旧观察范围均重新开始，不恢复旧来源模型上下文。
+
+只读分区键为 conversation-origin:tabId:taskId:encodeURIComponent(origin)，值含 version/taskId/tabId/origin 与 segments；分段 ID 为离开时 scopeRevision。旧结果没有显式 origin 的按其分区归属，新增结果/摘要归档标记 origin/tabRef。每个来源分区上限 100 万序列化字符；超限暂停 origin_storage，原根不裁剪。失败后启动按旧/新根修订对账到暂停态；未提交的来源分段回滚移除，防止重复归档。先保留完整源分段才允许更新当前根，不假设多键写入原子性。
+
+history/historyGet 在当前完整 origin 下合并该来源的只读分段和当前段，不混入其他来源正文；任务范围撤销后拒绝该来源历史。分区不出现在模型 historyIndex，history_read 只能读当前来源的压缩归档。回到旧来源也从空模型结果重新开始，不能用旧归档恢复已清笔记或摘要；只恢复属于返回来源的最多两条未确定点击防重放约束（历史语义目标/文档标识，不是可执行目标 ID）。清空当前任务删除其全部来源分区，替换/关闭后在本次浏览器 session 保留只读历史，不提供跨重启恢复。
