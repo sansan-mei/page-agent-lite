@@ -49,7 +49,7 @@ const { chromium } = require('playwright');
 
 // ── Paths ────────────────────────────────────────────────────────────────
 const root       = path.resolve(__dirname, '..');
-const outputDir  = path.join(root, 'tests', 'browser-output');
+const outputDir  = process.env.PAGE_AGENT_SMOKE_OUTPUT ? path.resolve(process.env.PAGE_AGENT_SMOKE_OUTPUT) : path.join(root, 'tests', 'browser-output');
 
 // ── Test constants (deterministic, no secrets) ───────────────────────────
 const TEST_TRANSLATION =
@@ -564,7 +564,6 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   coverage=(await toolCall({type:'agent:observe'})).value;
   const changing=await toolCall({type:'agent:execute',snapshotId:coverage.snapshotId,documentId:coverage.documentId,url:coverage.url,plan:{reply:'Open',action:'click',id:coverage.page.elements.find(e=>e.label==='Changing target').id}});
   assert.equal(changing.code,'TARGET_CHANGED');assert.equal(changing.result.dispatch,'unknown');assert.equal(await coveragePage.evaluate(()=>window.changingClicks||0),0);
-  await coveragePage.close();
   pass('pointer handler removing a target prevents the final click and preserves unknown side-effect status');
 
   assert.equal(await page.locator('[data-page-agent="ui"]').count(),0);
@@ -573,6 +572,27 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await optionsPage.locator('#agent-config button[type="submit"]').click();
   await poll(async()=>(await optionsPage.locator('#status').textContent()).includes('助手默认设置已保存'),'budget preferences saved without execution toggles');
   pass('settings default to 100000 tokens with no automation switches or article tools');
+
+  // Recent PA1/PA3 changes through real isolated-world messaging.
+  await coveragePage.evaluate(()=>{
+    const host=document.createElement('article');
+    host.innerHTML=Array.from({length:55},(_,i)=>`<section aria-label="PA result ${i}">${'x'.repeat(1000)}</section>`).join('')+'<div contenteditable="true" aria-label="PA editor">original</div>';
+    document.body.append(host);
+  });
+  const late=(await toolCall({type:'agent:observe',textOffset:{regionQuery:'PA result 54'}})).value;
+  assert.equal(late.page.regions.length,1);assert.equal(late.page.coverage.regionsComplete,false);
+  const bound=await sw.evaluate(({id})=>chrome.tabs.sendMessage(id,{type:'agent:verify',expected:[{kind:'text_present',target:{category:'region',label:'PA result 54'},value:'Confirmed'}]},{frameId:0}),{id:coverageId});
+  assert.equal(bound.value.status,'not_satisfied');
+  await coveragePage.locator('[aria-label="PA result 54"]').evaluate(n=>n.textContent='Confirmed');
+  const verified=await toolCall({type:'agent:verify',expected:[{kind:'text_present',target:{category:'region',label:'PA result 54'},value:'Confirmed'}]});
+  assert.equal(verified.value.status,'success');
+  const editable=(await toolCall({type:'agent:observe',textOffset:{query:'PA editor'}})).value;
+  const text='<b>literal text</b>\nsecond line';
+  const written=await toolCall({type:'agent:execute',snapshotId:editable.snapshotId,documentId:editable.documentId,url:editable.url,plan:{reply:'Write text',action:'fill',id:editable.page.elements[0].id,value:text}});
+  assert.equal(written.value.status,'success');assert.equal(await coveragePage.locator('[aria-label="PA editor"]').textContent(),text);assert.equal(await coveragePage.locator('[aria-label="PA editor"] b').count(),0);
+  pass('real MV3 isolated-world tools locate and verify a late region and fill plain editable content without interpreting HTML');
+
+  await coveragePage.close();
 
   // Runtime integration: trusted extension sidepanel document, real content
   // messages, actual DOM events and same-origin document navigation.
@@ -595,11 +615,18 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   const taskCleared=await command('task:clear');assert.equal(taskCleared.ok,true);assert.equal((await command('task:get')).value,null);
   await page.goto(origin+'/task-one');await page.bringToFront();
   const automatic=await command('task:start',{goal:'Fill answer 4 then go to the next page automatically'});assert.equal(automatic.ok,true);
+  const handoff=await command('task:takeover');assert.equal(handoff.ok,true);assert.equal(handoff.value.reason,'user_takeover');
+  const budgetBefore=handoff.value.steps,identityBefore=handoff.value.taskId;
+  await page.locator('[aria-label="Answer"]').fill('4');
+  const continued=await command('task:resume');assert.equal(continued.ok,true);assert.equal(continued.value.taskId,identityBefore);assert.equal(continued.value.steps,budgetBefore);
+
   await poll(async()=>((await command('task:get')).value?.status)==='completed','automatic click navigates without approval',20000);
   const autoFinished=(await command('task:get')).value;
   assert.equal(autoFinished.prefs.autoClick,undefined);assert.equal(page.url(),origin+'/task-two');
   assert.equal(autoFinished.events.some(e=>e.text.startsWith('等待确认')),false);
   pass('real fill and same-origin navigation finish with built-in automation and no approval command');
+  assert.equal(autoFinished.taskId,identityBefore);assert.equal(autoFinished.results.slice(handoff.value.results.length).filter(r=>r.action==='fill').length,0);
+  pass('trusted user takeover pauses the real runtime, retains budget and task ID, and fresh observation respects the manually filled value');
   await command('task:clear');
   await page.goto(origin+'/judgment');await page.bringToFront();
   const correction=await command('task:submit',{goal:'按指定答案更正：第一题对，第二题错，不提交评分'});assert.equal(correction.ok,true);
@@ -782,6 +809,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     await import(chrome.runtime.getURL('task-store.js'));
     const store=PageAgentTaskStore.createTaskStore(chrome);
     const tab=await chrome.tabs.create({url:origin+'/article',active:false});
+    for(let attempt=0;attempt<100;attempt++){const ready=await chrome.tabs.get(tab.id);if(ready.status==='complete'&&ready.url===origin+'/article')break;if(attempt===99)throw new Error('History fixture tab did not finish loading');await new Promise(resolve=>setTimeout(resolve,50));}
     const first={taskId:'history-first',origin,tabId:tab.id,goal:'First isolated conversation',status:'ended',phase:'idle',steps:1,prefs:{maxSteps:50},updatedAt:1,events:[{time:1,text:'First only'}],results:[],token:'not-for-history'};
     await store.set(tab.id,first);await store.set(tab.id,{...first,taskId:'history-second',goal:'Second isolated conversation',updatedAt:2,events:[]});
     const list=await chrome.runtime.sendMessage({type:'task:history',tabId:tab.id});
