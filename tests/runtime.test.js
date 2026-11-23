@@ -712,3 +712,17 @@ test('model memory clear cannot reintroduce removed milestones in its request ar
   assert.equal(task.taskPlan,null);assert.doesNotMatch(JSON.stringify(task),/forgotten-plan-text/);
  }
 });
+
+test('diagnostic timing distinguishes model failure and tool completion without adding rounds',async()=>{
+ let clock=1000,calls=0;
+ const f=fixture({now:()=>clock,model:async()=>{clock+=120;if(++calls===1)throw Error('API 503');return {text:JSON.stringify({reply:'Click',action:'click',id:'t0'})};},tools:{async execute(){clock+=35;return {version:2,status:'unknown',dispatch:'sent',code:'NO_CHANGE'};}}});
+ await f.runtime.start(1,'Work');await f.runtime.tick(1);await f.runtime.tick(1);
+ const t=await f.runtime.get(1);assert.deepEqual(t.metrics.timings.model,{attempts:2,completed:1,failed:1,totalMs:240,lastMs:120});assert.deepEqual(t.metrics.timings.tool,{attempts:1,completed:1,failed:0,totalMs:35,lastMs:35});assert.equal(t.steps,2);assert.equal(calls,2);
+});
+
+test('late diagnostic completion cannot update timing after stop',async()=>{
+ let resolve,started;const ready=new Promise(r=>started=r);let clock=100;
+ const f=fixture({now:()=>clock,model:async()=>{started();return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'Work');const job=f.runtime.tick(1);await ready;await f.runtime.stop(1);clock+=5000;resolve({text:JSON.stringify({reply:'Late',action:'done'})});await job;
+ const t=await f.runtime.get(1);assert.equal(t.metrics.timings.model.attempts,1);assert.equal(t.metrics.timings.model.completed,0);assert.equal(t.metrics.timings.model.totalMs,0);assert.equal(t.status,'stopped');
+});

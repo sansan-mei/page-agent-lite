@@ -136,3 +136,5 @@ npm test
 明确标注 autocomplete=current-password/new-password/one-time-code/cc-number/cc-csc 的字段及其子树会从新增快照中排除，既有 password/file/hidden 排除不变。带 section-/billing 等前缀或大小写变化仍识别；标准标记不完整或网页另处复制的数据可能遗漏，普通表单仍可能含隐私。被排除不代表内容不存在，敏感字段不自动填写。
 
 单个长区域也可按其 textRange.nextOffset 继续读取：observe 指定区域名称片段 regionQuery 和 regionTextOffset，每段仍最多 1000 字符。后续片段不代表完整区域，页面内容变化后偏移可能移动；不会自动滚动或扩大操作权限。
+
+历史记录的运行详情显示模型请求、摘要请求及工具派发的累计已回报耗时、最近耗时与异常次数。中断后未回报的请求单独列出，不推算未完成耗时；计时不代表业务成功或服务端实际计费，也不增加模型请求。

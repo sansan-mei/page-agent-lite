@@ -25,6 +25,22 @@
         fn(task); task.version=2;task.updatedAt = now(); await store.set(tabId, task); return task;
       });
     }
+    async function measured(task,kind,operation,live){
+      const saved=await update(task.tabId,task.token,t=>{
+        const timings=t.metrics?.timings||{},previous=timings[kind]||{};
+        t.metrics={...t.metrics,timings:{...timings,[kind]:{attempts:(previous.attempts||0)+1,completed:previous.completed||0,failed:previous.failed||0,totalMs:previous.totalMs||0,lastMs:previous.lastMs??null}}};
+      });
+      if(!saved||!await live())throw Object.assign(new Error('请求已取消'),{code:'CANCELLED'});
+      const started=now();let failed=false;
+      try{return await operation();}catch(error){failed=true;throw error;}
+      finally{
+        const elapsed=Math.max(0,now()-started);
+        if(await live())await update(task.tabId,task.token,t=>{
+          const timings=t.metrics?.timings||{},previous=timings[kind]||{};
+          t.metrics={...t.metrics,timings:{...timings,[kind]:{...previous,completed:(previous.completed||0)+(failed?0:1),failed:(previous.failed||0)+(failed?1:0),totalMs:(previous.totalMs||0)+elapsed,lastMs:elapsed}}};
+        });
+      }
+    }
     const event = (t, text) => {t.events = recent(t.events.concat({time:Date.now(), text}), 40, 16000);};
     const withoutSubgoals=plan=>{if(!plan||!Object.prototype.hasOwnProperty.call(plan,'subgoals'))return plan;const {subgoals,...rest}=plan;return rest;};
     function forgetPlanContext(t){
@@ -333,7 +349,7 @@
           if(!task||!await live())return;
           try{
             if(!summarize)throw new Error('摘要服务不可用');
-            const response=await summarize(input,controller.signal);
+            const response=await measured(task,'summary',()=>summarize(input,controller.signal),live);
             if(!await live())return;
             const content=P.parseSummary(response.text);
             await update(tabId,token,t=>{
@@ -351,7 +367,7 @@
         if (!task || !await live()) return;
         const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex);
         const sentEstimate=P.pressure(task,payload).estimatedTokens;
-        const result = await model(payload, controller.signal);
+        const result = await measured(task,'model',()=>model(payload,controller.signal),live);
         if (!await live()) return;
         task=await update(tabId,token,t=>{t.compactionGuard=false;t.contextPressure=pressure;
           t.contextUsage=result.usage&&Number.isSafeInteger(result.usage.promptTokens)?{...result.usage,estimatedTokens:sentEstimate,modelIdentity:result.modelIdentity||modelIdentity}:null;
@@ -544,7 +560,7 @@
         t.check=pending.expected?.length?{operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',dispatch:'unknown',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
       });
       if (!await live()) return;
-      const result = T.normalize(await tools.execute(task.tabId,pending),{operationId:pending.operationId,documentId:pending.documentId});
+      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending),live),{operationId:pending.operationId,documentId:pending.documentId});
       if (!await live()) return;
       await update(task.tabId,task.token,t=>{
         t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;

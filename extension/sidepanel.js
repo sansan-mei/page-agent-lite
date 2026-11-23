@@ -109,6 +109,12 @@
     $('task-meta').textContent=task?`任务 ${task.taskId||'—'} · 更新 ${new Date(task.updatedAt||Date.now()).toLocaleTimeString()}`:'';
     const phases={observe:'读取页面',thinking:'请求模型',executing:'执行操作',verifying:'核对结果',confirm:'等待确认',compacting:'整理上下文',idle:'空闲'};
     $('metrics').textContent=task?`阶段：${phases[task.phase]||task.phase||'—'} · 观察 ${task.metrics?.observations||0} · 操作 ${task.metrics?.actions||0} · 核对 ${task.metrics?.verifications||0}${task.reason?' · 暂停/失败代码：'+task.reason:''}`:'';
+    const timingLabels={model:'模型请求',summary:'摘要请求',tool:'工具派发'};
+    for(const [kind,label] of Object.entries(timingLabels)){
+      const timing=task?.metrics?.timings?.[kind];if(!timing)continue;
+      const missing=Math.max(0,timing.attempts-timing.completed-timing.failed);
+      $('metrics').textContent+=` · ${label} ${timing.attempts} 次，已回报累计 ${(timing.totalMs/1000).toFixed(2)} 秒，最近 ${timing.lastMs===null?'未回报':(timing.lastMs/1000).toFixed(2)+' 秒'}，失败 ${timing.failed}${missing?'，未回报 '+missing:''}`;
+    }
     const records=task?.results||[];
     $('record-count').textContent=records.length?`· ${records.length} 条保留结果`:'';
     const results=$('results'),signature=JSON.stringify([task?.taskId,task?.contextSummary?.through,records]);

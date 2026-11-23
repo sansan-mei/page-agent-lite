@@ -89,3 +89,9 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 可信 navigate 复用普通动作副作用检查点，automatic 条件为 url_equals，plan.value 保存规范化目标 URL。执行前持久化 executing；后台只派发一次，未知结果等待只读 URL 核对，恢复沿用原 deadline，不重置 taskId/steps，不把派发成功当作业务成功。
 
 未确定目标 guard 分类来自 C.agentTool(action)，与动作校验器/提示目录共用静态可信工具策略；取消、token、检查点、deadline 与 V2 结果恢复仍由原运行器控制，不把策略表当作另一个执行器。
+
+## 耗时诊断（PA13 基础）
+
+模型、摘要与工具派发使用同一 measured 包装：先在当前 token 下记录准备次数，再调用并测量等待响应的本机 wall-clock 毫秒，回报后仅在 live 仍成立时累计。metrics.timings 按 model/summary/tool 分组，字段 attempts/completed/failed/totalMs/lastMs；completed 表示调用正常返回，不代表工具业务成功，failed 仅表示抛出异常。准备记录不是已派发证明。
+
+停止/替换/记忆变更后的迟到结果不补写，worker 被终止也不推测耗时；attempts-completed-failed 是未回报次数。elapsed 小于 0 时归零，计时不包含检查点存储写入，不包括条件等待轮询/读取/网页业务服务器完成。恢复只保留已有数值，不新增请求或重播工具。

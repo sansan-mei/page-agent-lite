@@ -230,3 +230,8 @@ test('milestone UI shows historical verification and renders untrusted titles as
  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:{taskId:'t',goal:'Work',status:'running',steps:1,prefs:{maxSteps:50},events:[],results:[],taskPlan:[{id:'one',title:'<img src=x onerror=alert(1)>',status:'completed',verification:{status:'success'}},{id:'two',title:'Save',status:'active',verification:{status:'unknown'}}]}}:undefined);
  assert.equal(f.document.getElementById('task-plan').hidden,false);assert.match(f.document.getElementById('task-plan-items').textContent,/曾核对通过/);assert.match(f.document.getElementById('task-plan-items').textContent,/unknown/);assert.equal(f.document.getElementById('task-plan-items').querySelector('img'),null);
 });
+
+test('diagnostic UI separates reported timing from interrupted requests',async()=>{
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:{goal:'Work',taskId:'t',status:'stopped',phase:'observe',steps:2,prefs:{maxSteps:50},events:[],results:[],metrics:{timings:{model:{attempts:2,completed:1,failed:0,totalMs:1500,lastMs:1500},tool:{attempts:1,completed:0,failed:1,totalMs:50,lastMs:50}}}}}:undefined);
+ const text=f.document.getElementById('metrics').textContent;assert.match(text,/模型请求 2 次/);assert.match(text,/1.50 秒/);assert.match(text,/未回报 1/);assert.match(text,/工具派发 1 次/);assert.match(text,/失败 1/);
+});

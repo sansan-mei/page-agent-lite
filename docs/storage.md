@@ -75,3 +75,5 @@ nextObservation.value 可选 includeText 布尔值，用于一次性的正文省
 记忆失效时 taskPlan 清空，当前 results/contextArchive 中 request.subgoals 及 pending.plan/check.request.subgoals 移除；仅删除计划元数据，不删除待核对动作、expected、deadline 或 dispatch。已归档对话的只读历史沿用既有保留规则，不重新作为当前任务模型输入。
 
 nextObservation.value 可选 regionTextOffset，必须配合 regionQuery；仅保存下一轮的受限文字偏移，不缓存区域正文或 DOM 引用，文档/代次边界仍使范围失效。
+
+metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/completed/failed/totalMs/lastMs；旧任务缺省无计时。仅会话内累计，归档沿用当前对话历史规则，不保存正文、密钥或额外请求 URL；中断未完成次数可由计数差推导，lastMs=null 表示尚无回报。
