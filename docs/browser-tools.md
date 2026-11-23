@@ -53,7 +53,7 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 
 过期目标返回 STALE；加载阶段可返回 NAVIGATION。无法注入时说明需要点击扩展图标或重新授权。只支持当前可访问的同源页面。
 
-后续：区域分页、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
+后续：单区域正文分段、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
 
 ## 弹窗与核对证据
 
@@ -62,7 +62,7 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 
 ## 视口覆盖、滚动与点击兼容
 
-弹窗仍优先；同一优先级内，控件和区域按是否与当前视口相交排序，考虑 overflow 祖先的裁剪。`inViewport` 仅代表几何相交，不保证没有遮挡。120 控件、40 区域及原有正文预算不变；滚动后重新读取，可将先前被预算截断的后续控件纳入快照。正文分段及控件分页/查找见下文，区域分页尚未实现，`coverage` 不完整时仍不能证明不存在。
+弹窗仍优先；同一优先级内，控件和区域按是否与当前视口相交排序，考虑 overflow 祖先的裁剪。`inViewport` 仅代表几何相交，不保证没有遮挡。120 控件、40 区域及原有正文预算不变；滚动后重新读取，可将先前被预算截断的后续控件纳入快照。正文分段及控件分页/查找见下文，区域分页/名称查找见下文，`coverage` 不完整时仍不能证明不存在。
 
 `page.viewport` 包含 width/height 和 x/y/maxX/maxY。可滚动容器作为当前目标提供 `scroll: {x,y,maxX,maxY}`。scroll 只接受当前快照 ID，检查节点签名和状态；不接收选择器，不自动改为滚动其他容器。回执 observed 包含 axis/before/after/delta/atStart/atEnd，边界不等于任务完成。RTL 负向 scrollLeft 暂无专门适配。
 
@@ -111,3 +111,11 @@ selected_equals 和 expanded_equals 接收布尔 value，分别只读核对明�
 `wheel` 必须提供当前快照元素 id 和 up/down/left/right 的 value。检查签名、状态和遮挡，向命中子元素派发一次冒泡、可取消的 WheelEvent（像素模式，指定轴 ±600），不接收坐标/选择器，不自动回退其他容器。observed.input=wheel、deltaX/deltaY 是输入量，defaultPrevented 只是监听器取消标志，不是实际位移或成功证据。合成 wheel 只触发监听器，没有原生默认滚动或 isTrusted；普通 scroll 不变。窗口不动时可据当前页面尝试 wheel，但必须核对可识别的内容变化，播放计时变化不能证明切换。
 
 只读 verify 自身的 dispatch=not_sent 不得覆盖原动作派发状态；运行器核对回执沿用 action 检查点的 sent/unknown，旧检查点缺失时为 unknown。
+
+## 区域分页与按需核对
+
+observe 的对象 value 可加 regionOffset（非负安全整数）、regionQuery（非空纯文字，最多 180 字符），可与控件范围字段合用。regionQuery 仅匹配区域名称的不区分大小写字面子串，不搜索正文、不解释选择器或正则。`page.regionRange` 返回 start/end/total/nextOffset/query；范围计数在当前匹配集上，排序沿用弹窗/视口优先。仍限 40 项、总文字 5000、每区域 1000；因此跟随 nextOffset 而非固定加 40。超出末尾返回空列表；筛选/非零偏移 regionsComplete=false。
+
+下一轮使用已有 nextObservation 重新捕获范围，不持久化区域 ID，不增加模型预算或权限。按区域分页不会滚动网页；DOM 变化可能改变顺序。单个区域 textTruncated 仍保留，未提供其内部文字分页。
+
+verify 和动作后核对会针对绑定条件中具名 region 进行额外只读名称查找，最多随 5 个条件读取并按节点 key 去重；不发送额外模型请求、不执行网页动作、不改变当前动作快照。语义匹配仍需唯一，重复名称保持 ambiguous。合并不提升原覆盖完整性：原全页读取不完整时，找不到目标仍是 unknown；原范围确已完整时保留既有缺失核对语义。额外读取不证明全文完整或服务器成功。

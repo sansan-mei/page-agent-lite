@@ -6,6 +6,18 @@
   const documentId=crypto.randomUUID();
   let snapshot=null,snapshotId=null,executing=false;
   function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset),documentId,url:location.href};}
+  function captureForChecks(expected){
+    G.validate(expected);
+    const current=capture(),regions=new Map(current.page.regions.map(r=>[r.key,r]));
+    const labels=[...new Set(expected.filter(c=>c.target?.category==='region'&&c.target.label).map(c=>c.target.label))];
+    for(const label of labels){
+      if(label.length>180)continue;
+      const extra=capture({regionQuery:label});
+      for(const r of extra.page.regions)regions.set(r.key,r);
+    }
+    if(labels.length)current.page.regions=[...regions.values()];
+    return current;
+  }
   function fingerprint(){return JSON.stringify(capture().page);}
   async function settle(before){
     const start=Date.now();let last=before,stable=0;
@@ -31,7 +43,7 @@
         return {snapshotId,documentId,url:location.href,readyState:document.readyState,page:snapshot.page};
       }
       if(message.type==='agent:verify'){
-        const current=capture(),check=G.evaluate(message.expected,current);
+        const current=captureForChecks(message.expected),check=G.evaluate(message.expected,current);
         return T.result({...check,operationId:message.operationId,documentId,dispatch:'not_sent',scope:'page',code:check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET',recovery:check.status==='success'?'none':'wait',message:check.status==='success'?'预期条件已满足':'预期条件尚未满足或证据不足'});
       }
       if(!snapshot||message.snapshotId!==snapshotId||message.url!==location.href||message.documentId&&message.documentId!==documentId)throw Object.assign(new Error('页面快照已失效'),{code:'STALE'});
@@ -43,7 +55,7 @@
       try{
         dispatched=true;const interaction=C.agentExecute(plan,captured,document);
         const changed=await settle(before),verification=C.agentVerify(plan,captured);
-        const current=capture();
+        const current=expected.length?captureForChecks(expected):capture();
         const check=expected.length?G.evaluate(expected,current):null;
         const r=T.result({operationId:message.operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
           evidence:check?.evidence||[],observed:verification?{actual:verification.actual??null}:interaction||null,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',

@@ -105,7 +105,7 @@ function agentPopup(n){
  return {popup,label,signature:[label,agentNodeKey(popup),popup.id,popup.getAttribute('aria-label'),popup.getAttribute('aria-labelledby'),owners.map(c=>[agentNodeKey(c),c.getAttribute('aria-label'),c.getAttribute('aria-controls'),c.getAttribute('aria-owns')])]};
 }
 function agentReadOptions(value){
- if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query'].includes(k))||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery'].includes(k))||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
  return value;
 }
 function agentSnapshot(doc, textOffset=0){
@@ -177,22 +177,28 @@ function agentSnapshot(doc, textOffset=0){
   elements.push({inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),value:n.value?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
+ const regionOffset=reading.regionOffset||0;let matchedRegions=0;
  let regionBudget=5000;
  for(const n of prioritize(doc.querySelectorAll('main,section,article,fieldset,form,dialog,[role="status"],[role="alert"],[role="dialog"],[role="alertdialog"],[role="region"],[role="list"],[role="table"],[role="listbox"]'))){
-  if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}if(regions.length>=40||regionBudget<=0){regionsComplete=false;break;}
-  const copy=n.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();
-  const raw=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
+  if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
   const heading=n.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
   const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ');
   const id='r'+regions.length,label=(n.getAttribute('aria-label')||labelled||heading?.textContent||agentPopup(n)?.label||'').trim().slice(0,180);
+  if(reading.regionQuery&&!label.toLocaleLowerCase().includes(reading.regionQuery.trim().toLocaleLowerCase()))continue;
+  if(matchedRegions++<regionOffset)continue;
+  if(regions.length>=40||regionBudget<=0)continue;
+  const copy=n.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();
+  const raw=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
   const limit=Math.min(1000,regionBudget),regionText=raw.slice(0,limit);regionBudget-=regionText.length;
   regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textTruncated:raw.length>limit,visible:visible(n)});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
+ regionsComplete=!reading.regionQuery&&regionOffset===0&&regions.length===matchedRegions;
+ const regionRange={start:Math.min(regionOffset,matchedRegions),end:Math.min(regionOffset,matchedRegions)+regions.length,total:matchedRegions,nextOffset:regionOffset+regions.length<matchedRegions?regionOffset+regions.length:null,query:reading.regionQuery||null};
  elementsComplete=!reading.query&&elementOffset===0&&matchedElements<=120;
  const elementRange={start:Math.min(elementOffset,matchedElements),end:Math.min(elementOffset,matchedElements)+elements.length,total:matchedElements,nextOffset:elementOffset+elements.length<matchedElements?elementOffset+elements.length:null,query:reading.query||null};
  const hiddenExcluded=cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
- return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,truncated:start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
+ return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;

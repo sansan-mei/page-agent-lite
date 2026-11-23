@@ -186,3 +186,15 @@ test('ARIA popup groups disambiguate same-label options and owner changes stale 
  const multiple=C.agentSnapshot(document),arrival=multiple.page.elements.find(e=>e.role==='option'&&e.selected);
  assert.equal(multiple.page.groups.find(g=>g.id===arrival.group).label,'');
 });
+
+test('region pages respect count and text budget and preserve incomplete coverage',()=>{
+ const {document}=parseHTML('<html><body>'+Array.from({length:65},(_,i)=>`<section aria-label="Result ${i}">${'a'.repeat(1000)}</section>`).join('')+'<section hidden aria-label="Private">secret</section></body></html>');
+ const first=C.agentSnapshot(document);assert.equal(first.page.regions.length,5);assert.equal(first.page.regionRange.nextOffset,5);assert.equal(first.page.regionRange.total,65);
+ const second=C.agentSnapshot(document,{regionOffset:5});assert.equal(second.page.regions[0].label,'Result 5');
+ const found=C.agentSnapshot(document,{regionQuery:'Result 64'});assert.equal(found.page.regions.length,1);assert.equal(found.page.regions[0].label,'Result 64');assert.equal(found.page.coverage.regionsComplete,false);
+ const last=C.agentSnapshot(document,{regionOffset:64});assert.equal(last.page.regionRange.nextOffset,null);assert.equal(last.page.coverage.regionsComplete,false);
+ assert.equal(C.agentSnapshot(document,{regionOffset:999}).page.regionRange.start,65);
+ const hidden=C.agentSnapshot(document,{regionQuery:'Private'});assert.equal(hidden.page.regionRange.total,0);
+ assert.equal(require('../extension/conditions.js').evaluate([{kind:'element_absent',target:{category:'region',label:'Private'}}],hidden).status,'unknown');
+ for(const value of [{regionOffset:-1},{regionOffset:1.5},{regionQuery:''},{regionQuery:'a'.repeat(181)},{regionQuery:'Result',selector:'section'}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'read',action:'observe',value}),first));
+});

@@ -2,7 +2,7 @@
 
 这是当前实现说明。目标是轻量浏览器 Agent，借鉴 Hermes 的运行器、工具、会话和上下文职责分离，不依赖 Hermes 进程。
 
-实施方案见 [通用网页 Agent V1 实施规划](general-agent-v1.md)。V2 结果协议、有限条件检查和可恢复等待已实现；M4/PA1 已实现正文按偏移分段读取；控件已支持偏移分页和标签/名称片段查找，批量操作尚未实现。页面工具已补充视口优先抽取、容器四向滚动和受限点击事件兼容，仍保留预算与截断语义。
+实施方案见 [通用网页 Agent V1 实施规划](general-agent-v1.md)。V2 结果协议、有限条件检查和可恢复等待已实现；M4/PA1 已实现正文按偏移分段读取；控件及区域已支持偏移分页和名称片段查找，批量操作尚未实现。页面工具已补充视口优先抽取、容器四向滚动和受限点击事件兼容，仍保留预算与截断语义。
 
 ```text
 sidepanel.html / sidepanel.js
@@ -62,3 +62,5 @@ worker 可能终止，必要状态写入 session。执行前保存 `executing`�
 原生字段兼容逻辑保留在 core.js：原型 setter、受限合成输入事件与事件间目标检查。content.js 执行后的短观察及 conditions.js 值核对保持职责；runtime.js 依稳定输入 code 暂停，不在 DOM 层保存任务或运行循环。
 
 ARIA listbox/combobox 归属由 core.js 抽取为语义分组并纳入目标签名；conditions.js 统一只读核对 selected_equals/expanded_equals。运行器继续使用通用 click/wait/verify，没有组件库专用动作或第二条执行循环。
+
+content.js 的条件读取可按具名 region 额外只读捕获并合并，conditions.js 仍独立执行唯一语义匹配；不新增执行循环或模型请求。

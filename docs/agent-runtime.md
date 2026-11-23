@@ -73,3 +73,5 @@ check 保存 operationId、expected、deadline、kind 及完成说明；条件�
 INPUT_CANCELLED 与 INVALID_FIELD_VALUE 使用稳定 code 进入 reason=input 的暂停状态，不自动重放；前者处理器可能产生副作用，结果保持 unknown，后者在聚焦/事件前拒绝浏览器会清洗的值。worker 重建不会执行暂停任务。
 
 动作核对检查点另保存 dispatch：执行前 unknown，取得回执后更新为原派发状态。后续只读核对及超时沿用此值，旧检查点缺省 unknown，避免把已发出的动作显示为未执行。wheel 沿用执行前检查点、中断后只核对/暂停和停止代次保护，不在运行器增加定时循环。
+
+nextObservation.value 同样接受 regionOffset/regionQuery，沿用控件读取范围的一次性检查点和 URL/documentId/代次边界；区域核对的额外只读捕获由内容脚本负责，不改变轮数或等待 deadline。
