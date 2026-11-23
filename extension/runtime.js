@@ -51,7 +51,7 @@
           for(const controller of controllers.values())controller.abort();
           for(const old of await store.list())await serial(old.tabId,async()=>{
             const t=await store.get(old.tabId);if(!t)return;
-            controllers.get(t.tabId)?.abort();t.token=uuid();forgetGlobalContext(t);t.memoryReview=null;
+            controllers.get(t.tabId)?.abort();t.token=uuid();t.nextObservation=null;forgetGlobalContext(t);t.memoryReview=null;
             // Keep uncertain side effects and existing deadlines for read-only recovery.
             if(t.phase!=='executing'&&!t.check){t.pending=null;t.phase='observe';}
             if(!['completed','ended','stopped','failed'].includes(t.status)){t.status='paused';t.reason='global_memory_changed';}
@@ -95,7 +95,7 @@
       const saved=await siteMemory.change(origin,{...operation,source:'user'});
       for(const old of affected)await serial(old.tabId,async()=>{
         const t=await store.get(old.tabId);if(!t||t.origin!==origin)return;
-        controllers.get(t.tabId)?.abort();t.token=uuid();forgetSiteContext(t);t.siteMemoryVersion=saved.version;
+        controllers.get(t.tabId)?.abort();t.token=uuid();t.nextObservation=null;forgetSiteContext(t);t.siteMemoryVersion=saved.version;
         t.check=null;t.waitDeadline=null;t.pending=null;t.memoryReview=null;t.phase='observe';
         if(!['completed','ended','stopped','failed'].includes(t.status)){t.status='paused';t.reason='site_memory_changed';}
         event(t,'用户已修改网站长期记忆，旧请求失效；继续任务将重新读取');await store.set(t.tabId,t);
@@ -138,7 +138,7 @@
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllers.get(tabId)?.abort();
-          task.token=uuid();task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
+          task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
           task.question=null;task.helpAttempts=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           event(task,'你（补充指令）：'+text.trim());
         }else{
@@ -159,14 +159,14 @@
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
         if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限');
-        controllers.get(tabId)?.abort();t.token=uuid();t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+        controllers.get(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
       await tools.clearPointer?.(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
-        controllers.get(tabId)?.abort();task.token=uuid();task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
+        controllers.get(tabId)?.abort();task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
       await cancelSchedule(tabId);return saved;
@@ -175,7 +175,7 @@
       await tools.clearPointer?.(tabId);
       controllers.get(tabId)?.abort();
       const task = await store.get(tabId); if (!task) return null;
-      const saved = await update(tabId, task.token, t => {t.token=uuid();t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
+      const saved = await update(tabId, task.token, t => {t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
       await cancelSchedule(tabId); return saved;
     }
     async function resume(tabId) {
@@ -188,7 +188,7 @@
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
         const recovery=t.reason==='global_memory_changed'&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
-        t.question=null;t.helpAttempts=0;t.token=uuid();t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
+        t.question=null;t.helpAttempts=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
@@ -255,7 +255,14 @@
           await execute(task,pending,live);return;
         }
         if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
-        const snap = readySnapshot || await tools.observe(tabId);
+        const readingScope=task.nextObservation;
+        let snap = readingScope?await tools.observe(tabId,readingScope.value):readySnapshot||await tools.observe(tabId);
+        if(!await live())return;
+        if(readingScope){
+          task=await update(tabId,token,t=>{t.nextObservation=null;});
+          if(!task)return;
+          if(snap.url!==readingScope.url||snap.documentId!==readingScope.documentId)snap=await tools.observe(tabId);
+        }
         if (!await live()) return;
         const memories=await store.getMemory(tabId,task.origin);
         const durable=siteMemory?await siteMemory.read(task.origin):{version:0,notes:[]};
@@ -355,6 +362,9 @@
         if(plan.action.startsWith('site_memory_')){await siteMemoryAction(task,plan,durable.version,controller.signal);return;}
         if(plan.action.startsWith('memory_')){await memoryAction(task,plan);return;}
         if(plan.action==='observe'){
+          if(plan.value&&typeof plan.value==='object'){
+            await update(tabId,token,t=>{t.phase='observe';t.nextObservation={value:plan.value,url:snap.url,documentId:snap.documentId};t.results=t.results.concat({...call,action:'observe',outcome:T.result({status:'success',scope:'dispatch',code:'READ_SCOPE_SET',message:'下一轮重新读取指定控件范围'})});});return;
+          }
           const reading=plan.value===undefined?null:await tools.observe(tabId,plan.value);
           if(!await live())return;
           if(reading&&(reading.url!==snap.url||snap.documentId&&reading.documentId!==snap.documentId)){await update(tabId,token,t=>{t.phase='observe';});return;}
@@ -486,7 +496,7 @@
         await store.setMemory(tabId,origin,[]);
         const task=await store.get(tabId);
         if(task?.origin===origin){
-          controllers.get(tabId)?.abort();task.token=uuid();task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
+          controllers.get(tabId)?.abort();task.token=uuid();task.nextObservation=null;task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
           if(!['completed','ended','stopped','failed'].includes(task.status)){task.status='paused';task.reason='memory_cleared';}
           task.phase='observe';event(task,'用户已清空临时记忆；继续任务将重新读取');await store.set(tabId,task);
         }

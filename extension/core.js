@@ -96,7 +96,14 @@ function agentScrollInfo(n){
  const x=Math.max(0,(n.scrollWidth||0)-(n.clientWidth||0)),y=Math.max(0,(n.scrollHeight||0)-(n.clientHeight||0));
  return {x:n.scrollLeft||0,y:n.scrollTop||0,maxX:x,maxY:y};
 }
+function agentReadOptions(value){
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query'].includes(k))||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
+ return value;
+}
 function agentSnapshot(doc, textOffset=0){
+ const reading=typeof textOffset==='object'?agentReadOptions(textOffset):{};
+ if(typeof textOffset==='object')textOffset=0;
+ const elementOffset=reading.elementOffset||0;let matchedElements=0;
  if(!Number.isSafeInteger(textOffset)||textOffset<0)throw new Error("Invalid text offset");
  const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
  const blocked='[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"],input[type="password"],input[type="file"],input[type="hidden"]';
@@ -122,13 +129,16 @@ function agentSnapshot(doc, textOffset=0){
    // A pointer cursor is inherited: expose its boundary, not every icon/count child.
    if(!pointer(n)||n===doc.body||n===doc.documentElement||pointer(n.parentElement)||n.closest(controls)||n.querySelector(controls))continue;
   }
-  if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}if(elements.length>=120){elementsComplete=false;break;}
+  if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
   const id='t'+elements.length;
   const associated=[...(n.labels||[])];
   if(n.closest('label'))associated.push(n.closest('label'));
   if(n.id)for(const l of doc.querySelectorAll('label[for]'))if(l.htmlFor===n.id||l.getAttribute('for')===n.id)associated.push(l);
   const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ').trim();
   const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>l.textContent).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(n.type)?n.value:'')||n.textContent||n.getAttribute('placeholder')||n.name||'').trim().slice(0,180);
+  if(reading.query&&!label.toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase())&&!(n.name||'').toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase()))continue;
+  if(matchedElements++<elementOffset)continue;
+  if(elements.length>=120)continue;
   let container=n.closest('fieldset,[role="radiogroup"],[role="group"],form,dialog,[role="dialog"],[role="alertdialog"],[data-question-id],.question,.question-item,.ques-item');
   container=n.closest(dialogSelector)||container;
   if(!container&&['radio','checkbox'].includes(n.type)){
@@ -170,8 +180,10 @@ function agentSnapshot(doc, textOffset=0){
   regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textTruncated:raw.length>limit,visible:visible(n)});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
+ elementsComplete=!reading.query&&elementOffset===0&&matchedElements<=120;
+ const elementRange={start:Math.min(elementOffset,matchedElements),end:Math.min(elementOffset,matchedElements)+elements.length,total:matchedElements,nextOffset:elementOffset+elements.length<matchedElements?elementOffset+elements.length:null,query:reading.query||null};
  const hiddenExcluded=cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
- return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,truncated:start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
+ return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,truncated:start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
@@ -185,7 +197,7 @@ function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttrib
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
  if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
- if(p.action==='observe'&&p.value!==undefined&&(!Number.isSafeInteger(p.value)||p.value<0))throw new Error('Invalid text offset');
+ if(p.action==='observe'&&p.value!==undefined){if(typeof p.value==='object')agentReadOptions(p.value);else if(!Number.isSafeInteger(p.value)||p.value<0)throw new Error('Invalid text offset');}
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
  if(p.choices!==undefined&&(p.action!=='pause'||!Array.isArray(p.choices)||p.choices.length<2||p.choices.length>8||p.choices.some(v=>typeof v!=='string'||!v.trim()||v.length>120)||new Set(p.choices).size!==p.choices.length))throw new Error('用户选项无效');

@@ -67,3 +67,5 @@ check 保存 operationId、expected、deadline、kind 及完成说明；条件�
 纯延时复用 check，kind 为 delay、expected 为空数组、deadline 为绝对到期时间。每 tick 先检查 origin，再推进计时；不调用网页 verify，到期后清除 check 并进入 observe，下一轮必须重新读取快照。停止、追加指令、结束及记忆修改沿用现有取消机制。延时不额外增加模型轮数，不能绕过后续页面加载、权限、预算或不确定副作用保护。
 
 正文分段 observe 使用可选整数 value；只读结果写入普通 results 并进入下一轮上下文，仍按模型请求累计轮数。读取返回后检查运行代次、URL 与 documentId；停止或替换后的迟到结果不写回。下一 tick 重新观察后才规划动作，不将分段快照 ID 持久化。
+
+控件范围 observe 将受限对象 value 和当前 URL/documentId 写入 nextObservation；只读检查点可跨 worker 唤醒。下一 tick 读取后清空，文档边界变化时默认重读，模型只使用这轮新快照。范围不包含目标 ID，代次改变时清除；不改变累计请求预算或副作用恢复规则。

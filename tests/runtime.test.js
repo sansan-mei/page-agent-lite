@@ -544,3 +544,32 @@ test('stop during a segmented read discards its late result',async()=>{
  resolve({url:'https://example.test/1',page:{text:'late tail',elements:[]}});await job;
  assert.doesNotMatch(JSON.stringify(await f.runtime.get(1)),/late tail/);assert.equal(f.executed.length,0);
 });
+
+test('control scope is freshly observed on next tick and its current ID can execute',async()=>{
+ let calls=0;const reads=[];
+ const f=fixture({tools:{async observe(id,value){reads.push(value);return {url:'https://example.test/1',documentId:'doc',snapshotId:'fresh-'+reads.length,page:{elements:[{id:value?'late':'t0',label:value?'Late target':'First'}]}};}},model:async input=>{
+  const page=JSON.parse(input).page;
+  return {text:JSON.stringify(++calls===1?{reply:'find',action:'observe',value:{query:'Late target'}}:{reply:'click',action:'click',id:page.elements[0].id})};
+ }});
+ await f.runtime.start(1,'Find late target');await f.runtime.tick(1);
+ assert.equal(f.executed.length,0);assert.deepEqual((await f.runtime.get(1)).nextObservation.value,{query:'Late target'});
+ f.runtime=createRuntime(f.deps); // Simulate worker restart with the saved read-only scope.
+ await f.runtime.tick(1);assert.deepEqual(reads,[undefined,{query:'Late target'}]);assert.equal(f.executed[0].snapshotId,'fresh-2');assert.equal(f.executed[0].plan.id,'late');assert.equal((await f.runtime.get(1)).steps,2);
+});
+
+test('same-URL document replacement discards an old scope and reobserves default page',async()=>{
+ let calls=0;const reads=[];
+ const f=fixture({tools:{async observe(id,value){reads.push(value);return {url:'https://example.test/1',documentId:reads.length===1?'old':'new',page:{elements:[],text:value?'old scope':'fresh default'}};}},model:async input=>{
+  if(++calls===1)return {text:JSON.stringify({reply:'find',action:'observe',value:{elementOffset:120}})};
+  assert.equal(JSON.parse(input).page.text,'fresh default');return {text:JSON.stringify({reply:'done',action:'done'})};
+ }});
+ await f.runtime.start(1,'Find');await f.runtime.tick(1);await f.runtime.tick(1);
+ assert.deepEqual(reads,[undefined,{elementOffset:120},undefined]);assert.equal(f.executed.length,0);
+});
+
+test('stop and resume discard queued control scope',async()=>{
+ const f=fixture({model:async()=>({text:JSON.stringify({reply:'find',action:'observe',value:{query:'Late target'}})})});
+ await f.runtime.start(1,'Find');await f.runtime.tick(1);assert.ok((await f.runtime.get(1)).nextObservation);
+ await f.runtime.stop(1);assert.equal((await f.runtime.get(1)).nextObservation,null);
+ await f.runtime.resume(1);assert.equal((await f.runtime.get(1)).nextObservation,null);
+});

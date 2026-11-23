@@ -37,3 +37,11 @@ test('loading tab without receiver reconnects read-only to an interactive docume
  const snap=await createBrowserTools(chrome).observe(1);
  assert.equal(snap.readyState,'interactive');assert.equal(injected,1);assert.equal(observed,2);
 });
+
+test('reconnecting an observation preserves its bounded reading scope',async()=>{
+ const messages=[];let injected=0;
+ const chrome={tabs:{async get(){return {url:'https://example.test/page',status:'complete'};},async sendMessage(id,m){messages.push(m);if(messages.length===1)throw Error('No receiver');return {ok:true,value:{page:{elementRange:{total:1}}}};}},scripting:{async executeScript(){injected++;}}};
+ const value={query:'Late target',elementOffset:120};
+ await createBrowserTools(chrome).observe(1,value);
+ assert.equal(injected,1);assert.deepEqual(messages,[{type:'agent:observe',textOffset:value},{type:'agent:observe',textOffset:value}]);
+});

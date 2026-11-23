@@ -53,7 +53,7 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 
 过期目标返回 STALE；加载阶段可返回 NAVIGATION。无法注入时说明需要点击扩展图标或重新授权。只支持当前可访问的同源页面。
 
-后续：局部读取、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
+后续：区域分页、批量操作、更复杂的语义断言、截图、iframe 和 Shadow DOM；当前有限条件不等于能理解所有网站的成功含义。
 
 ## 弹窗与核对证据
 
@@ -62,7 +62,7 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 
 ## 视口覆盖、滚动与点击兼容
 
-弹窗仍优先；同一优先级内，控件和区域按是否与当前视口相交排序，考虑 overflow 祖先的裁剪。`inViewport` 仅代表几何相交，不保证没有遮挡。120 控件、40 区域及原有正文预算不变；滚动后重新读取，可将先前被预算截断的后续控件纳入快照。全文分区分页尚未实现，`coverage` 不完整时仍不能证明不存在。
+弹窗仍优先；同一优先级内，控件和区域按是否与当前视口相交排序，考虑 overflow 祖先的裁剪。`inViewport` 仅代表几何相交，不保证没有遮挡。120 控件、40 区域及原有正文预算不变；滚动后重新读取，可将先前被预算截断的后续控件纳入快照。正文分段及控件分页/查找见下文，区域分页尚未实现，`coverage` 不完整时仍不能证明不存在。
 
 `page.viewport` 包含 width/height 和 x/y/maxX/maxY。可滚动容器作为当前目标提供 `scroll: {x,y,maxX,maxY}`。scroll 只接受当前快照 ID，检查节点签名和状态；不接收选择器，不自动改为滚动其他容器。回执 observed 包含 axis/before/after/delta/atStart/atEnd，边界不等于任务完成。RTL 负向 scrollLeft 暂无专门适配。
 
@@ -83,3 +83,11 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 ## 正文分段读取（PA1 首个增量）
 
 模型可返回 `{"reply":"读取后续正文","action":"observe","value":16000}`；value 为非负安全整数，表示当前规范化正文的 UTF-16 字符偏移。后台 observe(tabId, textOffset) 转发为 agent:observe.textOffset，返回 page.textRange 的 start/end/total/nextOffset（末段为 null），每段最多 16000 字符，超出末尾返回空段。范围指当前 DOM 文本，不是稳定分页游标；内容变化应从 0 重读。后续段仍标记 textComplete=false，不能据此证明全文不存在某项。正文片段作为不可信工具结果进入下一轮，停止/代次变化丢弃迟到结果，导航或文档变化丢弃本次读取；下一轮仍重新观察后规划动作，不复用分段快照目标。不会滚动或分页控件/区域。
+
+## 控件分页与片段查找（PA1）
+
+`observe` 的 value 也可为 `{elementOffset:120}`、`{query:"保存",elementOffset:0}` 或仅 query。只允许这两个字段；偏移为非负安全整数，query 为非空、最多 180 字符的纯文字。匹配可访问标签或 name 的不区分大小写字面子串，不解释 CSS、正则或代码，不自动选择首个匹配。只搜索已支持的顶层、可见控件；禁用控件可读取但不能执行，敏感字段仍排除。
+
+`page.elementRange` 提供 start/end/total/nextOffset/query；total 是当前筛选下的匹配数，末页 nextOffset=null。按弹窗/视口优先顺序分页，每批 120 项；滚动、展开或 DOM 变化可能改变顺序，不能将偏移当稳定游标。筛选或非零偏移始终 elementsComplete=false，查无结果不是不存在证明；该请求不滚动页面。区域列表仍有原有预算。
+
+后台保存一次性的 nextObservation，下一 tick 重新捕获该范围并让模型使用当前快照 ID；不从旧结果列表直接点击。URL/documentId 改变则丢弃范围、重新默认观察。停止、补充指令、恢复及记忆管理造成代次变化时清空范围。内容脚本仍按 snapshotId/documentId/URL 和签名校验，快照仅能执行一次。旧整数 value 的正文读取协议不变；传输沿用 agent:observe.textOffset，接受整数或上述对象。

@@ -141,3 +141,20 @@ test('decision schema rejects malformed options and limits new model fields',()=
  assert.throws(()=>C.agentPlan(JSON.stringify({action:'observe',reply:'x',choices:['a','b']}),snap));
  assert.throws(()=>C.agentPlan(JSON.stringify({action:'pause',reply:'x',pauseReason:'anything'}),snap));
 });
+
+test('control paging and literal lookup expose late targets without inferring absence',()=>{
+ const {document,window}=parseHTML('<html><body>'+Array.from({length:245},(_,i)=>`<button>Entry ${i}</button>`).join('')+'<input type="password" aria-label="Hidden secret"><button hidden>Hidden secret</button></body></html>');
+ window.MouseEvent=window.Event;let clicks=0;document.querySelectorAll('button')[244].addEventListener('click',()=>clicks++);
+ const first=C.agentSnapshot(document);assert.equal(first.page.elementRange.nextOffset,120);
+ const second=C.agentSnapshot(document,{elementOffset:120});assert.equal(second.page.elements[0].label,'Entry 120');assert.equal(second.page.elementRange.nextOffset,240);
+ const last=C.agentSnapshot(document,{elementOffset:240});assert.equal(last.page.elements.length,5);assert.equal(last.page.elementRange.nextOffset,null);assert.equal(last.page.coverage.elementsComplete,false);
+ const found=C.agentSnapshot(document,{query:'ENTRY 244'});assert.equal(found.page.elements.length,1);assert.equal(found.page.elements[0].label,'Entry 244');
+ C.agentExecute({action:'click',id:found.page.elements[0].id},found,document);assert.equal(clicks,1);
+ const missing=C.agentSnapshot(document,{query:'Hidden secret'});assert.equal(missing.page.elementRange.total,0);
+ assert.equal(require('../extension/conditions.js').evaluate([{kind:'element_absent',target:{category:'element',label:'Hidden secret'}}],missing).status,'unknown');
+ assert.equal(C.agentSnapshot(document,{query:'Entry 2',elementOffset:999}).page.elements.length,0);
+ for(const value of [{},{elementOffset:-1},{query:''},{query:'x'.repeat(181)},{query:'.button',selector:'button'},[],null]){
+  assert.throws(()=>C.agentPlan(JSON.stringify({reply:'find',action:'observe',value}),first));
+ }
+ const literal=C.agentSnapshot(document,{query:'Entry .*'});assert.equal(literal.page.elements.length,0);
+});
