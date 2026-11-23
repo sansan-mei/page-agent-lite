@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page Agent Lite</title><link rel="icon" href="icons/icon-32.png"><link rel="stylesheet" href="sidepanel.css"><script defer src="sidepanel.js"></script></head>
+<body><header class="app-header"><div class="brand"><img src="icons/logo.svg" alt="" width="36" height="36"><div><h1>Page Agent <span>Lite</span></h1><p>一句话，让网页开始行动。</p></div></div><button id="settings" type="button" title="模型与助手设置">设置 <span aria-hidden="true">↗</span></button></header>
+<p id="target" class="target">正在连接当前标签页…</p>
+<button id="grant" type="button" disabled>授权当前网站</button>
+<button id="grant-all" type="button" disabled>授权所有网站</button>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="task"><h2><span class="status-dot" aria-hidden="true"></span> 当前任务</h2><p id="goal">还没有任务</p><p id="progress"></p><p id="context-usage" class="hint"></p></section>
+<section id="verification" hidden><h2>操作核对</h2><p id="waiting"></p><div id="evidence"></div></section>
+<details id="context-panel" hidden><summary>当前任务摘要</summary><p id="context-meta"></p><div id="context-summary"></div></details>
+<div id="timeline" role="log" aria-label="执行记录" aria-live="polite"></div>
+<section id="confirmation" hidden><h2>请确认操作</h2><p id="operation"></p><button id="approve" type="button">确认并继续</button></section>
+<form id="chat"><label for="instruction">接下来，想做什么？</label><textarea id="instruction" maxlength="2000" required placeholder="例如：整理这页信息，按我的要求填写表单…"></textarea><button id="start" type="submit">发送并开始任务</button></form>
+<div class="actions"><button id="stop" type="button">停止</button><button id="resume" type="button">继续任务</button><button id="finish" type="button">结束任务</button><button id="clear" type="button">清空任务</button></div>
+<details id="site-memory-panel"><summary>网站长期记忆</summary><p>仅在本机保存，同一网站跨标签页和浏览器重启可用。模型按需维护；不会自动保存整段对话。切换登录账号时请检查笔记是否适用。</p><p id="site-memory-status" role="status"></p><div id="site-memories"></div>
+<form id="site-memory-form"><label for="site-memory-id">笔记名称</label><input id="site-memory-id" maxlength="60" pattern="[a-zA-Z0-9_-]{1,60}" required placeholder="例如 preferred_workflow"><label for="site-memory-text">内容</label><textarea id="site-memory-text" maxlength="2000" required></textarea><button id="site-memory-save" type="submit">保存笔记</button></form><button id="site-memory-refresh" type="button">刷新长期记忆</button><button id="site-memory-clear" type="button">清空本站长期记忆</button><button id="site-memory-export" type="button">导出本站记忆</button></details>
+<details id="memory-panel"><summary>临时记忆</summary><p>模型自行判断保存、读取和清理。记忆仅限当前标签页和网站，关闭标签页后清除；你也可以随时清空。</p><div id="memories"></div><button id="memory-refresh" type="button">刷新记忆</button><button id="memory-clear" type="button">清空临时记忆</button></details>
+<details><summary>文章辅助工具</summary><p>翻译、摘要和样式修改仍可在网页中使用。</p><button id="article" type="button">打开文章工具</button></details>
+<footer class="app-footer"><span class="local-mark">自选模型 · 记忆保存在本机</span><p class="hint">任务会读取当前网页文字和普通表单并发送至你配置的模型。默认最多 50 轮；可在设置中开启自动点击，无需逐次确认。关闭侧边栏不停止任务。</p></footer>
+</body></html>

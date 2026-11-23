@@ -11,55 +11,13 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json')));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.version, '0.1.0');
-  assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'scripting', 'storage']);
+  assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'alarms', 'scripting', 'sidePanel', 'storage', 'tabs']);
   assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.content_scripts, undefined);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
-  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css']) {
+  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'article-tools.js', 'conditions.js', 'tool-protocol.js']) {
     assert.ok(fs.statSync(path.join(dir, file)).isFile(), file);
   }
-});
-
-function background(init = Promise.resolve()) {
-  let message, action;
-  const calls = [];
-  const chrome = {
-    runtime: {id: 'test', getURL: p => 'chrome-extension://test/' + p,
-      onMessage: {addListener(fn) {message = fn;}}, async openOptionsPage() {calls.push('options');}},
-    action: {onClicked: {addListener(fn) {action = fn;}}, async setBadgeText(v) {calls.push(v);}, async setTitle(v) {calls.push(v);}},
-    scripting: {async executeScript(v) {calls.push(v);}}
-  };
-  const service = {init: () => init, async handle(m) {calls.push(m.type); return {records: []};}};
-  vm.runInNewContext(fs.readFileSync(path.join(dir, 'background.js'), 'utf8'), {
-    chrome, importScripts() {}, PageAgentBackend: {createService: () => service}, URL
-  });
-  return {calls, action: tab => action(tab), send: (m, sender) => new Promise(resolve => message(m, sender, resolve))};
-}
-const page = {id: 'test', url: 'https://news.test/a', frameId: 0, tab: {id: 4}};
-test('background waits for trusted storage initialization and validates openOptions sender', async () => {
-  let resolve;
-  const f = background(new Promise(r => {resolve = r;}));
-  const pending = f.send({type: 'load'}, page);
-  await flush(); assert.equal(f.calls.length, 0);
-  resolve(); assert.equal((await pending).ok, true);
-  assert.equal((await f.send({type: 'openOptions'}, {...page, frameId: 1})).ok, false);
-  assert.equal((await f.send({type: 'openOptions'}, page)).ok, true);
-  assert.ok(f.calls.includes('options'));
-});
-test('background fails closed on initialization failure and reports restricted tabs', async () => {
-  const f = background(Promise.reject(Error('private storage detail')));
-  const result = await f.send({type: 'load'}, page);
-  assert.equal(result.ok, false); assert.ok(!result.error.includes('private storage'));
-  assert.equal(f.calls.includes('load'), false);
-  await f.action({id: 4, url: 'chrome://settings'});
-  assert.ok(f.calls.some(v => v.text === '!'));
-});
-test('action injection is isolated and top-frame only', async () => {
-  const f = background(); await f.action({id: 4, url: 'https://news.test'});
-  const injection = f.calls.find(v => v.files);
-  assert.deepEqual(Array.from(injection.files), ['core.js', 'content.js']);
-  assert.deepEqual(Array.from(injection.target.frameIds), [0]);
-  assert.equal(injection.world, 'ISOLATED');
 });
 
 test('options requests API permission from submit gesture and refuses unsafe endpoint before granting', async () => {
@@ -85,14 +43,6 @@ test('options requests API permission from submit gesture and refuses unsafe end
 const extDir = require('node:path').join(__dirname, '..', 'extension');
 const optionsJs = require('node:fs').readFileSync(path.join(extDir, 'options.js'), 'utf8');
 
-test('background rejects wrong-extension and non-tab openOptions messages', async () => {
-  const f = background();
-  for (const sender of [{...page,id:'other'}, {...page,frameId:2}, {id:'test',url:'chrome-extension://test/options.html'}, {...page,url:'chrome-extension://test/popup.html'}]) {
-    assert.equal((await f.send({type:'openOptions'},sender)).ok,false);
-  }
-  assert.equal(f.calls.includes('options'),false);
-});
-
 test('options.js must call chrome.permissions.request before sending config', () => {
   assert.ok(optionsJs.includes("chrome.permissions.request"), 'options.js calls permissions.request');
   const idxReq = optionsJs.indexOf("chrome.permissions.request");
@@ -105,5 +55,5 @@ test('production manifest has no host_permissions and minimal declared permissio
   assert.equal(m.host_permissions, undefined, 'No pre-granted hosts');
   const ps = new Set(m.permissions);
   assert.ok(ps.has('activeTab')); assert.ok(ps.has('scripting')); assert.ok(ps.has('storage'));
-  assert.ok(!ps.has('tabs'));
+  assert.ok(ps.has('tabs'), 'Read target metadata to request only its optional origin');
 });

@@ -53,3 +53,53 @@ test('trusted options opened in a real tab can read settings, but child frames a
  await assert.rejects(()=>s.handle({type:'settings'},page));
 });
 module.exports={fake,page,options};
+
+test('auto click persists explicitly, old settings default off, invalid values rejected',async()=>{
+ const c=fake(),s=backend.createService(c);c.data.agentPreferences={maxSteps:50,autoFill:true};
+ assert.equal((await s.handle({type:'agentPreferences'},page)).autoClick,false);
+ await s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,autoFill:true,autoClick:true}},options);
+ assert.equal((await s.handle({type:'agentPreferences'},page)).autoClick,true);
+ await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,autoFill:true,autoClick:'true'}},options));
+});
+
+test('agent preferences are bounded, page-readable and writable only by options; agent uses configured model',async()=>{
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'chosen',language:'中文'};
+ let body;const s=backend.createService(c,async(url,opts)=>{body=JSON.parse(opts.body);return new Response(JSON.stringify({choices:[{message:{content:'{"reply":"完成","action":"done"}'}}]}));});
+ assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:50,autoFill:true,autoClick:false,contextTokens:32768,compressionThreshold:80});
+ await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:2,autoFill:false}},page));
+ for(const maxSteps of [-1,1.5,Number.MAX_SAFE_INTEGER+1])await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps,autoFill:true}},options));
+ for(const maxSteps of [0,100,500]){
+  await s.handle({type:'setAgentPreferences',preferences:{maxSteps,autoFill:true}},options);
+  assert.equal((await s.handle({type:'agentPreferences'},page)).maxSteps,maxSteps);
+ }
+ await s.handle({type:'setAgentPreferences',preferences:{maxSteps:2,autoFill:false}},options);
+ assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:2,autoFill:false,autoClick:false,contextTokens:32768,compressionThreshold:80});
+ await s.handle({type:'model',task:'agent',text:JSON.stringify({goal:'读页面',page:{text:'x'.repeat(15000)}})},page);
+ assert.equal(body.model,'chosen');assert.match(body.messages[0].content,/ONE action/);assert.match(body.messages[0].content,/untrusted/);
+});
+
+
+test('task compaction uses separate trusted summary system and configured model',async()=>{
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret-key',model:'summary-model',language:'中文'};let body;
+ const s=backend.createService(c,async(url,request)=>{body=JSON.parse(request.body);return new Response(JSON.stringify({choices:[{message:{content:'{"completed":[],"remaining":[],"facts":[],"failed":[],"uncertain":[]}'}}]}));});
+ await s.summarizeAgent('{"olderResults":[]}',new AbortController().signal);
+ assert.equal(body.model,'summary-model');assert.match(body.messages[0].content,/exactly five arrays/);assert.doesNotMatch(body.messages[0].content,/Perform ONE action/);assert.equal(body.messages[1].content,'{"olderResults":[]}');
+ await assert.rejects(()=>s.handle({type:'model',task:'agent',text:'summarize',summarize:true},page));
+});
+
+
+test('trusted agent accepts long prompts and reports normalized usage and model identity',async()=>{
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'key',model:'m',language:'中文'};
+ const s=backend.createService(c,async()=>new Response(JSON.stringify({choices:[{message:{content:'{"action":"observe","reply":"ok"}'}}],usage:{prompt_tokens:20000,completion_tokens:10,prompt_tokens_details:{cached_tokens:18000}}})));
+ const first=await s.generateAgent('x'.repeat(200000));assert.deepEqual(first.usage,{promptTokens:20000,completionTokens:10,cachedTokens:18000});assert.match(first.modelIdentity,/^[a-f0-9]{64}$/);
+ c.data.config.model='other';assert.notEqual(await s.identity(),first.modelIdentity);
+ await assert.rejects(()=>s.handle({type:'model',task:'agent',text:'x'.repeat(200000)},page));
+});
+
+test('context preferences validate ranges and legacy saves preserve configured budgets',async()=>{
+ const c=fake(),s=backend.createService(c);await s.init();
+ await s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,autoFill:true,contextTokens:131072,compressionThreshold:85}},options);
+ await s.handle({type:'setAgentPreferences',preferences:{maxSteps:60,autoFill:true}},options);
+ assert.equal((await s.handle({type:'agentPreferences'},options)).contextTokens,131072);
+ for(const p of [{contextTokens:8000},{contextTokens:300000},{compressionThreshold:99}])await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,autoFill:true,...p}},options));
+});

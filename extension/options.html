@@ -1,20 +1,32 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page Agent 设置</title><link rel="stylesheet" href="options.css"><script defer src="core.js"></script><script defer src="options.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page Agent Lite · 设置</title><link rel="icon" href="icons/icon-32.png"><link rel="stylesheet" href="options.css"><script defer src="core.js"></script><script defer src="options.js"></script></head>
 <body><main>
-<h1>Page Agent 设置</h1>
-<p>模型请求仅在你点击翻译、摘要、生成建议时发送。API 授权与网页持久化授权相互独立。</p>
+<header class="settings-header"><img src="icons/logo.svg" alt="" width="48" height="48"><div><p class="eyebrow">PAGE AGENT LITE</p><h1>把助手调成你的习惯。</h1></div></header>
+<p>在这里配置默认模型与助手行为。发送对话后，助手会读取当前网页并在本次任务中多次调用模型。API 授权与网页持久化授权相互独立。</p>
 <p id="status" role="status" aria-live="polite">正在读取设置…</p>
-<section><h2>OpenAI 兼容模型服务</h2>
+<section><span class="section-number">01 / CONNECTION</span><h2>连接你的模型</h2>
 <form id="config">
 <label for="endpoint">API 基础地址（包括 /v1，不含 /chat/completions）</label><input id="endpoint" type="url" required placeholder="https://api.openai.com/v1" autocomplete="off">
 <label for="model">模型名称</label><input id="model" required maxlength="120" placeholder="填写服务商提供的模型 ID">
 <label for="key">API 密钥（本机服务可留空）</label><input id="key" type="password" maxlength="4096" autocomplete="off" spellcheck="false">
-<label for="language">翻译 / 摘要语言</label><input id="language" required maxlength="60" value="简体中文">
+<label for="language">默认回复 / 翻译 / 摘要语言</label><input id="language" required maxlength="60" value="简体中文">
 <button type="submit">授权此 API 地址并保存配置</button>
 </form><p>仅允许 HTTPS 或 localhost / 127.0.0.1 / [::1] 的 HTTP 地址。密钥仅保存于本机 chrome.storage.local，不同步，也不交给网页内容脚本；本机存储并非加密保险箱。</p></section>
-<section><h2>逐站点持久保存</h2>
-<p>未启用时，工具栏点击只授予当前页临时访问。启用后会在该站点自动恢复保存的修改并显示面板，但不会自动请求模型。授权后请刷新网页。</p>
+<section><span class="section-number">02 / BEHAVIOR</span><h2>选择执行方式</h2>
+<form id="agent-config">
+<label for="max-steps">每次任务的执行轮数上限（默认 50，0 表示不限）</label><input id="max-steps" type="number" min="0" step="1" value="50" required>
+<p>不限轮数时，持续执行直到任务完成、需要确认、发生错误或你点击停止。也可以填写 100、500 等自定义上限。每轮会调用模型，翻页后累计轮数继续保留。</p>
+<label for="context-tokens">模型上下文窗口（token）</label><input id="context-tokens" type="number" min="8192" max="262144" step="1" value="32768" required>
+<label for="compression-threshold">自动压缩阈值（可用输入预算的百分比）</label><input id="compression-threshold" type="number" min="50" max="95" step="1" value="80" required>
+<p>请填写模型实际支持的上下文窗口，默认 32768 token；预留 2000 token 输出空间，在剩余预算的 80% 才压缩。接口未提供用量时采用估算。正常执行保留原始历史以利于缓存复用，缓存是否命中由服务商决定。</p>
+<label for="auto-fill"><input id="auto-fill" type="checkbox" checked> 自动执行填写、勾选和下拉选择</label>
+<label for="auto-click"><input id="auto-click" type="checkbox"> 自动执行按钮、链接和翻页点击（无需逐次确认）</label>
+<p>自动点击默认关闭；开启后模型提出的点击会直接执行，包括页面上的提交、删除等按钮。自动填写独立控制填写、勾选和下拉选择。保存后对新任务或点击「继续任务」的任务生效。停止会取消未完成的模型请求，已发出的网页操作不会自动撤销。</p>
+<button type="submit">保存助手默认设置</button>
+</form></section>
+<section><span class="section-number">03 / ARTICLE TOOLS</span><h2>文章工具的站点设置</h2>
+<p>未启用时，工具栏点击授予当前站点临时访问。启用后会在该站点自动恢复保存的文章修改；文章工具可从侧边栏打开。文章恢复不会调用模型；后台未完成任务会继续运行。授权后请刷新网页。</p>
 <form id="site-form"><label for="origin">网页源（协议 + 域名，可含端口；不含路径）</label><input id="origin" type="url" required placeholder="https://example.com"><button type="submit">授权并启用站点</button><button type="button" id="current-site">尝试填入当前网页源</button></form>
 <h3>已启用站点</h3><ul id="sites"></ul>
 <p>停用会取消自动注入和恢复；已有网页请刷新。停用不删除已保存记录，重新启用会恢复。清除记录请在对应网页点击「当前页全部撤销/清除保存」。浏览器扩展详情可单独撤回授权；API 与网页可能共用同一源，因此停用不会自动撤回源权限。</p></section>

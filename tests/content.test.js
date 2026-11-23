@@ -2,8 +2,9 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 
 const flush=()=>new Promise(r=>setImmediate(r));
 
-async function fixture(records=[],enabled=true, hook=()=>undefined){
+async function fixture(records=[],enabled=true, hook=()=>undefined, timer=setTimeout){
     const {document,window}=parseHTML('<html><body><article><h1>Test article</h1><p>Hello paragraph</p></article></body></html>');
+    window.scrollBy=()=>{};
     let shadow;
     const oldAttachShadow=window.Element.prototype.attachShadow;
     window.Element.prototype.attachShadow=function(opts){const s=oldAttachShadow.call(this,opts);shadow=s;return s;};
@@ -14,11 +15,11 @@ async function fixture(records=[],enabled=true, hook=()=>undefined){
     const coreSrc=fs.readFileSync(corePath,'utf8');
     const chrome={runtime:{async sendMessage(m){sent.push(structuredClone(m));const override=hook(m);if(override!==undefined)return await override;if(m.type==='load')return {ok:true,value:{records,enabled}};if(m.task==='edit'){try{const snap=PageAgentCore.collect(_doc);const idx=snap.outline.findIndex(n=>n.text.includes('Hello'));return {ok:true,value:{text:idx>=0?JSON.stringify({operations:[{id:snap.outline[idx].id,action:'style',property:'color',value:'#123456'}]}):JSON.stringify({operations:[]})}};}catch(e){console.log('[STUB ERR]',e.message);return {ok:true,value:{text:JSON.stringify({operations:[]})}};}}return {ok:true,value:{text:'<b>纯文本结果</b>'}};}}};
     // Create context WITH PageAgentCore already available from Node require
-    const context=vm.createContext({document,window,chrome,console,URL,setTimeout,clearTimeout,location:{href:'https://news.test/a'},getSelection:()=>window.getSelection?.()});
+    const context=vm.createContext({document,window,chrome,console,URL,setTimeout:timer,clearTimeout,location:{href:'https://news.test/a'},getSelection:()=>window.getSelection?.()});
     // Execute core in context, then pass PageAgentCore into context globals
     vm.runInContext(coreSrc,context);
     Object.defineProperty(context,'PageAgentCore',{value:PageAgentCore,writable:true,configurable:true});
-    const cjsPath=path.join(__dirname,'../extension/content.js');
+    const cjsPath=path.join(__dirname,'../extension/article-tools.js');
     if(fs.existsSync(cjsPath))vm.runInContext(fs.readFileSync(cjsPath,'utf8'),context);await flush();
     return {document,window,context,sent,get ui(){return shadow;},async click(id){const ev=new window.Event('click');Object.defineProperty(ev,'isTrusted',{value:true});shadow.getElementById(id).dispatchEvent(ev);await flush();await flush();}};
 }

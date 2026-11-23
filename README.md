@@ -1,64 +1,87 @@
-# Page Agent · 页面助手
+<div align="center">
+  <img src="extension/icons/logo.svg" width="80" height="80" alt="Page Agent Lite logo">
+  <h1>Page Agent Lite</h1>
+  <p><strong>一句话，让网页开始行动。</strong></p>
+  <p>一个轻量、可配置、有记忆的 Chrome / Edge 网页助手。</p>
+  <p>
+    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-244b3b?style=flat-square"></a>
+    <img alt="Chrome and Edge" src="https://img.shields.io/badge/Chrome%20%2F%20Edge-MV3-5b7850?style=flat-square">
+    <img alt="No build required" src="https://img.shields.io/badge/build-not%20required-a9c58a?style=flat-square">
+  </p>
+  <p><a href="#快速开始">快速开始</a> · <a href="docs/usage.md">使用指南</a> · <a href="ROADMAP.md">Roadmap</a> · <a href="CONTRIBUTING.md">参与贡献</a></p>
+</div>
 
-Chrome / Edge Manifest V3 扩展源码，初始版本 **0.1.0**。翻译选中文字、插入文章摘要，并把自然语言要求转换为可预览、可撤销的受限样式修改。
+---
 
-**仅交付 GitHub 源码，不提供 ZIP、Release 或打包产物；使用扩展无需 npm、构建或安装依赖。**
+在浏览器侧栏说出目标，助手读取网页、填写表单、点击和翻页，再检查实际结果。使用你现有的登录状态和自己的模型 API，无需 Python、独立后端或构建步骤。
 
-## 从 GitHub 安装 / 更新
+> 本项目是独立的个人开源实验，与 [Alibaba Page Agent](https://github.com/alibaba/page-agent) 无隶属关系。这里关注原生扩展、任务恢复、结果核对与本机网站记忆。项目处于早期，请按真实页面反馈核对操作结果。
 
-在仓库页面复制该仓库的 HTTPS 地址，运行（把 `<仓库 HTTPS 地址>` 替换为真实地址，不要原样执行）：
+<div align="center"><img src="docs/assets/sidepanel-preview.png" width="360" alt="Page Agent Lite 侧栏示例界面"></div>
 
-```sh
-git clone <仓库 HTTPS 地址> page-agent
-cd page-agent
+<sub>预览使用合成示例数据展示界面，不代表真实模型执行结果。</sub>
+
+## 能做什么
+
+| 能力 | 当前实现 |
+| --- | --- |
+| 自然语言操作 | 读取顶层 DOM，填写、勾选、选择、点击及滚动 |
+| 持续任务 | 同站翻页继续，中途补充指令，停止与手动结束分开 |
+| 结果核对 | 等待网页反馈、核对字段和区域条件；结果不明时避免重放操作 |
+| 网站记忆 | IndexedDB 本机保存，跨任务/标签页/重启共享，按需读取，可编辑和导出 |
+| 长任务上下文 | 按预算压缩旧过程，保存摘要和可按需读取的原始结果 |
+| 自选模型 | 非流式 OpenAI Chat Completions 兼容接口，支持本机兼容服务 |
+| 执行控制 | 默认点击需确认，可开启自动点击；默认 50 轮，0 表示不限 |
+| 文章辅助 | 选区翻译、段落摘要和受限样式修改 |
+
+## 快速开始
+
+1. 克隆本仓库，或下载源码并解压。
+2. 打开 `chrome://extensions` 或 `edge://extensions`，开启开发者模式。
+3. 点击「加载已解压的扩展程序」，选择仓库中的 **extension/** 文件夹。
+4. 打开扩展「设置」，填写 API 基础地址、模型名称和密钥，授权并保存。
+5. 回到普通网页，点击工具栏图标打开侧栏，授权当前站点并输入目标。
+
+```text
+读取这页内容，帮我整理成几个要点。
+按我提供的信息填写表单，提交前让我检查。
+逐页查看这些条目，找出符合条件的内容。
+记住这个网站经过核实的操作流程，下次按需参考。
 ```
 
-1. Chrome 打开 `chrome://extensions`；Edge 打开 `edge://extensions`。
-2. 开启「开发者模式」，选择「加载已解压的扩展程序」。
-3. 选择克隆目录内的 **`extension/`**，不是仓库根目录。可将扩展固定到工具栏。
-4. 在普通 HTTP/HTTPS 网页点击工具栏图标打开面板。浏览器内部页、扩展商店、部分 PDF/受保护页面不允许注入；失败时图标显示 `!`，悬停查看提示。可从扩展详情打开设置。
+模型需要支持可靠的 JSON 输出。浏览器最低版本声明为 120，另需支持 local 存储访问隔离 API；推荐使用新版 Chrome / Edge。更新源码后重新加载扩展并刷新网页。当前提供源码，不发布 ZIP 或浏览器商店安装包。
 
-更新：在克隆目录运行 `git pull --ff-only`，再到扩展管理页点重新加载，并刷新使用中的网页。不要覆盖保存在本机的配置。
+## 你的数据去哪了
 
-## 配置模型
+- 目标、页面文字和普通表单内容会发送到你配置的模型服务，API 费用与服务商数据政策由该服务决定。
+- API 密钥仅由扩展后台使用；配置存在本机，网站长期笔记存在扩展 IndexedDB。没有遥测或项目自己的云端。
+- 任务与临时记忆保存在浏览器会话中；网站长期笔记可跨重启保留。卸载或清理扩展数据可能删除笔记，请导出备份。
+- 同一网站的不同登录账号共用网站笔记；不支持自动区分账号。不会自动保存整段对话为长期记忆。
 
-从面板「API/站点持久化设置」或扩展详情进入设置页：
+详细说明见 [隐私说明](PRIVACY.md) 和 [使用指南](docs/usage.md)。
 
-- **API 基础地址**：OpenAI 兼容服务的基础地址，例如 `https://api.openai.com/v1`。须包含服务要求的 `/v1` 等前缀；不要追加 `/chat/completions`。扩展自动追加该路径。
-- **模型**：填写服务提供商实际支持的模型 ID。
-- **密钥**：由你自行提供；本机无鉴权服务可留空。不要把真实密钥提交到仓库、截图或聊天。
-- **语言**：翻译与摘要的输出语言。
+## 边界
 
-点击「授权此 API 地址并保存配置」，浏览器同意权限后才保存。地址仅支持 HTTPS，或 localhost / 127.0.0.1 / [::1] 的 HTTP；拒绝 URL 内凭据、查询参数、片段和其他协议。不自动检测或调用模型；保存配置不代表 API 已验证可用。服务端必须支持非流式 OpenAI Chat Completions。
+支持顶层文字 DOM，不支持图片/画布、iframe、Shadow DOM、富文本、多标签页协作或跨站任务。页面读取有容量上限；填写核对不代表业务正确或服务器保存成功。模型可能误判，也可能遗漏需要确认的操作。
 
-## 操作与持久保存
+这是可运行的探索项目，不等于完整 Hermes Agent。近期重点与验证状态见 [Roadmap](ROADMAP.md)，不要仅凭功能清单推断所有网站都可稳定执行。
 
-- **翻译**：先在单个普通文章段落内选中文字，再点击翻译，结果以纯文本插入该段落后。最多 6000 字符；表单、链接、可编辑区等不能选作目标。
-- **摘要**：点击后发送抽取的文章片段，摘要以纯文本插入文章首个可定位段落之前。
-- **自然语言修改**：填写要求，点击「发送大纲并生成建议」。只接受严格 JSON 白名单（隐藏段落、颜色、字号、行高、字重、对齐）。**检查预览后必须再点击「应用预览修改」**；不执行模型脚本、HTML、URL 或任意选择器。
-- **撤销上一条**：按保存记录撤销一条；一批预览操作可能对应多条记录。
-- **当前页全部撤销/清除保存**：先保存清除结果，成功后才恢复页面；存储失败时不假装清除成功。
+## 开发与贡献
 
-默认是**临时模式**，刷新即消失。要持久保存，请在设置页明确输入站点源（如 `https://example.com`，不含路径），点击「授权并启用站点」，再**刷新该站点网页**。如果浏览器能提供当前页地址，也可用「尝试填入当前网页源」；读不到时手动输入，不需要额外的 tabs 权限。启用前的临时修改不会自动迁移，请刷新后重新操作。
+运行扩展不需要安装依赖。仅开发测试需要 Node.js 22+：
 
-站点授权与 API 授权分开；默认不授予全部网站。启用站点后按该源注册顶层内容脚本，后续页面会显示面板并自动恢复已保存记录，**恢复不请求模型**。页面记录键是完整 `origin + pathname + search`，忽略 `#hash`；不同查询参数对应不同页面。启用是按源操作，不是单页操作。
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm test
+```
 
-停用站点会取消自动注入和恢复，请刷新已有标签页。停用不会删除记录，重新启用可能再次恢复；清除记录请在对应页面操作。为防 API 与网页同源时误伤配置，停用不自动撤回浏览器主机权限；可在扩展详情中管理授权。
+- [贡献指南](CONTRIBUTING.md) · [安全问题](SECURITY.md)
+- [架构](docs/architecture.md) · [运行器](docs/agent-runtime.md) · [网页工具](docs/browser-tools.md)
+- [上下文与记忆](docs/context-and-skills.md) · [存储](docs/storage.md) · [测试](docs/testing.md)
+- [Changelog](changelog/README.md) · [同类项目](docs/competitive-landscape.md)
 
-## 隐私与边界
+## 许可与参考
 
-- 只有明确点击翻译、摘要、生成建议才向所配 API 发送内容：选中文字、最多 12000 字符的抽取文章或精简大纲与指令。页面内容仍可能含个人信息，请自行检查，不要在敏感页面使用。
-- 排除表单、可编辑区、脚本、导航等常见区域，不声称能识别所有隐私。普通段落仍可能包含敏感数据；模型输出仍需人工核对。
-- API 密钥仅在受信任扩展后台发起请求时使用。配置保存在本机 `chrome.storage.local`，访问级别为 `TRUSTED_CONTEXTS`，不使用 sync、不通过内容脚本返回密钥。设置页可读取密钥；本机扩展存储不是加密保险箱。
-- 无遥测、远程代码、网页脚本执行或自动模型调用。模型服务的数据保留政策由服务提供商决定。错误不展示服务端原始响应或请求密钥。
-- 网络超时 30 秒；响应体最大 64 KiB、模型文本最大 12000 字符。每页最多 30 条 / 120 KB 记录（临时模式同样受限），总计最多 20 页 / 240 KB；最多启用 20 个站点。超限请先清理。
-- 定位基于结构路径、标签与原文，遇到变化或相同原文多目标会跳过，不猜测。动态页面、虚拟列表、SPA、跨域 iframe、Shadow DOM、复杂样式和已有插件可能不兼容；SPA 地址变化后必须刷新，不支持自动跨路由重定位。撤销恢复的是修改前内联样式，期间网站自身的内联样式更新可能被覆盖。
-- 不支持网页改写、插入 HTML、任意 CSS、网络抓取指令或绕过浏览器安全限制。
+采用 [MIT License](LICENSE)。欢迎使用、修改和贡献，请保留许可证与版权声明。
 
-## 源码检查
-
-`.github/workflows/ci.yml` 在 GitHub Actions 运行 `npm ci --ignore-scripts`、扩展 JS 语法检查和 `npm test`，仅安装测试用依赖，不产出 ZIP 或 Release。测试使用 Node VM、linkedom 和 Chrome API doubles，覆盖来源验证、存储权限、选区、请求失败、忙碌状态、预览/应用、恢复/撤销、站点停用和入口文件。
-
-**模拟测试（GitHub Actions `test` job）**：全部基于 Node.js + linkedom DOM + fake Chrome runtime doubles，无真实浏览器进程、无 chromium 安装、无 npm 构建步骤。测试 `trusted()` 来源校验、chrome.permissions.request 调用时序、chrome.scripting.executeScript 注入参数、contentSender 同标签页限制、模型任务提示词、错误响应脱敏及存储空间隔离。**这些是模拟测试，不等同于真实浏览器行为。**
-
-**端到端烟雾测试（GitHub Actions `smoke` job，新增）**：使用 xvfb-run 在 GitHub Actions Ubuntu runner 上安装 Playwright + Chromium，通过 `node scripts/browser-smoke.cjs` 克隆 `extension/` 并仅在临时副本的 manifest 中注入 `http://loopback/*` host_permissions（生产 manifest.json 完整保留未修改）。以 headed Chromium 加载真实 unpacked Manifest V3 扩展，使用 `chrome.scripting.executeScript` 向页面注入未修改的 content.js，通过 CDP `DOM.getDocument(pierce:true)` 穿透 closed Shadow DOM 观察 UI 节点，Playwright 鼠标坐标 click 发送 trusted click event。API 请求指向本机 HTTP OpenAI-compatible stub（非线上模型服务），所有选项页交互通过真实 form + chrome.permissions.request 完成。报告中的 **seeded-permission grant 不代表原生可选主机权限弹窗流程已被验证**（Chrome 对已 pre-grant 的 origin 直接返回 true，无弹窗）。**初始内容脚本注入来自 service worker 的 chrome.scripting.executeScript，而非工具栏图标点击路径；后者标记为 unverified。** 关闭 shadow root 保持 closed — 未改写 attachShadow 语义。模型输出含 `<img>` / `<script>` 标签经断言确认未被执行。截图与结构化 JSON report（含源 SHA、断言数、请求明细）上传至 GitHub Actions artifact。
+文档组织参考了 [Alibaba Page Agent](https://github.com/alibaba/page-agent) 的定位、功能、上手与贡献分层；运行器与上下文设计参考了 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开文档。本项目使用自己的界面与图标，不代表得到上述项目背书。

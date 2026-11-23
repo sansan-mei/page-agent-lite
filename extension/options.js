@@ -53,6 +53,14 @@
       status.textContent = '站点已启用，请刷新对应网页。';
     });
   });
+  $('agent-config').addEventListener('submit', event => {
+    event.preventDefault();
+    void run(async () => {
+      const preferences={maxSteps:Number($('max-steps').value),autoFill:$('auto-fill').checked,autoClick:$('auto-click').checked,contextTokens:Number($('context-tokens').value),compressionThreshold:Number($('compression-threshold').value)};
+      await send({type:'setAgentPreferences',preferences});
+      status.textContent='助手默认设置已保存，新任务或点击「继续任务」后生效。';
+    });
+  });
   $('current-site').addEventListener('click', () => {void run(async () => {
     const tabs = await chrome.tabs.query({active: true, currentWindow: true});
     const url = tabs[0]?.url;
@@ -64,6 +72,10 @@
   (async () => {
     const config = await send({type: 'settings'});
     for (const id of ['endpoint', 'model', 'key', 'language']) if (typeof config[id] === 'string') $(id).value = config[id];
+    const preferences=await send({type:'agentPreferences'});
+    $('max-steps').value=preferences.maxSteps; $('auto-fill').checked=preferences.autoFill;
+    $('auto-click').checked=preferences.autoClick===true;
+    $('context-tokens').value=preferences.contextTokens??32768;$('compression-threshold').value=preferences.compressionThreshold??80;
     await sites(); status.textContent = '设置已读取。API 与站点需分别授权。';
   })().catch(() => {status.textContent = '无法读取设置，请重启扩展后重试。';})
     .finally(() => {busy = false; controls();});
