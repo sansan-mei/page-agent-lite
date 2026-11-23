@@ -1,137 +1,104 @@
 # 任务运行器
 
-`runtime.js` 依赖注入 store、tools、siteMemory、model、summarize、identity、preferences 和 scheduler，不访问 DOM。一个任务绑定一个标签页与初始站点源，`taskId` 标识任务；`token` 标识运行代次，阻止旧请求覆盖停止或替换后的任务。
+`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler，不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
 
-## 状态与阶段
+## 状态
 
-| status | 意义 |
+| status | 含义 |
 |---|---|
 | running | 可继续推进 |
-| waiting_page | 等待页面，事件或 alarm 重试读取 |
-| waiting_confirmation | 旧任务兼容状态；继续后丢弃待确认动作并重新规划，alarm 不执行旧动作 |
-| paused | 达到预算、离开原站点、无进展或结果不确定 |
+| waiting_page | 等待页面就绪，由事件或 alarm 重试 |
+| waiting_confirmation | 旧版兼容；继续时丢弃待确认动作并重新规划 |
+| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input` |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
-| completed | 模型根据当前观察返回 done |
-| ended | 用户明确结束，下次发送新建任务 |
+| completed | 模型返回 done（有完成条件时已核实） |
+| ended | 用户结束或成员关闭（`reason=member_closed`）；下次发送新建任务 |
 
-`phase` 包括 observe、thinking、compacting、confirm、approved、executing、verifying、idle，用于中断恢复。verifying 阶段不调用模型或重复动作。
+`phase`：observe、thinking、compacting、confirm、approved、executing、verifying、idle，用于中断恢复。verifying 阶段不调用模型、不重复动作。
 
-## 每个 tick
+## 一次 tick
 
-1. 读取任务，校验站点、页面加载状态和运行代次。
-2. executing 恢复时有条件则只读核对，否则暂停；approved 检查旧 URL，页面变化则重新规划。
-3. 普通路径读取快照，必要时先压缩旧记录并保存 compacting；摘要成功后下一 tick 重新观察，否则累计模型轮数并保存 thinking。
-4. 调用模型。停止/被替换则丢弃结果；URL 变化则重新观察。
-5. 严格解析动作。done 有 expected 或已保存完成条件时必须核实；未提供时明确为模型报告完成。pause 表示未完成但受阻；填写与点击直接自动执行，不读取旧 autoFill/autoClick 开关。
-6. 执行前保存 executing；网页返回后保存结果，调度下一轮。
+1. 读取任务，核对运行代次、当前 URL 来源属于 `allowedOrigins` 且有主机权限、页面就绪。来源变化走 [跨来源切换](#跨来源切换)。
+2. `executing` 恢复：有条件则只读核对，无条件则暂停；`approved` 页面已变则重新规划。
+3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。
+4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
+5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
+6. 网页动作前保存 `executing` 检查点，执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
 
-模型返回 memory_* 时由后台维护临时笔记，记录工具结果后进入下一轮；不点击网页、不注入完整上一任务。模型可用 wait/verify 指定条件。字段动作自动添加值/勾选条件，未核实先等待，期限内不符或未知则暂停。
+同一任务的 tick 串行；运行锁、去重 jobs、请求控制器、timer 和 alarm（`task-id:<taskId>`）都以 taskId 为身份。tabId 入口通过标签发布队列防替换竞态；`tick(tabId, expectedTaskId)` 中的过期调度不会操作同一标签上的新任务。
 
-同标签页 tick 不并发，更新串行。停止将 AbortSignal 传到后台 fetch；已发出 DOM 事件无法撤销。不确定操作不重放。
+## 预算
 
-## 预算与恢复
+- 默认 50 轮，0 不限；每次模型请求（含失败重试、摘要请求）计一轮。翻页、跨来源、worker 恢复都保留累计轮数。
+- 预算耗尽或已完成后「继续」开启新预算；停止/一般失败后继续保留剩余预算。补充指令不重置预算。
+- 条件等待每 tick 只读检查一次，不消耗模型轮数。`metrics` 分别统计观察、核对、动作次数。
 
-默认 50 轮，0 不限；每次模型请求计一轮，包括失败重试。翻页和 worker 恢复保留轮数；预算耗尽或完成后的继续开启新预算。停止/一般失败后继续保留未耗尽预算。
+## 等待与核对
 
-check 保存 operationId、expected、deadline、kind 及完成说明；条件等待每 tick 做一次只读检查，不额外消耗模型轮数。metrics 分别记录观察、验证、动作次数；deadline 在中断恢复后不延长，停止/追加/清空记忆使旧检查失效。
+- `check` 保存 operationId、expected、deadline、kind、dispatch 和完成说明。deadline 是绝对时间，恢复后不延长；停止、补充指令、清空记忆会作废旧检查。
+- 字段动作（fill/check/select）自动添加值/勾选条件；期限内不符或未知则暂停。
+- 纯延时：kind=delay、expected 为空；到期记 `DELAY_ELAPSED` 后必须重新观察，不检查网页条件。
+- `check.dispatch` 在执行前为 unknown，拿到回执后更新；只读核对不覆盖它。旧检查点缺省按 unknown。
 
-操作历史达到阈值后先生成结构化任务摘要，成功后保留至少最近 6 条完整结果并归档旧结果；摘要累计覆盖位置持久化，失败不裁剪。按配置模型窗口扣输出预算后的 80% 触发，无固定条数阈值；接口用量加估算增量优先。压缩后仍高压则暂停防止反复摘要。具体阈值见 [上下文管理](context-and-skills.md)。时间线仍最多 40 项/16000 字符，不是完整历史归档。
+## 错误与恢复
 
-初始化扫描 active 任务；标签页加载、页面就绪和 alarm 可唤醒。worker 睡眠期间有延迟，浏览器关闭或扩展重载可能清空 session，不能承诺长期运行。
+| 情况 | 处理 |
+|---|---|
+| 网络错误、25 秒超时、429/5xx | 最多额外重试 2 次，每次计轮数 |
+| 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
+| 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |
+| 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划 |
+| 点击核对到期仍 unknown | 最多两次回到 observe（`recovery=replan`），结果仍记 unknown；同一文档不重发该点击 |
+| 页面加载/忙碌 | 最多等 30 秒或沿用更早 deadline；地址一致、无 pendingUrl、readyState 为 interactive/complete 即可只读核对 |
+| 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停 |
+| `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
+| 权限不足、受保护页面 | 暂停；其他错误标 failed |
+| 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
-## 错误与检查
+未确定动作按原文档 + 节点 key（缺失时用语义描述）记入 `uncertainClicks`（最多 2 条），覆盖点击、键鼠输入和 fill/check/select，防止重新规划后重复执行。
 
-连续过期快照最多两次重新观察/规划，随后暂停。加载/忙碌等待最多 30 秒或沿用更早的条件 deadline。标签页 loading 时先只读观察，地址一致、无 pendingUrl 且文档 readyState 为 interactive/complete 才继续核对或规划；DOM 仍解析、旧地址或待跳转均继续等待。不会因资源加载延长期限。executing 检查点在等待时保留，避免恢复后重放结果不确定的动作。网络、25 秒超时、429/5xx 最多额外重试两次，每次计预算；权限与受保护页面暂停，其他错误失败。连续三次同动作、同标签且 V2 code 为 NO_CHANGE 时暂停，文案变化不影响判断。
+## 用户命令
 
-提交通过后台串行判断任务边界：只有无任务、completed、ended 才新建，其他状态追加补充指令并保留 ID、目标、轮数、结果和时间线。补充指令保留全部已接受内容，序列化上限 12000 字符；超限拒绝追加而不裁剪，模型按时间顺序读取，较新纠正优先。旧模型请求取消、代次更新，旧待确认动作清除并重新规划。跨源时拒绝向原任务追加，需回原站点或先结束任务。
+- **发送**：只有无任务、completed、ended 时新建；否则追加补充指令（总长 ≤ 12000 字符，超限拒绝），取消旧请求、轮换 token、清除 pending/check 并重新观察。当前页来源必须等于任务当前来源；`scope_changed`/`permission_denied` 下仍有未确定操作时，须先点继续核对。
+- **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
+- **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
+- **结束/清空**：结束后不能用继续复活；清空删除当前任务及其临时记忆和来源分区。
 
-停止不等于结束，明确结束后不能通过继续按钮复活；可发送新任务。追加指令不重置预算，已耗尽时仍需点击继续开启预算。已发出的页面事件不能撤销；新一轮等旧 tick 退出后观察当前页面。
+## 子目标
 
-单标签跨已授权来源已实现（见下文），完整计划分解仍未完成。
+模型普通响应可附 `subgoals`，在同一轮更新 `taskPlan`，不额外请求模型：
 
-## 网站长期记忆
+- 每项 `{id, title, status, checks?}`；status 为 pending/active/completed/blocked；id 为 1–40 位字母数字或 `_`/`-`，title ≤ 120 字符；每次最多 8 项更新、最多存 8 项；同 ID 替换，`[]` 清空。拒绝额外字段，不保存私有思维链。
+- completed 必须带 1–5 个条件，按本轮规划快照核对；不满足则降为 active。核对的是规划时的页面，不是后续动作效果，也不能替代 done 的完成条件。
+- 记忆变更时 `taskPlan` 清空，并删除结果/归档/检查点请求中的 `subgoals` 元数据（不删除动作、expected、deadline、dispatch）。
 
-普通观察阶段读取当前 origin 的 IDB 笔记目录和版本。若版本与任务保存版本不同，清理旧摘要及持久笔记读取结果，再构建新请求；模型返回后再次核对版本，版本变化丢弃旧计划。site_memory_* 在后台处理，不发网页操作，写入携带版本和取消信号。
+## 导航与任务范围
 
-手动 editSiteMemory 接受 origin 和 expectedVersion，拒绝导航后站点不一致的编辑；取消同站所有旧请求，提交后按标签页串行清理旧上下文和等待状态、轮换 token，并暂停运行任务。结束/清空任务或关标签不删除 IDB 笔记。getSiteMemory 仅通过可信侧栏 task:site-memory 入口提供当前站点数据。
+- `navigate`：复用动作检查点，自动绑定 `url_equals`；后台只派发一次，回执不明则只读等 URL，worker 恢复不重发。
+- 范围修改（`changeOrigins`，仅可信侧栏）：核对 taskId/scopeRevision，新增来源须已有主机权限；成功后 abort、取消调度、轮换 token、暂停为 `scope_changed`，清空读取范围、摘要、usage 锚点、计划和问题，保留结果与未确定检查点。
+- 浏览器 `permissions.onRemoved` 触发复核，只暂停缺少当前主机权限的任务（`permission_denied`），不改范围。
+- 上述暂停保留 executing/check；继续时按原条件和 deadline 只读核对，不重放。
 
-## 点击核对未知的有限恢复
+## 跨来源切换
 
-动作检查点保存 action、原 URL、documentId、目标 key 和语义描述。点击预期在原 deadline 到达后仍 unknown 时，最多两次返回 observe，交给新快照规划；原结果仍是 unknown/CONDITION_TIMEOUT，recovery=replan，不冒充成功。明确不匹配、wait/完成条件和耗尽恢复次数仍暂停。恢复次数写入 session，核对成功后重置。
+每次 turn 先读浏览器 URL。来源变化时 `adoptOrigin` 校验任务授权和主机权限：
 
-未确定点击记录按原文档与节点 key（缺失时语义描述）阻止重发，最多保留两个；新弹窗的独立控件可按原确认策略执行。恢复不重置轮数或等待期限，不取消点击确认，不等于完整自主恢复。
+- 原操作只有 URL 条件且实际 URL 满足：只读核对后切换。无条件的 executing、旧 DOM 条件或未预期重定向：暂停并保留 check/deadline/dispatch，不在新站点评估旧字段。
+- URL 变化或主文档开始加载触发 `navigationChanged`：取消旧模型/摘要请求并轮换 token。
+- 切换由 `task-store.switchOrigin` 单独发布：新根只保留用户目标与补充、taskId、预算与累计统计、授权目录；结果、摘要、归档、计划、完成条件、笔记读取全部重新开始。旧来源内容存入只读来源分区，模型看不到；返回旧来源也不恢复，只恢复该来源的未确定点击约束。
 
-用户补充指令设置 memoryReview 提醒并随每轮上下文传递。成功 memory_write/site_memory_write 后清除；用户手动清空/编辑笔记也消除提醒，避免提示旧请求重新保存。提示模型审查和记录可复用纠正，未新增自动持久化原始指令。
+## 记忆版本
 
-纯延时复用 check，kind 为 delay、expected 为空数组、deadline 为绝对到期时间。每 tick 先检查 origin，再推进计时；不调用网页 verify，到期后清除 check 并进入 observe，下一轮必须重新读取快照。停止、追加指令、结束及记忆修改沿用现有取消机制。延时不额外增加模型轮数，不能绕过后续页面加载、权限、预算或不确定副作用保护。
+- 每次观察读取当前 origin 的网站笔记目录和全局目录及版本；版本变化则清理旧摘要和读取缓存，模型返回后再核对一次，变化即丢弃计划。
+- 用户修改网站笔记：取消同站请求，暂停同站运行任务。修改全局笔记：取消所有站点请求，暂停各活动任务。两者都保留等待期限和 executing 检查点，继续时先只读核对。
+- 补充指令设置 `memoryReview` 提醒，成功写入笔记或用户手动修改记忆后清除。
 
-正文分段 observe 使用可选整数 value；只读结果写入普通 results 并进入下一轮上下文，仍按模型请求累计轮数。读取返回后检查运行代次、URL 与 documentId；停止或替换后的迟到结果不写回。下一 tick 重新观察后才规划动作，不将分段快照 ID 持久化。
+## 成员关闭
 
-控件范围 observe 将受限对象 value 和当前 URL/documentId 写入 nextObservation；只读检查点可跨 worker 唤醒。下一 tick 读取后清空，文档边界变化时默认重读，模型只使用这轮新快照。范围不包含目标 ID，代次改变时清除；不改变累计请求预算或副作用恢复规则。
+`tabs.onRemoved` → `runtime.memberClosed(tabId)`：立即 abort，再在队列内取消调度并调用 `store.closeMember`，归档为 ended/`member_closed`，保留 pending/check 作为未知证据；迟到回执不能回写或重新派发。启动 recover 先取浏览器标签 ID 清单，缺失的成员走同一路径；清单查询失败则不推断关闭。当前只支持单成员。
 
-INPUT_CANCELLED 与 INVALID_FIELD_VALUE 使用稳定 code 进入 reason=input 的暂停状态，不自动重放；前者处理器可能产生副作用，结果保持 unknown，后者在聚焦/事件前拒绝浏览器会清洗的值。worker 重建不会执行暂停任务。
+## 诊断
 
-动作核对检查点另保存 dispatch：执行前 unknown，取得回执后更新为原派发状态。后续只读核对及超时沿用此值，旧检查点缺省 unknown，避免把已发出的动作显示为未执行。wheel 沿用执行前检查点、中断后只核对/暂停和停止代次保护，不在运行器增加定时循环。
-
-nextObservation.value 同样接受 regionOffset/regionQuery，沿用控件读取范围的一次性检查点和 URL/documentId/代次边界；区域核对的额外只读捕获由内容脚本负责，不改变轮数或等待 deadline。
-
-## 用户接管
-
-可信 task:takeover 通过串行任务更新取消当前请求、切换 token，暂停为 reason=user_takeover，清除旧 pending/check/读取范围/问题并停止调度。若 phase=executing 或存在 action 核对，先保存原 URL/documentId/目标 key/描述到现有 uncertainClicks；不解释为撤销或已完成。继续沿用 resume 的同 origin 检查及新观察路径，保留任务 ID 和未耗尽预算，不执行旧计划。防重放目标检查覆盖 fill/check/select 及现有点击/键鼠输入，避免重新规划重复未确定输入。
-
-## 结构化子目标（PA6 基础）
-
-普通模型响应可选 subgoals，运行器在同一轮解析和代次/站点校验后更新 taskPlan，不单独请求规划。每项 id/title/status/checks?，最多 8 个更新及 8 个存储项；同 ID 替换，其余保留，更新项移至列表末尾；[] 清空。状态为 pending/active/completed/blocked，id 为 1–40 ASCII 字母数字或 _/-，title 非空最多 120 字符。拒绝额外思维字段，不保存私有思维链。
-
-completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind/evaluate，非 success 降为 active，并保存结构化 verification。没有副作用、额外页面请求或额外模型轮数；它核实的是规划所见页面，不是随后动作的效果。每项保留 URL/documentId/updatedAt，taskPlan 进入下一轮上下文；旧已核对项仅是历史证据，不执行其条件/动作，不替代 done 的独立完成条件。用户更正可在后续响应改标题/状态，停止/接管的迟到响应不能写回。新增子目标超过总量则保留原计划并报告错误。
-
-可信 navigate 复用普通动作副作用检查点，automatic 条件为 url_equals，plan.value 保存规范化目标 URL。执行前持久化 executing；后台只派发一次，未知结果等待只读 URL 核对，恢复沿用原 deadline，不重置 taskId/steps，不把派发成功当作业务成功。
-
-未确定目标 guard 分类来自 C.agentTool(action)，与动作校验器/提示目录共用静态可信工具策略；取消、token、检查点、deadline 与 V2 结果恢复仍由原运行器控制，不把策略表当作另一个执行器。
-
-## 耗时诊断（PA13 基础）
-
-模型、摘要与工具派发使用同一 measured 包装：先在当前 token 下记录准备次数，再调用并测量等待响应的本机 wall-clock 毫秒，回报后仅在 live 仍成立时累计。metrics.timings 按 model/summary/tool 分组，字段 attempts/completed/failed/totalMs/lastMs；completed 表示调用正常返回，不代表工具业务成功，failed 仅表示抛出异常。准备记录不是已派发证明。
-
-停止/替换/记忆变更后的迟到结果不补写，worker 被终止也不推测耗时；attempts-completed-failed 是未回报次数。elapsed 小于 0 时归零，计时不包含检查点存储写入，不包括条件等待轮询/读取/网页业务服务器完成。恢复只保留已有数值，不新增请求或重播工具。
-
-## 当前任务诊断统计导出
-
-可信 task:diagnostics 需 tabId/taskId，并读取当前标签页 origin 与当前任务 origin 相符后才返回。导出 schema=page-agent-diagnostics/version=1，固定数值及枚举重建，不展开复制 task；包含状态/阶段、轮数/上限、已有 metrics 计数与 timings，以及保留 results/contextArchive 的工具分类和 V2 状态/dispatch 频数。未知工具不输出其名称，未知状态归类 unknown，非法数值回退 0。
-
-不含 taskId/tabId/token、URL/origin、目标/指令/计划/笔记/摘要/正文、请求/值/证据/消息/任意错误 code；generatedAt 仅报告生成时间。读取不更新存储、不执行动作或模型。仅当前任务，身份/网站改变则拒绝；保留结果分布不是完整历史，未回报次数按计时原规则解释。
-
-模型响应诊断使用 MODEL_RESPONSE_INVALID、MODEL_OUTPUT_TRUNCATED、MODEL_OUTPUT_REFUSED、MODEL_TOOL_CALL_UNSUPPORTED、MODEL_FINISH_UNSUPPORTED、MODEL_CONTENT_UNSUPPORTED、MODEL_OUTPUT_EMPTY、MODEL_OUTPUT_TOO_LARGE。它们不是临时网络/429/5xx 自动重试条件；动作尚未形成时记录 dispatch=not_sent，不把模型异常解释为网页派发未知。工具异常已有 V2 派发语义保持不变。
-
-## 跨站/多标签分阶段设计
-
-[任务站点集合与标签归属设计](task-scope-v3.md) 规定以 taskId 调度、任务级取消/范围版本、原标签未确定副作用核对及用户标签关闭策略；当前控制器/调度身份已迁至 taskId，tabId 仍为单成员兼容 API。单成员对账及关闭已实现，再分阶段开放授权站点集合及标签工具，不能据设计推断已具备。
-
-V3 单成员 store 通过原 tabId 接口解析 taskRoot/binding；runtime.update 保留 V3 版本。存储对账暂停 reason=scope_reconciled 的继续，和既有全局记忆变更保护一样保留 executing/check 原期限后只读核对，不能按普通重新规划丢弃未确定副作用。任务级运行资源迁移见下文，tabId API 仍兼容。
-
-## 任务级运行资源
-
-运行锁、tick 去重 jobs 和请求控制器以 taskId 为身份。tabId API 保留，serial 先经过标签发布队列保护任务替换，再按当前 taskId 串行执行；控制器的 tab→task 临时索引只用于现有侧栏停止/接管入口。全局记忆变更比较 taskId，不能把当前任务控制器误当其他任务取消。
-
-tick(tabId,expectedTaskId?) 对指定身份再次核对，过期调度不执行该标签上的新任务。旧任务请求迟到不阻塞不同 taskId 的新任务，不覆盖新控制器或状态。任务级 timer/alarm 由后台持有，启动后按根记录绑定解析 active tab（当前仍单成员）。
-
-## 单成员关闭生命周期
-
-memberClosed(tabId) 先同步 abort 该标签对应 taskId 的请求，再在发布/任务队列内取消 timer/alarm 并按当前权威 taskId 归档关闭。不同于 stop/remove，不抹除未确定 executing/pending/check，也不读取已关闭网页或尝试撤销；没有成员后终态 ended，迟到模型/执行回执不能回写或重新派发。没有绑定时只清该标签临时记忆。启动 recover 先取只含 ID 的浏览器标签清单，确认缺失后用同一路径清理，即使任务此前 paused/completed；清单请求失败向上传递并阻止本次恢复，不凭页面权限或 URL 读取异常推断关闭。当前单成员约束由 store 校验，多成员选择/暂停尚未开放。
-
-## 任务范围与主机权限门禁
-
-changeOrigins 可信请求匹配 taskId/scopeRevision，增加来源时确认浏览器已有主机权限；不由后台弹窗。有效变更先 abort/取消调度，再交存储提交新 token/范围版本并暂停。普通 set 无授权能力。turn 在观察前核对当前 origin 属任务范围且有主机权限；每次 live 检查也核对权限，迟到模型/摘要不能继续执行。resume/补充指令不绕过已移除的当前来源。
-
-浏览器 permissions.onRemoved 触发 reviewPermissions，只暂停缺少当前主机权限的任务，不修改授权集合。scope_changed/permission_denied 的暂停保留 executing/check；恢复沿用原条件/期限仅核对，不重放。此类未知操作须先点击继续核对，不能用补充指令清掉。单标签跨站导航现经专用 origin 切换及上下文分区接入，不能绕过任务授权或直接修改 origin。
-
-## 单标签跨已授权来源导航
-
-每次 turn 先读浏览器 URL。来源变化时 adoptOrigin 验证任务授权及主机权限；原操作只有 URL 条件且实际 URL 满足时，用浏览器 URL 只读核对后切换。无条件的 executing、旧 DOM 条件或未预期重定向暂停并保留原 check/deadline/dispatch，不在新站点求值旧字段。原操作已核实后清检查点并重新观察，不延长期限或重发导航；scope_reconciled 恢复仍只核对。
-
-URL 变化或主文档开始加载触发 navigationChanged，取消旧模型/摘要并轮换 token；普通同源链接跳转记录 unknown 与防重放约束后新观察，不把导航当服务器业务成功。跨来源 switchOrigin 是单独发布步骤，保存旧来源只读历史，新根只带用户原目标/补充、预算/累计统计和授权目录。旧计划、摘要、事件/结果、笔记读取正文和目标不交给目标站点模型；返回旧来源也不恢复这些内容，只有对应来源未确定点击约束保留防重放。
-
-observe/verify/reconnect 携带可信当前来源策略，浏览器层检查 URL/权限，内容端在 DOM capture 前检查 expectedOrigin；页面在消息间切换到另一来源时拒读。模型收到 taskScope 的当前来源及授权集合，但不能扩大范围。navigate 在绑定跨来源 URL 条件前验证授权/权限，内容端仍只消费快照，最终派发前再核对源 URL 和 live。跨来源只支持 URL 条件；普通 wait/verify/done 的条件绑定仍限定当前来源。
-
-统计中的轮数、观察/执行/核对和耗时累计跨来源保留；当前结果分布仅含当前来源保留的结果，不代表所有来源完整轨迹。临时记忆及 IDB 网站笔记每轮只用当前 origin，全球笔记独立按需读取，不自动将旧网站正文提升为全局经验。
+- 模型、摘要、工具派发统一计时：`metrics.timings.{model,summary,tool}` = attempts/completed/failed/totalMs/lastMs。completed 只表示调用返回，不代表业务成功；attempts−completed−failed 为中断未回报次数。停止后的迟到结果不补写。
+- `task:diagnostics` 需 tabId/taskId 且当前页来源与任务一致；按固定字段重建 `page-agent-diagnostics` v1 报告：状态/阶段、轮数、metrics、timings、保留结果的工具与 V2 状态分布。不含任何标识、URL、目标、正文、笔记、错误文本；未知工具名不输出。读取不修改存储。
