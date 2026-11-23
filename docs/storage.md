@@ -65,3 +65,5 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 动作 check 可选 dispatch 保存原动作的 sent/not_sent/unknown，执行前初始化 unknown，取得回执后更新；只读核对不覆盖。旧记录没有此字段时按 unknown，不推断从未执行。
 
 用户接管使用现有 status=paused、reason=user_takeover 和 uncertainClicks 存储，不新增持久键；pending/check 清除前，将执行中或核对中的目标记为未确定，恢复不重放。接管记录仍仅限浏览器会话。
+
+nextObservation.value 可选 includeText 布尔值，用于一次性的正文省略；未读标记保留在本轮快照，不新增存储键或持久页面缓存。

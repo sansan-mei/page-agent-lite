@@ -70,3 +70,5 @@ content.js 的条件读取可按具名 region 额外只读捕获并合并，cond
 core.js 的控件 context 是受预算限制的只读语义线索（具名祖先路径与 aria-describedby），prompts.js 提醒其不可信且可能省略；条件唯一性与运行器生命周期保持既有职责。
 
 PA4 用户接管由侧栏发送可信 task:takeover，background.js 路由至 runtime.js；取消、代次隔离、暂停和未确定动作防重放仍集中于运行器。页面工具不保存接管目标或任务状态。
+
+PA5 的 includeText=false 由 core.js 跳过整页 body 克隆与提取，仍生成当前控件/区域快照；运行器复用一次性 nextObservation，无新循环或模型调用。

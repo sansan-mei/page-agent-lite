@@ -224,3 +224,14 @@ test('semantic context separates repeated controls while excluding hidden and in
  const long=parseHTML('<html><body><section aria-label="'+ 'x'.repeat(160)+'">'+Array.from({length:120},()=>'<button aria-describedby="desc">Save</button>').join('')+'</section><p id="desc">'+ 'a'.repeat(1000)+'</p></body></html>').document;
  const result=C.agentSnapshot(long);assert.ok(result.page.elements.reduce((sum,e)=>sum+(e.context?.path.join('').length||0)+(e.context?.description.length||0),0)<=4000);
 });
+
+test('controls-only observation skips body cloning and explicitly marks body text unread',()=>{
+ const {document}=parseHTML('<html><body><p>'+ 'irrelevant '.repeat(3000)+'</p><button>Save</button></body></html>');
+ const full=C.agentSnapshot(document);const clone=document.body.cloneNode;document.body.cloneNode=()=>{throw Error('body clone must be skipped');};
+ const scoped=C.agentSnapshot(document,{query:'Save',includeText:false});document.body.cloneNode=clone;
+ assert.equal(scoped.page.text,'');assert.deepEqual(scoped.page.textRange,{start:0,end:0,total:null,nextOffset:null,omitted:true});assert.equal(scoped.page.coverage.textComplete,false);assert.equal(scoped.page.truncated,true);assert.equal(scoped.page.elements[0].label,'Save');
+ const P=require('../extension/prompts.js'),task={goal:'Find Save',steps:1,results:[]};
+ assert.ok(P.estimateTokens(P.agentInput(task,full.page))-P.estimateTokens(P.agentInput(task,scoped.page))>3500);
+ assert.equal(C.agentSnapshot(document,{includeText:true}).page.text,full.page.text);
+ assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Observe',action:'observe',value:{includeText:'false'}}),full));
+});

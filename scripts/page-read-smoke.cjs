@@ -16,6 +16,8 @@ const path=require('node:path');
    const sender={id:'test',url:'chrome-extension://test/background.js'};
    const send=message=>new Promise(resolve=>readListener(message,sender,resolve));
    const first=await send({type:'agent:observe'});
+   const controlsOnly=await send({type:'agent:observe',textOffset:{includeText:false,query:'Entry 244'}});
+   if(controlsOnly.value.page.text!==''||controlsOnly.value.page.textRange.omitted!==true||controlsOnly.value.page.coverage.textComplete!==false||controlsOnly.value.page.elements[0].label!=='Entry 244')throw Error('Controls-only observation contract failed');
    const paged=await send({type:'agent:observe',textOffset:{elementOffset:240}});
    const found=await send({type:'agent:observe',textOffset:{query:'Entry 244'}});
    const command={type:'agent:execute',url:found.value.url,documentId:found.value.documentId,snapshotId:found.value.snapshotId,plan:{reply:'Click late entry',action:'click',id:found.value.page.elements[0].id}};

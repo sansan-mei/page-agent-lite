@@ -643,3 +643,13 @@ test('takeover during uncertain dispatch blocks a newly planned repeat after res
  assert.equal((await f.runtime.get(1)).uncertainClicks.length,1);
  f.runtime=createRuntime(f.deps);await f.runtime.resume(1);await f.runtime.tick(1);assert.equal(actions,1);assert.equal((await f.runtime.get(1)).reason,'uncertain');
 });
+
+test('controls-only scoped observation reaches the model and its current target executes',async()=>{
+ const reads=[];let calls=0;
+ const f=fixture({tools:{async observe(id,value){reads.push(value);return {url:'https://example.test/1',documentId:'doc',snapshotId:'fresh',page:{text:value?.includeText===false?'':'Long body',textRange:{omitted:value?.includeText===false},elements:[{id:'t0',label:'Save'}]}};}},model:async input=>{
+  if(++calls===1)return {text:JSON.stringify({reply:'Inspect controls',action:'observe',value:{includeText:false,query:'Save'}})};
+  const page=JSON.parse(input).page;assert.equal(page.text,'');assert.equal(page.textRange.omitted,true);return {text:JSON.stringify({reply:'Click',action:'click',id:page.elements[0].id})};
+ }});
+ await f.runtime.start(1,'Save');await f.runtime.tick(1);await f.runtime.tick(1);
+ assert.deepEqual(reads,[undefined,{includeText:false,query:'Save'}]);assert.equal(f.executed.length,1);assert.equal((await f.runtime.get(1)).steps,2);
+});

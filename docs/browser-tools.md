@@ -141,3 +141,9 @@ double_click 向当前 id 执行两次受保护 click 后派发 detail=2 的 dbl
 新增文字只取可见普通文本，排除 hidden/aria-hidden、CSS display:none/visibility:hidden、关闭 dialog、扩展 UI、脚本/样式、原生输入和 contenteditable 子树。不宣称全面隐私识别。上下文仅为不可信定位线索，不参与自动重放、动作授权或条件匹配；相同名称仍需模型使用当前 ID 消歧，验证仍要求受限语义目标唯一。不增加动作、权限或请求。
 
 用户接管通过侧栏可信后台消息完成，不新增模型动作。接管只取消尚未生效的旧计划与请求，已派发动作可能继续由网页处理；返回继续后使用新快照，未确定目标仍不能重复执行。
+
+## 按需省略整页正文（PA5）
+
+observe 对象 value 支持 includeText 布尔值，可独立使用或与控件/区域范围结合。默认或 true 保留整页正文；false 跳过 body 克隆/正文提取，page.text 为空，textRange={start:0,end:0,total:null,nextOffset:null,omitted:true}，coverage.textComplete=false 且 truncated=true。total=null/omitted 表示没有读取正文，不表示内容为空或读到末尾；普通 observe 或整数偏移可重新读取正文。控件、区域、标签和语义说明仍按原预算提供，不能承诺所有页面文字都省略。
+
+对象读取沿用 nextObservation：下一 tick 新快照使用此范围，后续普通读取恢复默认；不增加请求或修改动作/条件语义。省略正文不省略区域抽取的扫描与克隆，未实现 DOM 增量快照或低影响批量操作。

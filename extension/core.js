@@ -131,7 +131,7 @@ function agentContext(n){
  return {path:path.reverse(),description:refs(n,'aria-describedby')};
 }
 function agentReadOptions(value){
- if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery'].includes(k))||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery','includeText'].includes(k))||value.includeText!==undefined&&typeof value.includeText!=='boolean'||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
  return value;
 }
 function agentSnapshot(doc, textOffset=0){
@@ -148,10 +148,13 @@ function agentSnapshot(doc, textOffset=0){
  const inViewport=n=>{if(!geometry.has(n))geometry.set(n,agentGeometry(n,doc.defaultView));return geometry.get(n)?.inViewport;};
  for(const n of doc.querySelectorAll('*')){const info=agentScrollInfo(n);if(n===doc.body||n===doc.documentElement||(!info.maxX&&!info.maxY))continue;const style=doc.defaultView?.getComputedStyle?.(n);if((info.maxX&&/auto|scroll/.test(style?.overflowX))||(info.maxY&&/auto|scroll/.test(style?.overflowY)))scrollables.add(n);}
  const prioritize=items=>[...items].sort((a,b)=>Number(inDialog(b))-Number(inDialog(a))||Number(!!inViewport(b))-Number(!!inViewport(a)));
- const copy=doc.body.cloneNode(true);for(const n of copy.querySelectorAll(blocked))n.remove();
- const fullText=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
+ let fullText='';
+ if(reading.includeText!==false){
+  const copy=doc.body.cloneNode(true);for(const n of copy.querySelectorAll(blocked))n.remove();
+  fullText=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
+ }
  const start=Math.min(textOffset,fullText.length),text=fullText.slice(start,start+16000);
- const textRange={start,end:start+text.length,total:fullText.length,nextOffset:start+text.length<fullText.length?start+text.length:null};
+ const textRange=reading.includeText===false?{start:0,end:0,total:null,nextOffset:null,omitted:true}:{start,end:start+text.length,total:fullText.length,nextOffset:start+text.length<fullText.length?start+text.length:null};
  // Include custom controls without relying on site-specific classes or executing handlers.
  const controls='[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],button,a[href],input,textarea,select,[role="button"],[role="radio"],[role="checkbox"],[role="link"],[role="menuitem"],[role="switch"],[role="combobox"],[role="option"],[role="tab"],[onclick],[tabindex]';
  const explicit=n=>n.matches(controls)&&(n.getAttribute('tabindex')===null||Number(n.getAttribute('tabindex'))>=0||n.matches(controls.replace(',[tabindex]','')));
@@ -227,7 +230,7 @@ function agentSnapshot(doc, textOffset=0){
  elementsComplete=!reading.query&&elementOffset===0&&matchedElements<=120;
  const elementRange={start:Math.min(elementOffset,matchedElements),end:Math.min(elementOffset,matchedElements)+elements.length,total:matchedElements,nextOffset:elementOffset+elements.length<matchedElements?elementOffset+elements.length:null,query:reading.query||null};
  const hiddenExcluded=cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
- return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
+ return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
