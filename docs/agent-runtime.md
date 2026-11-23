@@ -103,3 +103,7 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 不含 taskId/tabId/token、URL/origin、目标/指令/计划/笔记/摘要/正文、请求/值/证据/消息/任意错误 code；generatedAt 仅报告生成时间。读取不更新存储、不执行动作或模型。仅当前任务，身份/网站改变则拒绝；保留结果分布不是完整历史，未回报次数按计时原规则解释。
 
 模型响应诊断使用 MODEL_RESPONSE_INVALID、MODEL_OUTPUT_TRUNCATED、MODEL_OUTPUT_REFUSED、MODEL_TOOL_CALL_UNSUPPORTED、MODEL_FINISH_UNSUPPORTED、MODEL_CONTENT_UNSUPPORTED、MODEL_OUTPUT_EMPTY、MODEL_OUTPUT_TOO_LARGE。它们不是临时网络/429/5xx 自动重试条件；动作尚未形成时记录 dispatch=not_sent，不把模型异常解释为网页派发未知。工具异常已有 V2 派发语义保持不变。
+
+## 跨站/多标签后续设计（未实现）
+
+[任务站点集合与标签归属设计](task-scope-v3.md) 规定以 taskId 调度、任务级取消/范围版本、原标签未确定副作用核对及用户标签关闭策略；当前控制器/调度/运行器仍按 tabId。先完成兼容迁移和成员对账，再分阶段开放授权站点集合及标签工具，不能据设计推断已具备。

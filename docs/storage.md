@@ -79,3 +79,7 @@ nextObservation.value 可选 regionTextOffset，必须配合 regionQuery；仅�
 metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/completed/failed/totalMs/lastMs；旧任务缺省无计时。仅会话内累计，归档沿用当前对话历史规则，不保存正文、密钥或额外请求 URL；中断未完成次数可由计数差推导，lastMs=null 表示尚无回报。
 
 诊断统计 JSON 为用户点击时从现有 session 记录只读生成，不增加存储键或自动落盘；仅当前任务且 origin/taskId 匹配。文件不包含任务/标签标识、URL、令牌或自由文本，不能导入恢复。
+
+## 跨站/多标签任务设计（未实现）
+
+下一步根记录、成员索引、修订一致性、迁移及配额失败恢复见 [任务站点集合与标签归属设计](task-scope-v3.md)。目前仍使用 task:tabId，不存在 taskRoot/taskRegistry；设计中的 session 多键更新不假设事务，执行前须索引/根记录一致。不得仅改 tabId 或放宽 origin 验证开放标签工具。
