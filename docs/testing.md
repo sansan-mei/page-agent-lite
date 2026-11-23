@@ -151,3 +151,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA12 严格文本响应诊断
 
 193 项 Node 回归通过：stop/省略 finish_reason/空 tool_calls/refusal 的兼容，usage 统一解析；即使内容为合法动作 JSON，finish_reason=length 仍拒绝。拒绝/工具调用/未知结束状态/非文本/空值/超长/非法 JSON 使用稳定 code 且不回显 fixture 私密响应。真实 Response 包装集成运行器验证 HTTP 200 截断只请求一次、工具执行为零、dispatch=not_sent。完整 MV3 + 本机 stub 结果见 changelog，线上模型及原生工具调用未验收。
+
+## V3 单成员根记录基础
+
+197 项 Node 回归通过：V2 迁移保留未知动作/预算/期限、根记录权威、同任务跨标签抢占拒绝、两个 store 实例并发归属、写入前/根已写但索引未提交的故障注入、历史补归档、对账暂停及恢复只读核对。完整 MV3 stub 回归新增真实 session root/binding 修订匹配和单 origin 范围检查，结果见 changelog。镜像双写仍临时存在，不将本次视为 taskId 调度或跨站/多标签验收。

@@ -22,7 +22,7 @@
       return serial(tabId, async () => {
         const task = await store.get(tabId);
         if (!task || task.token !== token) return null;
-        fn(task); task.version=2;task.updatedAt = now(); await store.set(tabId, task); return task;
+        fn(task); task.version=task.version===3?3:2;task.updatedAt = now(); await store.set(tabId, task); return task;
       });
     }
     async function measured(task,kind,operation,live){
@@ -227,7 +227,7 @@
       const prefs = await preferences();
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
-        const recovery=t.reason==='global_memory_changed'&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
+        const recovery=['global_memory_changed','scope_reconciled'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
         t.question=null;t.helpAttempts=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.

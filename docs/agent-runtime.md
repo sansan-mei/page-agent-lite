@@ -107,3 +107,5 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 ## 跨站/多标签后续设计（未实现）
 
 [任务站点集合与标签归属设计](task-scope-v3.md) 规定以 taskId 调度、任务级取消/范围版本、原标签未确定副作用核对及用户标签关闭策略；当前控制器/调度/运行器仍按 tabId。先完成兼容迁移和成员对账，再分阶段开放授权站点集合及标签工具，不能据设计推断已具备。
+
+V3 单成员 store 通过原 tabId 接口解析 taskRoot/binding；runtime.update 保留 V3 版本。存储对账暂停 reason=scope_reconciled 的继续，和既有全局记忆变更保护一样保留 executing/check 原期限后只读核对，不能按普通重新规划丢弃未确定副作用。控制器/锁/alarm 仍按 tabId，任务级调度迁移未实现。

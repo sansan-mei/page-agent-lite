@@ -92,3 +92,5 @@ PA13 统计导出由可信 background.js 路由至 runtime.diagnostics，按固�
 PA12 backend.js 的 parseChatResponse 统一解析非流式兼容文本与 usage；仅通过的字符串交给既有严格 JSON 动作/摘要校验器。结束状态不支持、截断或拒绝不做修补/回退，后台不回显服务响应正文。没有引入原生 function calling 执行路径。
 
 PA7/PA8 下一步实施依据为 [任务站点集合与标签归属设计](task-scope-v3.md)（未实现）。设计覆盖 root/registry 双记录一致性、任务级调度、显式站点/成员授权及只读恢复；当前架构仍是单标签单 origin，不因设计新增可调用工具或权限。
+
+PA7/PA8 存储第一步已实现：task-store.js 以 taskRoot:taskId + taskRegistry 单成员归属解析旧 tabId API，task:tabId 仅为 UI 更新镜像；意图中断只读对账后暂停。尚未迁移任务级调度，也未开放多成员或跨 origin 授权。

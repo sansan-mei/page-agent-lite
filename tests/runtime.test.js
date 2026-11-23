@@ -744,3 +744,10 @@ test('truncated HTTP 200 model output never reaches page tools or automatic retr
  const f=fixture({model:service.generateAgent});await f.runtime.start(1,'Save');await f.runtime.tick(1);await f.runtime.tick(1);
  const task=await f.runtime.get(1);assert.equal(f.executed.length,0);assert.equal(requests,1);assert.equal(task.lastOutcome.code,'MODEL_OUTPUT_TRUNCATED');assert.equal(task.lastOutcome.dispatch,'not_sent');assert.equal(task.status,'failed');assert.doesNotMatch(JSON.stringify(task),/PRIVATE_KEY/);
 });
+
+test('scope reconciliation continuation preserves action deadline and only verifies the prior operation',async()=>{
+ let models=0;
+ const f=fixture({model:async()=>{models++;return {text:JSON.stringify({reply:'Done',action:'done'})};}});
+ await f.runtime.start(1,'Work');let task=await f.runtime.get(1);task.status='paused';task.reason='scope_reconciled';task.phase='executing';task.steps=17;task.check={kind:'action',action:'navigate',dispatch:'unknown',deadline:Date.now()+10000,expected:[{kind:'url_equals',value:'https://example.test/1'}]};const deadline=task.check.deadline;await f.store.set(1,task);
+ await f.runtime.resume(1);task=await f.runtime.get(1);assert.equal(task.check.deadline,deadline);assert.equal(task.phase,'executing');await f.runtime.tick(1);task=await f.runtime.get(1);assert.equal(task.lastOutcome.status,'success');assert.equal(task.lastOutcome.dispatch,'unknown');assert.equal(task.steps,17);assert.equal(models,0);assert.equal(f.executed.length,0);
+});
