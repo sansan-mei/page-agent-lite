@@ -33,7 +33,7 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
@@ -48,6 +48,11 @@
       }
       if(!snapshot||message.snapshotId!==snapshotId||message.url!==location.href||message.documentId&&message.documentId!==documentId)throw Object.assign(new Error('页面快照已失效'),{code:'STALE'});
       const plan=C.agentPlan(JSON.stringify(message.plan),snapshot);
+      if(message.type==='agent:prepare-navigation'){
+        if(plan.action!=='navigate')throw Object.assign(new Error('导航准备动作无效'),{code:'STALE'});
+        snapshot=null;snapshotId=null;return {prepared:true,documentId};
+      }
+      if(plan.action==='navigate')throw Object.assign(new Error('导航须由可信后台派发'),{code:'NAVIGATION_DENIED',beforeDispatch:true});
       const captured=snapshot,before=fingerprint();
       const expected=message.expected||G.bind(plan.expected||G.automatic(plan),captured);
       if(expected.length)G.validate(expected);

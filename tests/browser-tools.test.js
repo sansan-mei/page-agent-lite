@@ -45,3 +45,14 @@ test('reconnecting an observation preserves its bounded reading scope',async()=>
  await createBrowserTools(chrome).observe(1,value);
  assert.equal(injected,1);assert.deepEqual(messages,[{type:'agent:observe',textOffset:value},{type:'agent:observe',textOffset:value}]);
 });
+
+test('trusted navigation enforces origin, permission and a consumed snapshot, never retries unknown update',async()=>{
+ let granted=true,current='https://example.test/page',updates=0,prepared=0,fail=false;
+ const chrome={permissions:{async contains(){return granted;}},tabs:{async get(){return {url:current,status:'complete'};},async sendMessage(id,m){assert.equal(m.type,'agent:prepare-navigation');prepared++;return {ok:true,value:{prepared:true}};},async update(id,opts){updates++;assert.equal(opts.url,'https://example.test/next');if(fail)throw Error('Lost response');}}};
+ const tools=createBrowserTools(chrome),pending={url:current,documentId:'doc',snapshotId:'s',plan:{action:'navigate',value:'https://example.test/next'}};
+ let r=await tools.execute(1,pending);assert.equal(r.dispatch,'sent');assert.equal(r.navigation,true);assert.equal(prepared,1);
+ fail=true;r=await tools.execute(1,pending);assert.equal(r.dispatch,'unknown');assert.equal(updates,2);
+ for(const value of ['https://other.test/next','javascript:alert(1)','https://user:pass@example.test/next'])await assert.rejects(()=>tools.execute(1,{...pending,plan:{action:'navigate',value}}),e=>e.code==='NAVIGATION_DENIED');
+ granted=false;await assert.rejects(()=>tools.execute(1,pending),e=>e.code==='PERMISSION_DENIED');granted=true;
+ current='https://example.test/changed';await assert.rejects(()=>tools.execute(1,pending),e=>e.code==='STALE');assert.equal(updates,2);
+});

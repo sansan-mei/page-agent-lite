@@ -39,3 +39,12 @@ test('checks locate late named regions read-only without reusing old region IDs 
  document.body.innerHTML='<section aria-label="Other">Complete scope</section>';
  assert.equal((await send({type:'agent:verify',expected:absent})).value.status,'success');
 });
+
+test('navigation preparation consumes the current content snapshot without changing the page',async()=>{
+ const {document}=parseHTML('<html><body><p>Source</p></body></html>');let listener;
+ const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},sendMessage:async()=>({ok:true})}};
+ vm.runInNewContext(fs.readFileSync('extension/content.js','utf8'),{PageAgentCore:C,PageAgentConditions:require('../extension/conditions.js'),PageAgentProtocol:require('../extension/tool-protocol.js'),chrome,document,location:{href:'https://example.test/'},crypto,Date,setTimeout});
+ const send=m=>new Promise(r=>listener(m,{id:'test',url:'chrome-extension://test/background.js'},r));
+ const snap=(await send({type:'agent:observe'})).value,command={type:'agent:prepare-navigation',snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,plan:{reply:'Navigate',action:'navigate',value:'https://example.test/next'}};
+ assert.equal((await send(command)).value.prepared,true);assert.equal((await send(command)).code,'STALE');assert.equal(document.body.textContent,'Source');
+});

@@ -79,6 +79,7 @@
     return {status:evidence.some(e=>e.matched===false)?'not_satisfied':evidence.some(e=>e.matched===null)?'unknown':'success',evidence};
   }
   function automatic(plan){
+    if(plan.action==='navigate')return [{kind:'url_equals',value:plan.value}];
     if(plan.action==='fill'||plan.action==='select')return [{kind:'field_equals',id:plan.id,value:plan.value}];
     if(plan.action==='check')return [{kind:'checked_equals',id:plan.id,value:plan.value}];
     return [];

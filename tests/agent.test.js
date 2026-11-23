@@ -241,3 +241,9 @@ test('subgoals require bounded public milestones and explicit completion checks'
  assert.equal(C.agentPlan(JSON.stringify({...base,subgoals:[{id:'read',title:'Read result',status:'active'}]}),snap).subgoals.length,1);
  for(const subgoals of [[{id:'a',title:'Done',status:'completed'}],[{id:'a',title:'X',status:'active',thoughts:'private'}],[{id:'a',title:'X',status:'active'},{id:'a',title:'Y',status:'pending'}],Array.from({length:9},(_,i)=>({id:'g'+i,title:'X',status:'pending'})),[{id:'a',title:'x'.repeat(121),status:'pending'}]])assert.throws(()=>C.agentPlan(JSON.stringify({...base,subgoals}),snap));
 });
+
+test('navigation plans reject credentials, internal schemes, relative URLs and element targets',()=>{
+ const snap={nodes:new Map()};assert.equal(C.agentPlan(JSON.stringify({reply:'Open',action:'navigate',value:'https://example.test/next'}),snap).value,'https://example.test/next');
+ for(const value of ['javascript:alert(1)','file:///x','chrome://settings','/next','https://user:pass@example.test/'])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Open',action:'navigate',value}),snap));
+ assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Open',action:'navigate',value:'https://example.test/',id:'t0'}),snap));
+});

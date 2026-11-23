@@ -331,6 +331,11 @@ async function startServer() {
           }else plan={reply:'已按页面反馈核实填写、筛选与保存',action:'done',expected:[{kind:'field_equals',id:field.id,value:'Alice'},condition('Results','Filtered rows'),condition('Save status','Saved')]};
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
+        if(data.goal==='Navigate smoke'){
+          const target=new URL('/task-two',data.page.url).href;
+          const plan=data.page.url===target?{reply:'URL verified',action:'done',expected:[{kind:'url_equals',value:target}]}:{reply:'Navigate within current origin',action:'navigate',value:target};
+          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
+        }
         if(data.goal.startsWith('Memory smoke')){
           let plan={reply:'临时记忆操作完成',action:'done'};
           if(data.goal==='Memory smoke save'&&!data.memoryIndex.length)plan={reply:'保存用户更正',action:'memory_write',id:'answers',value:'用户更正：第一题对，第二题错'};
@@ -627,6 +632,13 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   pass('real fill and same-origin navigation finish with built-in automation and no approval command');
   assert.equal(autoFinished.taskId,identityBefore);assert.equal(autoFinished.results.slice(handoff.value.results.length).filter(r=>r.action==='fill').length,0);
   pass('trusted user takeover pauses the real runtime, retains budget and task ID, and fresh observation respects the manually filled value');
+  await command('task:clear');
+  await page.goto(origin+'/task-one');await page.bringToFront();
+  const navigationTask=await command('task:start',{goal:'Navigate smoke'});assert.equal(navigationTask.ok,true);
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','trusted same-origin navigation completed',20000);
+  const navigationResult=(await command('task:get')).value;
+  assert.equal(page.url(),origin+'/task-two');assert.equal(navigationResult.taskId,navigationTask.value.taskId);assert.equal(navigationResult.results.filter(r=>r.action==='navigate').length,1);assert.ok(navigationResult.steps>=2);
+  pass('trusted navigate consumes source snapshot, performs one same-origin tab update, preserves task budget and verifies the destination before completion');
   await command('task:clear');
   await page.goto(origin+'/judgment');await page.bringToFront();
   const correction=await command('task:submit',{goal:'按指定答案更正：第一题对，第二题错，不提交评分'});assert.equal(correction.ok,true);

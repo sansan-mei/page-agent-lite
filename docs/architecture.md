@@ -74,3 +74,5 @@ PA4 用户接管由侧栏发送可信 task:takeover，background.js 路由至 ru
 PA5 的 includeText=false 由 core.js 跳过整页 body 克隆与提取，仍生成当前控件/区域快照；运行器复用一次性 nextObservation，无新循环或模型调用。
 
 PA6 子目标由 core.js 校验响应结构，runtime.js 在现有模型轮次内核对/更新 session taskPlan，prompts.js 注入历史进度，sidepanel.js 以安全文本显示。没有独立计划执行器、隐藏思维记录或额外规划请求。
+
+同源 navigate 由 runtime.js 记录检查点，browser-tools.js 校验权限/URL 并请求 content.js 消费快照后仅一次 tabs.update；内容脚本不直接导航、不保存目标。conditions.js 自动生成 URL 目标核对，仍是单标签单 origin 运行器。

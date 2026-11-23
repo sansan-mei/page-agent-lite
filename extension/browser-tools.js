@@ -33,7 +33,18 @@
         }
       }
     }
+    async function navigate(tabId,pending){
+      const destination=new URL(pending.plan.value),source=new URL(pending.url);
+      if(!['http:','https:'].includes(destination.protocol)||destination.origin!==source.origin||destination.username||destination.password)throw Object.assign(new Error('导航超出当前任务站点或 URL 不安全'),{code:'NAVIGATION_DENIED'});
+      if(!await chrome.permissions.contains({origins:[source.origin+'/*']}))throw Object.assign(new Error('当前网站权限已撤销'),{code:'PERMISSION_DENIED'});
+      if((await tab(tabId)).url!==pending.url)throw Object.assign(new Error('导航来源页面已变化'),{code:'STALE'});
+      try{await call(tabId,{type:'agent:prepare-navigation',...pending});}catch(error){throw Object.assign(new Error('导航前快照无法核实，请重新观察'),{code:error.code||'STALE'});}
+      let dispatch='sent',code='NAVIGATION_DISPATCHED';
+      try{await chrome.tabs.update(tabId,{url:destination.href});}catch{dispatch='unknown';code='NAVIGATION_UNKNOWN';}
+      return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch,scope:'dispatch',code,recovery:'wait',message:'导航已请求；重新观察并核对 URL，不重发结果不确定的导航'}),navigation:true};
+    }
     async function execute(tabId,pending){
+      if(pending.plan?.action==='navigate')return navigate(tabId,pending);
       try{return T.normalize(await call(tabId,{type:'agent:execute',...pending}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect

@@ -149,3 +149,11 @@ observe 对象 value 支持 includeText 布尔值，可独立使用或与控件/
 对象读取沿用 nextObservation：下一 tick 新快照使用此范围，后续普通读取恢复默认；不增加请求或修改动作/条件语义。省略正文不省略区域抽取的扫描与克隆，未实现 DOM 增量快照或低影响批量操作。
 
 响应可选 subgoals 描述公开任务里程碑，不是网页工具：后台核对其中 completed.checks 后保存历史进度，不触发 DOM 执行。checks 沿用 expected 的有限条件，副作用和任务最终完成仍走原有协议；详情见运行器文档。
+
+## 可信同源导航（PA7 基础）
+
+navigate 使用绝对 HTTP/HTTPS 字符串 value（最多 2000 字符），不接受元素 id、凭据、脚本或内部协议。运行器自动绑定 url_equals 到规范化目标 URL；目标须与当前任务 origin 相同，沿用现有站点边界。只应使用用户给定或当前页面有依据的目标，不通过猜测业务动作 URL 绕过控件流程。
+
+浏览器适配层检查源/目标同 origin、当前主机权限与当前标签页 URL，再调用仅可信后台可用的 agent:prepare-navigation：内容脚本校验 documentId/snapshotId/URL 并消费快照，不修改网页。随后后台仅调用一次 tabs.update；内容脚本拒绝直接执行 navigate。tabs.update 正常回执为 NAVIGATION_DISPATCHED、dispatch=sent，但 status=unknown，仍需核对目标；回执失败为 NAVIGATION_UNKNOWN、dispatch=unknown，只读等待 URL，不自动补发。权限缺失、来源变化和非法目标在派发前拒绝。
+
+导航使用既有 executing/action 检查点和原等待 deadline，worker 重建后仅验证；任务 ID/轮数不重置。跳转或重定向越过原 origin 会被既有站点边界暂停，不读取跨站页面；不支持指定额外标签页、跨站任务授权集合或任意 URL 执行脚本。

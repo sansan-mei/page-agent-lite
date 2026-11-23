@@ -69,3 +69,5 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 nextObservation.value 可选 includeText 布尔值，用于一次性的正文省略；未读标记保留在本轮快照，不新增存储键或持久页面缓存。
 
 任务可选 taskPlan 数组（默认空）保存 PA6 公开子目标、验证结果、记录时间及文档来源；沿用 session task 和只读对话归档，不新增数据库，不跨浏览器重启恢复。验证证据是历史数据，不是待执行检查点或动作，恢复先重新观察。
+
+同源 navigate 不改变任务归属或权限模型；pending.plan.value 是受限绝对 URL，check 保存自动 url_equals 和原 deadline，session 检查点恢复只核对不重复导航。原 origin 隔离、重启不恢复任务不变，尚无授权 origin 集合或多标签任务结构。

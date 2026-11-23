@@ -671,3 +671,10 @@ test('a stopped model reply cannot write task milestones',async()=>{
  await f.runtime.start(1,'Work');const job=f.runtime.tick(1);await ready;await f.runtime.stop(1);
  resolve({text:JSON.stringify({reply:'Late plan',action:'observe',subgoals:[{id:'late',title:'Late',status:'active'}]})});await job;assert.equal((await f.runtime.get(1)).taskPlan,undefined);
 });
+
+test('same-origin navigation verifies after worker reconstruction without replay or budget reset',async()=>{
+ let url='https://example.test/1',actions=0;
+ const f=fixture({tools:{async tab(){return {url,status:'complete'};},async observe(){return {url,documentId:url, snapshotId:'s',page:{elements:[]}};},async execute(){actions++;url='https://example.test/next';return {version:2,status:'unknown',dispatch:'unknown',code:'NAVIGATION_UNKNOWN',navigation:true};}},model:async()=>({text:JSON.stringify({reply:'Navigate',action:'navigate',value:'https://example.test/next'})})});
+ await f.runtime.start(1,'Navigate');await f.runtime.tick(1);let t=await f.runtime.get(1);const id=t.taskId;assert.equal(t.phase,'verifying');assert.equal(t.check.expected[0].kind,'url_equals');
+ f.runtime=createRuntime(f.deps);await f.runtime.tick(1);t=await f.runtime.get(1);assert.equal(t.check,null);assert.equal(t.lastOutcome.status,'success');assert.equal(t.lastOutcome.dispatch,'unknown');assert.equal(t.taskId,id);assert.equal(t.steps,1);assert.equal(actions,1);
+});
