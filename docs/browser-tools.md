@@ -22,7 +22,7 @@ page.groups 提供可识别的 fieldset、radiogroup、题目容器及原生选�
 | pause | reply | 尚未完成且受阻，保留任务并暂停，不冒充完成 |
 | observe | reply | 刷新观察，不修改页面 |
 | verify | expected | 立即只读验证条件，不匹配反馈给模型 |
-| wait | expected、可选 timeoutMs | 等待条件，默认 10 秒，最多 30 秒 |
+| wait | expected、可选 timeoutMs；或仅 timeoutMs | 有 expected 时等待条件（默认 10 秒，最多 30 秒）；无 expected 时纯延时，必须提供 100–30000 毫秒时长 |
 | click | id | 滚入视野、检查遮挡、派发事件序列和一次 click；直接自动执行 |
 | fill | id、字符串 value | 支持的 input / textarea，派发 input/change |
 | check | id、布尔 value | 原生 radio / checkbox |
@@ -77,3 +77,5 @@ memory_read/write/delete/clear 在后台执行，不送到网页；占用普通�
 `page-pointer.js` 在 isolated world 管理独立、禁止命中的显示层（内部样式使用封闭 shadow root 隔离，这不代表支持操作网页 Shadow DOM）。core 校验目标后触发视觉反馈；动画不阻塞操作，不新增模型请求。显示层排除在抽取和隐藏覆盖判断之外。约 900 毫秒自动隐藏；后台停止、手动结束或运行器进入非活动状态时发送仅可信后台可用的 `agent:clear-pointer`。pagehide、滚动、resize、visibilitychange 清理当前显示层。不新增权限或依赖；不保存指针状态。
 
 视觉反馈本身不消耗模型 token；新增 hover 的稳定说明、动作记录和重新观察可能增加用量。纯 CSS 悬停、拖拽、右键、双击及系统鼠标控制未实现。
+
+纯延时示例：`{"reply":"等待15秒后继续","action":"wait","timeoutMs":15000}`。后台只检查持久化的 deadline，不轮询网页条件或请求模型；到期记录 `DELAY_ELAPSED`，随后重新读取页面再规划。该成功只代表时间已过，不证明视频切换或其他网页操作成功。重复间隔还受模型和浏览器调度耗时影响。

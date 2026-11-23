@@ -167,6 +167,7 @@
         const tab = await tools.tab(tabId);
         if (!await live()) return;
         if (new URL(tab.url).origin !== task.origin) {await pause(task,'已离开原站点，任务暂停。返回后可继续。','origin');return;}
+        if(task.check?.kind==='delay'){await delayCheck(task);return;}
         let readySnapshot=null;
         if (tab.status === 'loading') {
           // A tab may keep loading subresources after its DOM is usable. Probe
@@ -292,6 +293,10 @@
         if(plan.action==='observe'){
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'observe',outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
         }
+        if(plan.action==='wait'&&!plan.expected){
+          task=await update(tabId,token,t=>{t.phase='verifying';t.status='waiting_page';t.check={operationId:uuid(),expected:[],deadline:now()+plan.timeoutMs,kind:'delay',request:plan,time:call.time};event(t,plan.reply);});
+          return;
+        }
         if(['wait','verify'].includes(plan.action)){
           const expected=G.bind(plan.expected,snap);
           task=await update(tabId,token,t=>{t.phase='verifying';t.recoveryCount=0;t.check={operationId:uuid(),expected,deadline:now()+(plan.action==='verify'?0:plan.timeoutMs||10000),kind:plan.action,request:plan,time:call.time};event(t,plan.reply);});
@@ -337,6 +342,19 @@
       } finally {
         if (controllers.get(tabId)===controller) controllers.delete(tabId);
       }
+    }
+    async function delayCheck(task){
+      await update(task.tabId,task.token,t=>{
+        const check=t.check;
+        if(check?.kind!=='delay')return;
+        const elapsed=now()>=check.deadline;
+        const outcome=T.result({operationId:check.operationId,status:elapsed?'success':'pending',dispatch:'not_sent',scope:'dispatch',code:elapsed?'DELAY_ELAPSED':'WAITING_DELAY',recovery:elapsed?'observe':'wait',message:elapsed?'延时结束；重新读取页面后继续':'正在等待指定时长'});
+        t.lastOutcome=outcome;
+        if(!elapsed){t.status='waiting_page';return;}
+        t.results=t.results.concat({action:'wait',request:check.request,time:check.time,outcome,result:outcome.message});
+        t.check=null;t.waitDeadline=null;t.phase='observe';t.status='running';
+        event(t,'延时结束，重新读取页面后继续；不代表网页操作成功');
+      });
     }
     async function verifyCheck(task,live){
       const check=task.check;if(!check)return;

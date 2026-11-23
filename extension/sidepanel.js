@@ -98,10 +98,10 @@
     }
     const activity={observe:'读取页面',thinking:'正在思考',executing:'正在操作',verifying:'正在核对',compacting:'整理上下文'};
     const active=task&&['running','waiting_page'].includes(task.status);
-    $('progress').textContent=!fresh?`${active?(task.status==='waiting_page'?'等待网页':activity[task.phase]||labels[task.status]):labels[task.status]||task.status} · ${task.steps} / ${task.prefs.maxSteps||'不限'} 轮`:'准备就绪';
+    $('progress').textContent=!fresh?`${active?(task.status==='waiting_page'?(task.check?.kind==='delay'?'延时等待':'等待网页'):activity[task.phase]||labels[task.status]):labels[task.status]||task.status} · ${task.steps} / ${task.prefs.maxSteps||'不限'} 轮`:'准备就绪';
     $('verification').hidden=!task?.check&&!task?.lastOutcome;
     const deadline=task?.check?.deadline;
-    $('waiting').textContent=task?.check?`正在核对 ${task.check.expected.length} 项预期；截止 ${new Date(deadline).toLocaleTimeString()}`:task?.lastOutcome?`${task.lastOutcome.status} · ${task.lastOutcome.code}（仅代表本次工具结果）`:'';
+    $('waiting').textContent=task?.check?(task.check.kind==='delay'?`正在延时等待；到期 ${new Date(deadline).toLocaleTimeString()}`:`正在核对 ${task.check.expected.length} 项预期；截止 ${new Date(deadline).toLocaleTimeString()}`):task?.lastOutcome?`${task.lastOutcome.status} · ${task.lastOutcome.code}（仅代表本次工具结果）`:'';
     $('evidence').replaceChildren();
     for(const item of task?.lastOutcome?.evidence||[]){
       const p=document.createElement('p');p.textContent=`${item.kind} · ${item.matched===true?'匹配':item.matched===false?'不匹配':'未知'} · ${item.code||''} · 目标 ${JSON.stringify(item.target)} · 预期 ${JSON.stringify(item.expected)} · 实际 ${JSON.stringify(item.actual)}`;$('evidence').append(p);

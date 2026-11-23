@@ -445,3 +445,43 @@ test('important click records notice without waiting for approval',async()=>{
  const f=fixture({model:async()=>({text:JSON.stringify({action:'click',id:'t0',reply:'继续',notice:'即将提交表单'})})});await f.runtime.start(1,'处理');await f.runtime.tick(1);
  assert.equal(f.executed.length,1);assert.equal(f.data.get(1).notice,'即将提交表单');assert.notEqual(f.data.get(1).status,'waiting_confirmation');
 });
+
+
+test('pure delay survives worker recovery, then observes fresh page before next action',async()=>{
+ let clock=1000,calls=0,reads=0;
+ const f=fixture({now:()=>clock,tools:{async observe(){reads++;return {url:'https://example.test/1',snapshotId:'s'+reads,page:{elements:[{id:'t0',label:'Next',tag:'button'}]}};},async verify(){throw new Error('Delay must not verify page conditions');}},model:async()=>({text:JSON.stringify(++calls===1?{reply:'等待15秒',action:'wait',timeoutMs:15000}:{reply:'下一步',action:'click',id:'t0'})})});
+ await f.runtime.start(1,'重复切换');await f.runtime.tick(1);
+ assert.equal((await f.runtime.get(1)).check.deadline,16000);
+ const fresh=createRuntime(f.deps);await fresh.recover();clock=15000;await fresh.tick(1);
+ assert.equal((await fresh.get(1)).check.deadline,16000);assert.equal(calls,1);assert.equal(reads,1);
+ clock=17000;await fresh.tick(1);
+ let t=await fresh.get(1);assert.equal(t.status,'running');assert.equal(t.check,null);assert.equal(t.steps,1);
+ assert.equal(t.results.at(-1).outcome.code,'DELAY_ELAPSED');assert.equal(f.executed.length,0);
+ await fresh.tick(1);assert.equal(reads,2);assert.equal(calls,2);assert.equal(f.executed.length,1);
+});
+
+test('stop and supplemental instructions invalidate pure delay without late continuation',async()=>{
+ for(const action of ['stop','supplement']){
+  let clock=0,calls=0;
+  const f=fixture({now:()=>clock,model:async()=>{calls++;return {text:JSON.stringify({reply:'等待',action:'wait',timeoutMs:15000})};}});
+  await f.runtime.start(1,'等待');await f.runtime.tick(1);
+  if(action==='stop')await f.runtime.stop(1);else await f.runtime.submit(1,'改为先检查');
+  assert.equal((await f.runtime.get(1)).check,null);
+  clock=20000;
+  if(action==='stop'){await createRuntime(f.deps).tick(1);assert.equal(calls,1);assert.equal((await f.runtime.get(1)).status,'stopped');}
+  assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).results.some(r=>r.outcome?.code==='DELAY_ELAPSED'),false);
+ }
+});
+
+test('pure delay respects origin boundary even after its deadline',async()=>{
+ let clock=0,url='https://example.test/1';
+ const f=fixture({now:()=>clock,tools:{async tab(){return {url,status:'complete'};}},model:async()=>({text:JSON.stringify({reply:'等待',action:'wait',timeoutMs:1000})})});
+ await f.runtime.start(1,'等待');await f.runtime.tick(1);url='https://other.test/';clock=2000;
+ await createRuntime(f.deps).tick(1);assert.equal((await f.runtime.get(1)).reason,'origin');assert.equal(f.executed.length,0);
+});
+
+test('delay requires a bounded duration and verify still requires conditions',()=>{
+ const C=require('../extension/core.js'),snap={nodes:new Map()};
+ for(const plan of [{action:'wait'},{action:'wait',timeoutMs:0},{action:'wait',timeoutMs:30001},{action:'wait',timeoutMs:'15000'},{action:'verify'}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'等待',...plan}),snap));
+ assert.equal(C.agentPlan(JSON.stringify({reply:'等待',action:'wait',timeoutMs:15000}),snap).timeoutMs,15000);
+});
