@@ -213,3 +213,14 @@ test('plain editable fields use text only, preserve cancellation and refuse comp
  const plain=document.querySelector('[contenteditable="plaintext-only"]');plain.addEventListener('beforeinput',e=>e.preventDefault());snap=C.agentSnapshot(document);
  assert.throws(()=>C.agentExecute({action:'fill',id:snap.page.elements.find(e=>e.label==='Plain').id,value:'cancel'},snap,document),e=>e.code==='INPUT_CANCELLED');assert.equal(plain.textContent,'');
 });
+
+test('semantic context separates repeated controls while excluding hidden and interactive reference text',()=>{
+ const {document,window}=parseHTML('<html><body><main aria-label="Account"><section><h2>Billing</h2><p id="help">Monthly <span style="display:none">css-secret</span><input value="secret">invoice</p><button aria-describedby="help private ui">Save</button><section><h3>Nested</h3><button>Save</button></section></section><section><h2>Shipping</h2><button>Save</button></section></main><p hidden id="private">hidden-secret</p><p data-page-agent id="ui">ui-secret</p></body></html>');
+ window.getComputedStyle=n=>({display:n.getAttribute('style')==='display:none'?'none':'block'});
+ const snap=C.agentSnapshot(document),buttons=snap.page.elements.filter(e=>e.tag==='button');
+ assert.deepEqual(buttons.map(e=>e.context.path),[['Account','Billing'],['Account','Billing','Nested'],['Account','Shipping']]);
+ assert.equal(buttons[0].context.description,'Monthly invoice');assert.doesNotMatch(JSON.stringify(buttons.map(e=>e.context)),/secret/);
+ assert.equal(require('../extension/conditions.js').evaluate([{kind:'element_visible',target:{category:'element',label:'Save'}}],snap).status,'unknown');
+ const long=parseHTML('<html><body><section aria-label="'+ 'x'.repeat(160)+'">'+Array.from({length:120},()=>'<button aria-describedby="desc">Save</button>').join('')+'</section><p id="desc">'+ 'a'.repeat(1000)+'</p></body></html>').document;
+ const result=C.agentSnapshot(long);assert.ok(result.page.elements.reduce((sum,e)=>sum+(e.context?.path.join('').length||0)+(e.context?.description.length||0),0)<=4000);
+});

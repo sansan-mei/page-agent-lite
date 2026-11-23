@@ -133,3 +133,9 @@ fill 仅将指定字符串写入 textContent（最多 4000 字符），不解析
 press_key 必须指定当前元素 id，value 为按键或组合键（例如 ArrowDown、Escape、Control+a、Shift+Tab）。修饰键仅 Control/Alt/Shift/Meta，不可重复；主键仅 Enter/Escape/Tab/Space/ArrowUp/ArrowDown/ArrowLeft/ArrowRight/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a-z。先检查遮挡、聚焦目标，派发 keydown/keyup；目标、焦点或遮挡改变即停止后续事件。没有跨动作按住状态，不补发浏览器原生编辑/默认行为，文本使用 fill。
 
 double_click 向当前 id 执行两次受保护 click 后派发 detail=2 的 dblclick；中间变化立即中断，前一次点击可能已生效。right_click 派发右键 pointer/mouse down/up 和 contextmenu，不打开浏览器原生菜单。事件回执仍是 sent/unknown，需独立核对；不新增权限、坐标或选择器输入。拖拽、长按及 OS 输入不在本版范围内。
+
+## 控件语义上下文
+
+元素 context.path 提供由外向内最多三层具名 section/article/main/fieldset/form/dialog 或 ARIA region/group/dialog；名称使用 aria-label、可读取 aria-labelledby 或属于本区域的首个可见标题，不挪用嵌套区域标题。context.description 读取最多五个去重 aria-describedby 引用，最多 300 字符。单层路径名称最多 160 字符，每快照路径及说明合计 4000 字符，预算不足裁短或省略；单个说明节点最多扫描 300 节点。
+
+新增文字只取可见普通文本，排除 hidden/aria-hidden、CSS display:none/visibility:hidden、关闭 dialog、扩展 UI、脚本/样式、原生输入和 contenteditable 子树。不宣称全面隐私识别。上下文仅为不可信定位线索，不参与自动重放、动作授权或条件匹配；相同名称仍需模型使用当前 ID 消歧，验证仍要求受限语义目标唯一。不增加动作、权限或请求。

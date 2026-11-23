@@ -111,6 +111,25 @@ function agentPopup(n){
  const label=owner?(owner.getAttribute('aria-label')||owner.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>n.ownerDocument.getElementById(id)?.textContent||'').join(' ')||owner.getAttribute('title')||owner.getAttribute('placeholder')||owner.getAttribute('name')||'').trim().slice(0,180):'';
  return {popup,label,signature:[label,agentNodeKey(popup),popup.id,popup.getAttribute('aria-label'),popup.getAttribute('aria-labelledby'),owners.map(c=>[agentNodeKey(c),c.getAttribute('aria-label'),c.getAttribute('aria-controls'),c.getAttribute('aria-owns')])]};
 }
+function agentContext(n){
+ const doc=n.ownerDocument,win=doc.defaultView;
+ const blocked='[hidden],[aria-hidden="true"],[data-page-agent],script,style,noscript,input,textarea,select,[contenteditable]';
+ const readable=e=>{if(!e||e.closest(blocked)||e.closest('dialog:not([open])'))return false;for(let p=e;p;p=p.parentElement){const style=win?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;};
+ const text=e=>{
+  let value='',visited=0;
+  const read=node=>{if(++visited>300||value.length>=160)return;if(node.nodeType===3){value+=node.textContent;return;}if(node.nodeType!==1||!readable(node))return;for(const child of node.childNodes)read(child);};
+  if(readable(e))read(e);return value.replace(/\s+/g,' ').trim().slice(0,160);
+ };
+ const refs=(e,attribute)=>[...new Set((e.getAttribute(attribute)||'').split(/\s+/))].filter(Boolean).slice(0,5).map(id=>text(doc.getElementById(id))).filter(Boolean).join(' ').slice(0,300);
+ const scope='section,article,main,fieldset,form,dialog,[role="region"],[role="group"],[role="dialog"]',path=[];
+ for(let parent=n.parentElement;parent&&path.length<3;parent=parent.parentElement){
+  if(!parent.matches(scope)||!readable(parent))continue;
+  const heading=[...parent.querySelectorAll('legend,h1,h2,h3,h4,h5,h6,[role="heading"]')].find(h=>h.closest(scope)===parent&&readable(h));
+  const label=(parent.getAttribute('aria-label')||refs(parent,'aria-labelledby')||text(heading)).trim().slice(0,160);
+  if(label&&!path.includes(label))path.push(label);
+ }
+ return {path:path.reverse(),description:refs(n,'aria-describedby')};
+}
 function agentReadOptions(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery'].includes(k))||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
  return value;
@@ -120,7 +139,7 @@ function agentSnapshot(doc, textOffset=0){
  if(typeof textOffset==='object')textOffset=0;
  const elementOffset=reading.elementOffset||0;let matchedElements=0;
  if(!Number.isSafeInteger(textOffset)||textOffset<0)throw new Error("Invalid text offset");
- const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
+ const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let semanticBudget=4000;let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
  const blocked='[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"],input[type="password"],input[type="file"],input[type="hidden"]';
  const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;const win=doc.defaultView;for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))return false;}return true;};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
@@ -181,7 +200,10 @@ function agentSnapshot(doc, textOffset=0){
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
   const controlled=related?.split(/\s+/).slice(0,5).map(id=>doc.getElementById(id)).filter(Boolean);
   const expanded=n.getAttribute('aria-expanded'),selected=n.getAttribute('aria-selected');
-  elements.push({inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
+  const semantic=semanticBudget>0?agentContext(n):null;
+  const context=semantic?{path:semantic.path.map(label=>{const part=label.slice(0,semanticBudget);semanticBudget-=part.length;return part;}).filter(Boolean),description:semantic.description.slice(0,semanticBudget)}:undefined;
+  if(context)semanticBudget=Math.max(0,semanticBudget-context.description.length);
+  elements.push({context,inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  const regionOffset=reading.regionOffset||0;let matchedRegions=0;

@@ -97,3 +97,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA3 简单 contenteditable
 
 164 项 Node 回归通过，新增正文不充当名称、纯文本/br 值、HTML 字面量、复杂结构节点保留、取消、未命名节点核对及回滚/结构变化 unknown。Edge 无窗口 scripts/editable-smoke.cjs 通过：文字/换行写入、HTML 不解析、beforeinput 取消、复杂 span 保留且无 input 事件、异步回滚与 beforeinput 节点替换中断。真实 DOM + Chrome 消息 stub，不是完整扩展/真实框架/线上模型验证。PAGE_AGENT_CHROMIUM 可指定浏览器，fixture 经 Playwright 路由合成。
+
+## PA1 控件语义上下文
+
+新增 Node/linkedom 回归：Billing/Shipping 同名按钮、嵌套标题归属、隐藏/CSS 隐藏/输入/扩展说明排除、总文字预算及同名验证仍 unknown。未执行真实浏览器或线上模型：本次验证限 DOM doubles，不能据此声称同名定位成功率提升。
