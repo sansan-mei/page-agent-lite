@@ -11,9 +11,11 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 #status { margin: 0 16px 8px; padding: 8px 10px; background: #f2f6ff; color: #37496c; border-radius: 7px; font-size: 12px; flex-shrink: 0; max-height: 90px; overflow: auto; }
 #status:empty { display: none; }
 #conversation, #history-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 16px; }
-#empty-state { padding: min(14vh, 110px) 12px 20px; text-align: center; }
+#empty-state { padding: clamp(16px, 5vh, 44px) 12px 24px; text-align: center; }
+.welcome-art { display: block; width: min(240px, 100%); height: auto; margin: 0 auto 18px; }
 #empty-state h2 { font-size: 18px; font-weight: 600; margin: 0 0 9px; letter-spacing: -.5px; }
 #empty-state p { color: var(--muted); font-size: 12px; max-width: 250px; margin: auto; }
+@media (max-height: 650px) { .welcome-art { width: min(170px, 100%); margin-bottom: 12px; } #empty-state { padding-top: 12px; } }
 #task { display: flex; justify-content: flex-end; margin-bottom: 22px; }
 #goal, .message.user p { padding: 10px 13px; border-radius: 12px 12px 3px 12px; background: #f0f3f8; color: var(--text); max-width: 92%; margin: 0; white-space: pre-wrap; line-height: 1.7; }
 .message { margin-bottom: 19px; }
