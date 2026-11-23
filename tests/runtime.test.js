@@ -726,3 +726,13 @@ test('late diagnostic completion cannot update timing after stop',async()=>{
  await f.runtime.start(1,'Work');const job=f.runtime.tick(1);await ready;await f.runtime.stop(1);clock+=5000;resolve({text:JSON.stringify({reply:'Late',action:'done'})});await job;
  const t=await f.runtime.get(1);assert.equal(t.metrics.timings.model.attempts,1);assert.equal(t.metrics.timings.model.completed,0);assert.equal(t.metrics.timings.model.totalMs,0);assert.equal(t.status,'stopped');
 });
+
+test('diagnostic export uses numeric and enum allowlists and cannot leak task or page content',async()=>{
+ const f=fixture();await f.runtime.start(1,'PRIVATE_GOAL');let task=await f.runtime.get(1);
+ task.token='PRIVATE_TOKEN';task.taskPlan=[{title:'PRIVATE_PLAN'}];task.reason='PRIVATE_REASON';task.metrics={actions:4,observations:2,timings:{model:{attempts:2,completed:1,failed:0,totalMs:125,lastMs:125,secret:'PRIVATE_TIMING'}}};
+ task.results=[{action:'click',request:{value:'PRIVATE_FORM'},result:'PRIVATE_RESULT',outcome:{status:'success',dispatch:'sent',code:'PRIVATE_CODE',observed:'PRIVATE_OBSERVED'}},{action:'PRIVATE_ACTION',outcome:{status:'PRIVATE_STATUS',dispatch:'PRIVATE_DISPATCH'}}];task.contextArchive=[{id:'PRIVATE_ARCHIVE',results:[{action:'fill',request:{value:'PRIVATE_OLD'},outcome:{status:'not_satisfied',dispatch:'unknown'}}]}];await f.store.set(1,task);
+ const before=JSON.stringify(await f.runtime.get(1)),report=await f.runtime.diagnostics(1,task.taskId);
+ assert.doesNotMatch(JSON.stringify(report),/PRIVATE_/);assert.deepEqual(report.outcomes.actions,{fill:1,click:1});assert.equal(report.outcomes.statuses.unknown,1);assert.equal(report.timings.model.totalMs,125);assert.equal(report.counts.actions,4);assert.equal(JSON.stringify(await f.runtime.get(1)),before);assert.equal(f.executed.length,0);
+ await assert.rejects(()=>f.runtime.diagnostics(1,'other-task'),/任务或网站已变化/);
+ task.origin='https://other.test';await f.store.set(1,task);await assert.rejects(()=>f.runtime.diagnostics(1,task.taskId),/任务或网站已变化/);
+});

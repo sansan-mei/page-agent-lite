@@ -77,3 +77,5 @@ nextObservation.value 可选 includeText 布尔值，用于一次性的正文省
 nextObservation.value 可选 regionTextOffset，必须配合 regionQuery；仅保存下一轮的受限文字偏移，不缓存区域正文或 DOM 引用，文档/代次边界仍使范围失效。
 
 metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/completed/failed/totalMs/lastMs；旧任务缺省无计时。仅会话内累计，归档沿用当前对话历史规则，不保存正文、密钥或额外请求 URL；中断未完成次数可由计数差推导，lastMs=null 表示尚无回报。
+
+诊断统计 JSON 为用户点击时从现有 session 记录只读生成，不增加存储键或自动落盘；仅当前任务且 origin/taskId 匹配。文件不包含任务/标签标识、URL、令牌或自由文本，不能导入恢复。

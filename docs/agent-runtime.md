@@ -95,3 +95,9 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 模型、摘要与工具派发使用同一 measured 包装：先在当前 token 下记录准备次数，再调用并测量等待响应的本机 wall-clock 毫秒，回报后仅在 live 仍成立时累计。metrics.timings 按 model/summary/tool 分组，字段 attempts/completed/failed/totalMs/lastMs；completed 表示调用正常返回，不代表工具业务成功，failed 仅表示抛出异常。准备记录不是已派发证明。
 
 停止/替换/记忆变更后的迟到结果不补写，worker 被终止也不推测耗时；attempts-completed-failed 是未回报次数。elapsed 小于 0 时归零，计时不包含检查点存储写入，不包括条件等待轮询/读取/网页业务服务器完成。恢复只保留已有数值，不新增请求或重播工具。
+
+## 当前任务诊断统计导出
+
+可信 task:diagnostics 需 tabId/taskId，并读取当前标签页 origin 与当前任务 origin 相符后才返回。导出 schema=page-agent-diagnostics/version=1，固定数值及枚举重建，不展开复制 task；包含状态/阶段、轮数/上限、已有 metrics 计数与 timings，以及保留 results/contextArchive 的工具分类和 V2 状态/dispatch 频数。未知工具不输出其名称，未知状态归类 unknown，非法数值回退 0。
+
+不含 taskId/tabId/token、URL/origin、目标/指令/计划/笔记/摘要/正文、请求/值/证据/消息/任意错误 code；generatedAt 仅报告生成时间。读取不更新存储、不执行动作或模型。仅当前任务，身份/网站改变则拒绝；保留结果分布不是完整历史，未回报次数按计时原规则解释。

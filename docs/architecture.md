@@ -86,3 +86,5 @@ agentPlan 的动作、必需目标与 timeout 白名单，prompts.js 的动作�
 PA11 标准敏感字段策略固定于 core.js，抽取正文/控件/引用文字共用排除集合，执行与字段核对再次检查目标。没有模型可配置过滤代码、额外权限或后台/网页密钥交换。
 
 PA13 初步计时集中在 runtime.js 的请求/工具调用边界，sidepanel.js 只读显示 session metrics；不注入页面时钟、遥测或第二套执行循环，也不把正常回报次数当作工具业务成功次数。
+
+PA13 统计导出由可信 background.js 路由至 runtime.diagnostics，按固定字段重建报告；侧栏只负责下载 JSON。无内容脚本入口、额外下载权限或模型访问，不遍历/导出原始任务对象。

@@ -79,6 +79,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       if(m.type==='task:get')return runtime.get(m.tabId);
+      if(m.type==='task:diagnostics')return runtime.diagnostics(m.tabId,m.taskId);
       if(m.type==='task:history'||m.type==='task:history-get'){
         const origin=new URL((await tools.tab(m.tabId)).url).origin;
         if(m.type==='task:history')return store.history(m.tabId,origin);

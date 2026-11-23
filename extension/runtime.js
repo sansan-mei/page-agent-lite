@@ -539,6 +539,26 @@
         await store.set(t.tabId,t);
       });
     }
+    async function diagnostics(tabId,taskId){
+      const tab=await tools.tab(tabId),task=await store.get(tabId);
+      if(!task||task.taskId!==taskId||new URL(tab.url).origin!==task.origin)throw new Error('任务或网站已变化，请刷新后再导出');
+      const count=value=>Number.isSafeInteger(value)&&value>=0?value:0;
+      const pick=(value,allowed)=>allowed.includes(value)?value:'unknown';
+      const timings={};
+      for(const kind of ['model','summary','tool']){
+        const value=task.metrics?.timings?.[kind];if(!value)continue;
+        timings[kind]=Object.fromEntries(['attempts','completed','failed','totalMs'].map(k=>[k,count(value[k])]));
+        timings[kind].lastMs=value.lastMs===null?null:count(value.lastMs);
+      }
+      const outcomes={statuses:{},dispatches:{},actions:{}};
+      const tally=entry=>{
+        if(C.agentTool(entry.action))outcomes.actions[entry.action]=(outcomes.actions[entry.action]||0)+1;
+        if(entry.outcome){const status=pick(entry.outcome.status,['success','not_satisfied','pending','unknown','unsupported','error']),dispatch=pick(entry.outcome.dispatch,['sent','not_sent','unknown']);outcomes.statuses[status]=(outcomes.statuses[status]||0)+1;outcomes.dispatches[dispatch]=(outcomes.dispatches[dispatch]||0)+1;}
+      };
+      for(const archive of task.contextArchive||[])for(const entry of archive.results||[])tally(entry);
+      for(const entry of task.results||[])tally(entry);
+      return {schema:'page-agent-diagnostics',version:1,generatedAt:now(),scope:'current_task_statistics',status:pick(task.status,['running','waiting_page','waiting_confirmation','paused','stopped','failed','completed','ended']),phase:pick(task.phase,['observe','thinking','executing','verifying','compacting','idle','confirm','approved']),steps:count(task.steps),maxSteps:count(task.prefs?.maxSteps),counts:{observations:count(task.metrics?.observations),actions:count(task.metrics?.actions),verifications:count(task.metrics?.verifications)},timings,outcomes};
+    }
     async function getMemory(tabId){const tab=await tools.tab(tabId);return store.getMemory(tabId,new URL(tab.url).origin);}
     async function clearMemory(tabId){
       const tab=await tools.tab(tabId),origin=new URL(tab.url).origin;
@@ -587,7 +607,7 @@
     }
     async function remove(tabId) {controllers.get(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
     async function recover() {for(const task of await store.list())if(ACTIVE.has(task.status))schedule(task.tabId);}
-    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

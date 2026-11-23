@@ -109,6 +109,8 @@
     $('task-meta').textContent=task?`任务 ${task.taskId||'—'} · 更新 ${new Date(task.updatedAt||Date.now()).toLocaleTimeString()}`:'';
     const phases={observe:'读取页面',thinking:'请求模型',executing:'执行操作',verifying:'核对结果',confirm:'等待确认',compacting:'整理上下文',idle:'空闲'};
     $('metrics').textContent=task?`阶段：${phases[task.phase]||task.phase||'—'} · 观察 ${task.metrics?.observations||0} · 操作 ${task.metrics?.actions||0} · 核对 ${task.metrics?.verifications||0}${task.reason?' · 暂停/失败代码：'+task.reason:''}`:'';
+    $('export-diagnostics').hidden=!task||task.taskId!==current?.taskId;
+    $('export-diagnostics').disabled=busy;
     const timingLabels={model:'模型请求',summary:'摘要请求',tool:'工具派发'};
     for(const [kind,label] of Object.entries(timingLabels)){
       const timing=task?.metrics?.timings?.[kind];if(!timing)continue;
@@ -240,6 +242,16 @@
   });
   for(const [id,type] of Object.entries({takeover:'task:takeover',stop:'task:stop',resume:'task:resume',finish:'task:finish',clear:'task:clear'}))$(id).addEventListener('click',()=>void action(type));
   $('choice-form').addEventListener('submit',e=>{e.preventDefault();const indices=[...$('choice-options').querySelectorAll('input')].filter(n=>n.checked).map(n=>Number(n.value));if(!indices.length){$('status').textContent='请至少选择一项';return;}void action('task:choose',{taskId:task?.taskId,questionId:task?.question?.id,indices});});
+  $('export-diagnostics').addEventListener('click',async()=>{
+    const target=tabId,identity=task?.taskId;if(!identity)return;
+    try{
+      const value=await send('task:diagnostics',{taskId:identity});
+      if(target!==tabId||identity!==task?.taskId)return;
+      const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));
+      try{const link=document.createElement('a');link.href=url;link.download='page-agent-diagnostics-'+Date.now()+'.json';link.click();}finally{URL.revokeObjectURL(url);}
+      $('status').textContent='已导出当前任务统计，不含目标、网页或表单正文';
+    }catch(error){$('status').textContent=error.message||'诊断导出失败';}
+  });
   $('approve').addEventListener('click',()=>void action('task:approve',{taskId:task?.taskId}));
   async function loadHistory(){
     const request=++historyRequest,target=tabId;

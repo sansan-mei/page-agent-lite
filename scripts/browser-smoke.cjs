@@ -639,6 +639,9 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   const navigationResult=(await command('task:get')).value;
   assert.equal(page.url(),origin+'/task-two');assert.equal(navigationResult.taskId,navigationTask.value.taskId);assert.equal(navigationResult.results.filter(r=>r.action==='navigate').length,1);assert.ok(navigationResult.steps>=2);
   pass('trusted navigate consumes source snapshot, performs one same-origin tab update, preserves task budget and verifies the destination before completion');
+  const diagnosticReport=await command('task:diagnostics',{taskId:navigationResult.taskId});assert.equal(diagnosticReport.ok,true);assert.equal(diagnosticReport.value.schema,'page-agent-diagnostics');assert.equal(diagnosticReport.value.outcomes.actions.navigate,1);assert.equal(diagnosticReport.value.steps,navigationResult.steps);assert.ok(diagnosticReport.value.timings.model.completed>=2);assert.ok(!JSON.stringify(diagnosticReport.value).includes(origin));assert.equal(diagnosticReport.value.taskId,undefined);
+  pass('trusted statistics export exposes only fixed task counters, enum outcomes and reported timing without origin or task identifiers');
+
   await command('task:clear');
   await page.goto(origin+'/judgment');await page.bringToFront();
   const correction=await command('task:submit',{goal:'按指定答案更正：第一题对，第二题错，不提交评分'});assert.equal(correction.ok,true);
