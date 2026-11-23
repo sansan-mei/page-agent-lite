@@ -4,7 +4,7 @@
 
 ## 安装与更新
 
-1. 克隆[本仓库](https://github.com/sansan-mei/page-agent)，使用新版 Chrome / Edge。
+1. 克隆[本仓库](https://github.com/sansan-mei/page-agent-lite)，使用新版 Chrome / Edge。
 2. 打开 chrome://extensions 或 edge://extensions，开启开发者模式。
 3. 选择「加载已解压的扩展程序」，加载仓库里的 **extension/**。
 4. 在普通 HTTP/HTTPS 网页点击扩展图标，授予当前站点临时访问并打开侧边栏。

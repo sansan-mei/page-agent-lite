@@ -15,7 +15,7 @@
 
 在浏览器侧栏说出目标，助手读取网页、填写表单、点击和翻页，再检查实际结果。使用你现有的登录状态和自己的模型 API，无需 Python、独立后端或构建步骤。
 
-> 本项目是独立的个人开源实验，与 [Alibaba Page Agent](https://github.com/alibaba/page-agent) 无隶属关系。这里关注原生扩展、任务恢复、结果核对与本机网站记忆。项目处于早期，请按真实页面反馈核对操作结果。
+> 项目关注原生扩展、任务恢复、结果核对与本机网站记忆。目前处于早期，请按真实页面反馈核对操作结果。
 
 <div align="center"><img src="docs/assets/sidepanel-preview.png" width="360" alt="Page Agent Lite 侧栏示例界面"></div>
 
@@ -84,4 +84,4 @@ npm test
 
 采用 [MIT License](LICENSE)。欢迎使用、修改和贡献，请保留许可证与版权声明。
 
-文档组织参考了 [Alibaba Page Agent](https://github.com/alibaba/page-agent) 的定位、功能、上手与贡献分层；运行器与上下文设计参考了 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开文档。本项目使用自己的界面与图标，不代表得到上述项目背书。
+运行器与上下文设计参考了 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开文档。项目采用独立设计的界面与图标。

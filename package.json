@@ -1,5 +1,5 @@
 {
-  "name": "page-agent",
+  "name": "page-agent-lite",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,9 @@
     "linkedom": "0.18.12"
   },
   "license": "MIT",
-  "description": "A lightweight Chrome / Edge page agent with task recovery and local site memory.",
+  "description": "轻量 Chrome / Edge 网页助手：自选模型、持续执行、结果核对与本机网站记忆。",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sansan-mei/page-agent.git"
+    "url": "https://github.com/sansan-mei/page-agent-lite.git"
   }
 }

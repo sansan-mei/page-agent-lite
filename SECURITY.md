@@ -2,7 +2,7 @@
 
 请不要在公开 Issue 中发布 API 密钥、完整私有页面、攻击载荷涉及的个人信息或可直接利用的漏洞细节。
 
-优先使用 GitHub 的 [私密漏洞报告](https://github.com/sansan-mei/page-agent/security/advisories/new)。若仓库尚未启用该入口，可先提交不含敏感细节的 Issue，请维护者提供私密联系渠道。此项目不承诺响应时效或安全赏金。
+优先使用 GitHub 的 [私密漏洞报告](https://github.com/sansan-mei/page-agent-lite/security/advisories/new)。若仓库尚未启用该入口，可先提交不含敏感细节的 Issue，请维护者提供私密联系渠道。此项目不承诺响应时效或安全赏金。
 
 当前仅维护仓库最新源码。后台密钥隔离、消息来源校验、网页提示注入、权限绕过、记忆越站访问、迟到回复恢复已删数据等问题均属于关注范围。
 
