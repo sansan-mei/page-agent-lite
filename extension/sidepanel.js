@@ -53,10 +53,15 @@
     }
     return card;
   }
+  function resizeInstruction(){
+    const input=$('instruction');input.style.height='0px';input.style.height=input.scrollHeight+'px';
+  }
+  $('instruction').addEventListener('input',resizeInstruction);
+  window.addEventListener('resize',resizeInstruction);
   function render(view=task){
     const current=view;
     view=historyOpen&&historyTask?historyTask:view;
-    renderView(view,current);
+    renderView(view,current);resizeInstruction();
   }
   function renderView(task,current){
     const conversation=$('conversation');
@@ -190,7 +195,11 @@
       const tab=tabs[0];tabId=tab?.id??null;
       if(tab?.url&&['http:','https:'].includes(new URL(tab.url).protocol))tabOrigin=new URL(tab.url).origin;
       void refreshPermissions();
-      $('target').textContent=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'请选择普通 HTTP/HTTPS 网页';
+      $('target').replaceChildren();
+      for(const [text,className] of [[tabOrigin?(tab.title||'当前网页'):'请选择普通 HTTP/HTTPS 网页','site-title'],[tabOrigin||'','site-origin']]){
+        const line=document.createElement('span');line.className=className;line.textContent=text;$('target').append(line);
+      }
+      $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'请选择普通 HTTP/HTTPS 网页';
       if(!tabOrigin)$('status').textContent=tab?.url?'浏览器内部页、扩展页面等不支持操作。':'无法读取网页地址，请重新加载扩展并确认新增权限。';
       if(tabId===null){render();return;}
       const value=await send('task:get');if(version!==selection)return;task=value;render();

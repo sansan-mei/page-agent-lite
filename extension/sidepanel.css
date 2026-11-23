@@ -5,17 +5,22 @@ body { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; 
 button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 .app-header button { display: inline-flex; align-items: center; gap: 6px; border: 0; color: var(--muted); }
 #history[aria-expanded="true"] { background: var(--raised); color: var(--text); }
-.site-bar { display: flex; align-items: center; gap: 10px; padding: 7px 16px; flex-shrink: 0; }
-#target { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.site-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 7px 16px; flex-shrink: 0; }
+#target { flex: 1 1 100%; min-width: 0; margin: 0; color: var(--muted); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#target span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#target .site-title { color: var(--text); font-size: 12px; }
+#target .site-origin { font-size: 10px; }
 #grant, #grant-all { border: 0; padding: 3px 0 3px 8px; color: var(--accent); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
 #status { margin: 0 16px 8px; padding: 8px 10px; background: #f2f6ff; color: #37496c; border-radius: 7px; font-size: 12px; flex-shrink: 0; max-height: 90px; overflow: auto; }
 #status:empty { display: none; }
 #conversation, #history-view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 16px; }
-#empty-state { padding: clamp(16px, 5vh, 44px) 12px 24px; text-align: center; }
-.welcome-art { display: block; width: min(240px, 100%); height: 240px; object-fit: contain; margin: 0 auto 18px; }
+#conversation:has(#empty-state:not([hidden])) { display: flex; flex-direction: column; }
+#empty-state { flex: 1; min-height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 12px 20px; text-align: center; }
+.welcome-art { display: block; width: min(200px, 80%); height: 200px; flex: 0 1 200px; min-height: 0; object-fit: contain; margin: 0 auto 16px; }
+#empty-state h2, #empty-state p { flex-shrink: 0; }
 #empty-state h2 { font-size: 18px; font-weight: 600; margin: 0 0 9px; letter-spacing: -.5px; }
-#empty-state p { color: var(--muted); font-size: 12px; max-width: 250px; margin: auto; }
-@media (max-height: 650px) { .welcome-art { width: min(170px, 100%); height: 170px; margin-bottom: 12px; } #empty-state { padding-top: 12px; } }
+#empty-state p { color: var(--muted); font-size: 12px; max-width: 250px; margin: 0; }
+@media (max-height: 600px) { .welcome-art { flex-basis: 120px; height: 120px; width: min(140px, 75%); margin-bottom: 10px; } #empty-state { padding-block: 0 8px; } #conversation { padding-block: 10px; } }
 #task { display: flex; justify-content: flex-end; margin-bottom: 22px; }
 #goal, .message.user p { padding: 10px 13px; border-radius: 12px 12px 3px 12px; background: #f0f3f8; color: var(--text); max-width: 92%; margin: 0; white-space: pre-wrap; line-height: 1.7; }
 .message { margin-bottom: 19px; }
@@ -43,7 +48,7 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 #resume { padding: 2px 7px; font-size: 11px; color: var(--accent); border: 0; }
 #chat { padding: 10px; border: 1px solid #dce1e8; border-radius: 12px; background: #fff; }
 #chat:focus-within { border-color: #8daef8; }
-#instruction { display: block; border: 0; padding: 0 2px; border-radius: 0; min-height: 52px; max-height: 120px; resize: none; font-size: 13px; background: transparent; outline: none; box-shadow: none; }
+#instruction { display: block; border: 0; padding: 0 2px; border-radius: 0; height: 38px; min-height: 38px; max-height: min(120px, 22dvh); overflow-y: auto; resize: none; font-size: 13px; background: transparent; outline: none; box-shadow: none; }
 #instruction:focus-visible { outline: none; }
 .composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 9px; }
 .composer-actions > div { display: flex; gap: 5px; margin-left: auto; }
