@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const status = $('status');
   let busy = true;
-  function controls() {for (const button of document.querySelectorAll('section:not(#management) button')) button.disabled = busy;}
+  function controls() {for (const button of document.querySelectorAll('section:not(#management):not(#appearance) button')) button.disabled = busy;}
   async function send(message) {
     const result = await chrome.runtime.sendMessage(message);
     if (!result?.ok) throw new Error(result?.error || '扩展通信失败');

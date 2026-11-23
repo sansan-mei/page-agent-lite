@@ -23,6 +23,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | 模块 | 职责 |
 |---|---|
 | `sidepanel.*` | 对话消息与工具请求/结果卡片、固定输入区、停止/继续；历史按钮列出会话内按标签页/origin 隔离的对话，按需只读查看详情，新对话位于顶部历史记录旁、清空位于记录页；没有执行循环 |
+| `welcome-image.js` | 设置页与侧栏共用的主图上传、解码/缩放、local 偏好与预览同步；不读取模型配置或任务目标 |
 | `background.js` | 可信来源验证、组装依赖、事件唤醒与 alarm 调度 |
 | `runtime.js` | 每次 tick 推进一步、预算、状态、重试、停止和恢复 |
 | `tool-protocol.js` | V2 工具结果、稳定代码、旧返回适配，分开派发与证据 |

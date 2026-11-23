@@ -47,6 +47,10 @@ details > p { margin-top: 12px; }
 #site-memories > div, #memories > p { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin: 12px 0; }
 #site-memories button, details > button { font-size: 11px; margin-top: 8px; padding: 8px 12px; }
 textarea { min-height: 130px; }
+.welcome-image-card { display: grid; place-items: center; min-height: 220px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+#welcome-image-preview { width: 200px; max-width: 100%; height: 200px; object-fit: contain; }
+#welcome-image-file { max-width: 100%; }
+#welcome-image-status { color: var(--accent); }
 .settings-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 28px; border-top: 1px solid var(--line); margin-top: 24px; color: var(--muted); font: 10px/1.8 ui-monospace, "Microsoft YaHei", monospace; }
 @media (prefers-reduced-motion: no-preference) { .settings-header, .settings-hero, .settings-layout { animation: arrive .5s cubic-bezier(.2,.8,.2,1) both; } .settings-hero { animation-delay: .06s; } .settings-layout { animation-delay: .12s; } }
 @media (max-width: 760px) {

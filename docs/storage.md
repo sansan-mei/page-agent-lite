@@ -4,6 +4,7 @@
 |---|---|---|
 | local config | API、模型、密钥、语言 | 本机保留，不同步 |
 | local agentPreferences | maxSteps、contextTokens、compressionThreshold | 默认 50 / 100000 / 80，保留已有预算；旧 autoFill/autoClick 忽略，下次保存移除 |
+| local welcomeImage | 自定义侧栏主图 PNG data URL，null 或缺省为内置图 | 本机跨重启保留，恢复默认时写 null；不进入任务/模型上下文 |
 | local sites | 文章持久化站点 | 本机保留 |
 | local savedPages | 文章记录 | origin + pathname + search，忽略 hash |
 | IndexedDB page-agent-memory / sites | 按完整 origin 保存长期笔记和版本 | 本机跨重启；用户删除或卸载/清理存储后消失 |
@@ -11,6 +12,8 @@
 | session memory:tabId | 按 origin 保存的临时笔记 | 模型决定维护；任务结束保留，清空任务或关标签删除 |
 
 API 初始化强制 local 为 TRUSTED_CONTEXTS；缺少该 API 拒绝初始化，不降低密钥隔离要求。session 默认仅可信扩展上下文访问。
+
+`welcome-image.js` 仅在设置页和侧栏加载，直接读写独立的 welcomeImage key，不读取 config。设置页接受 PNG/JPG/WebP（5 MB、边长最多 8192），浏览器解码后通过 canvas 等比缩小至最长边 1024，再编码为 PNG；存储字符串最多 2 MiB。拒绝 SVG 与网络地址，失败不覆盖已保存值；监听 local 变化同步预览，读取代次避免迟到初始读取覆盖新值。侧栏以固定容器等比显示，解码失败回退内置图。该存储与权限隔离沿用现有 TRUSTED_CONTEXTS。
 
 任务由后台写入，侧边栏发命令并监听变化。字段包括 version、taskId、token、tabId、origin、goal、instructions、status、phase、steps、prefs、pending、results、events、updatedAt、retries。instructions 为带时间的用户补充指令，旧记录缺省为空。pending 只有计划和快照标识，不含可重建 DOM 引用，文档替换后不能重放。
 
