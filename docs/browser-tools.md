@@ -157,3 +157,5 @@ navigate 使用绝对 HTTP/HTTPS 字符串 value（最多 2000 字符），不�
 浏览器适配层检查源/目标同 origin、当前主机权限与当前标签页 URL，再调用仅可信后台可用的 agent:prepare-navigation：内容脚本校验 documentId/snapshotId/URL 并消费快照，不修改网页。随后后台仅调用一次 tabs.update；内容脚本拒绝直接执行 navigate。tabs.update 正常回执为 NAVIGATION_DISPATCHED、dispatch=sent，但 status=unknown，仍需核对目标；回执失败为 NAVIGATION_UNKNOWN、dispatch=unknown，只读等待 URL，不自动补发。权限缺失、来源变化和非法目标在派发前拒绝。
 
 导航使用既有 executing/action 检查点和原等待 deadline，worker 重建后仅验证；任务 ID/轮数不重置。跳转或重定向越过原 origin 会被既有站点边界暂停，不读取跨站页面；不支持指定额外标签页、跨站任务授权集合或任意 URL 执行脚本。
+
+工具动作目录与策略由 core.js 的静态冻结注册表提供，模型/网页不能注册或更改。注册表统一必需目标、超时许可与防重放分类；内容执行器拒绝 runtime/browser 路由的动作，不因提供当前元素 ID 就执行后台记忆或可信导航。值类型/URL/条件仍按各工具规则严格校验。

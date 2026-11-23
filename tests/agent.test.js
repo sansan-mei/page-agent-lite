@@ -247,3 +247,18 @@ test('navigation plans reject credentials, internal schemes, relative URLs and e
  for(const value of ['javascript:alert(1)','file:///x','chrome://settings','/next','https://user:pass@example.test/'])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Open',action:'navigate',value}),snap));
  assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Open',action:'navigate',value:'https://example.test/',id:'t0'}),snap));
 });
+
+test('static tool policy cannot be mutated or expanded and backend tools never execute against DOM',()=>{
+ const {document}=parseHTML('<html><body><input type="text" value="untouched"></body></html>'),snap=C.agentSnapshot(document);
+ const policy=C.agentTool('click');assert.equal(Object.isFrozen(policy),true);assert.equal(policy.guard,true);
+ try{policy.route='runtime';policy.guard=false;}catch{}
+ assert.equal(C.agentTool('click').route,'content');assert.equal(C.agentTool('click').guard,true);
+ const names=C.agentToolNames();names.push('eval');assert.equal(C.agentTool('eval'),null);
+ for(const action of ['eval','constructor','__proto__','toString']){
+  assert.equal(C.agentTool(action),null);assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Unsupported',action,id:'t0',value:'changed'}),snap));
+ }
+ for(const action of ['memory_clear','site_memory_clear','verify','navigate'])assert.throws(()=>C.agentExecute({action,id:'t0',value:'changed'},snap,document),e=>e.beforeDispatch===true&&e.code==='UNSUPPORTED_ACTION');
+ assert.equal(document.querySelector('input').value,'untouched');
+ const prompt=require('../extension/prompts.js').agentSystem('English');
+ for(const name of C.agentToolNames())assert.ok(prompt.includes(name));
+});

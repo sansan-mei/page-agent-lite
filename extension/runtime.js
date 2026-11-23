@@ -424,7 +424,7 @@
         const combined=[...plan.expected||[]];
         for(const c of G.automatic(plan))if(!combined.some(e=>e.kind===c.kind&&e.id===c.id&&e.value===c.value))combined.push(c);
         const expected=G.bind(combined,snap);
-        for(const guard of ['click','double_click','right_click','press_key','wheel','fill','check','select'].includes(plan.action)?(task.uncertainClicks||[]):[]){
+        for(const guard of C.agentTool(plan.action).guard?(task.uncertainClicks||[]):[]){
           const sameTarget=target&&(guard.key?guard.key===target.key:JSON.stringify(guard.target)===JSON.stringify(G.descriptor(target,snap.page)));
           if(guard.url===snap.url&&guard.documentId===snap.documentId&&sameTarget){
             await pause(task,'该点击的结果仍不确定，已阻止重复点击同一目标；请核实当前状态或选择新的确认控件','uncertain');return;

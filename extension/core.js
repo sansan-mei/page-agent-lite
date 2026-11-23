@@ -82,6 +82,23 @@ function siteOrigin(value){
  return u.origin;
 }
 function byteSize(text){return encodeURIComponent(text).replace(/%[0-9A-F]{2}/g,'x').length;}
+// Static trusted policy only: no registration hooks, model handlers or page callbacks.
+const agentToolRegistry=(()=>{
+ const records=Object.create(null);
+ const add=(names,policy)=>{for(const name of names)records[name]=Object.freeze({route:'runtime',effect:'read',target:'none',timeout:false,guard:false,...policy});};
+ add(['done','pause'],{effect:'control'});
+ add(['observe','verify','history_read'],{});add(['wait'],{timeout:true});
+ add(['click','fill','check','select','wheel','press_key','double_click','right_click'],{route:'content',effect:'page',target:'required',timeout:true,guard:true});
+ add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
+ add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
+ add(['navigate'],{route:'browser',effect:'page',timeout:true});
+ for(const prefix of ['memory','site_memory','global_memory']){
+  add([prefix+'_read'],{});add([prefix+'_write',prefix+'_delete',prefix+'_clear'],{effect:'storage'});
+ }
+ return Object.freeze(records);
+})();
+function agentTool(name){return typeof name==='string'&&Object.prototype.hasOwnProperty.call(agentToolRegistry,name)?agentToolRegistry[name]:null;}
+function agentToolNames(){return Object.keys(agentToolRegistry);}
 // Agent targets are ephemeral references, never model-provided selectors or scripts.
 const agentNodeKeys=new WeakMap();let agentNodeCounter=0;
 function agentNodeKey(node){if(!agentNodeKeys.has(node))agentNodeKeys.set(node,'node'+(++agentNodeCounter));return agentNodeKeys.get(node);}
@@ -243,7 +260,7 @@ function agentVerify(plan,snap){
 function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','navigate','wheel','press_key','double_click','right_click','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals'].includes(k)))throw new Error('模型操作格式无效');
  if(p.subgoals!==undefined){
   if(!Array.isArray(p.subgoals)||p.subgoals.length>8||new Set(p.subgoals.map(g=>g?.id)).size!==p.subgoals.length)throw new Error('子目标列表无效');
   for(const g of p.subgoals){
@@ -258,11 +275,11 @@ function agentPlan(raw,snap){
  if(p.expected!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;G.validate(p.expected);}
  if(p.action==='verify'&&!p.expected)throw new Error('验证需要明确条件');
  if(p.action==='wait'&&!p.expected&&p.timeoutMs===undefined)throw new Error('纯延时等待需要 timeoutMs');
- if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','hover','fill','check','select','scroll','navigate','wheel','press_key','double_click','right_click'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
+ if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!agentTool(p.action).timeout))throw new Error('等待时间需为 100–30000 毫秒');
  if(['memory_write','memory_delete','site_memory_write','site_memory_delete','site_memory_read','global_memory_read','global_memory_write','global_memory_delete'].includes(p.action)&&(typeof p.id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(p.id)))throw new Error('记忆名称无效');
  if(p.action==='history_read'&&(typeof p.id!=='string'||!/^h[0-9]+$/.test(p.id)||(p.value!==undefined&&(!Number.isSafeInteger(p.value)||p.value<0))))throw new Error('历史记录读取参数无效');
  if(['memory_write','site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
- if(['click','hover','fill','check','select','wheel','press_key','double_click','right_click'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
+ if(agentTool(p.action).target==='required'&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
  if(p.action==='navigate'){
   let url;try{url=new URL(p.value);}catch{throw new Error('导航 URL 无效');}
@@ -279,6 +296,7 @@ function agentPlan(raw,snap){
 }
 function agentExecute(p,snap,doc){
  if(p.action==='done')return;
+ if(agentTool(p.action)?.route!=='content')throw Object.assign(new Error('该工具不能在网页执行'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
  if(p.action==='scroll'&&p.id===undefined){return agentScroll(p,doc.scrollingElement||doc.documentElement,doc,true);}
  const ref=snap.nodes.get(p.id),n=ref?.node;
  if(!n?.isConnected||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
@@ -414,7 +432,7 @@ function agentClick(n,doc,hover=false){
  else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
  try{root.PageAgentPointer?.click();}catch{}
 }
-const api={endpoint,siteOrigin,byteSize,safe,cleanText,collect,validStyle,proposal,apply,describe,resolve,validRecord,restore,agentSnapshot,agentPlan,agentExecute,agentVerify};
+const api={endpoint,siteOrigin,byteSize,safe,cleanText,collect,validStyle,proposal,apply,describe,resolve,validRecord,restore,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;
 if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

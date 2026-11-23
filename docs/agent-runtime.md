@@ -87,3 +87,5 @@ nextObservation.value 同样接受 regionOffset/regionQuery，沿用控件读取
 completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind/evaluate，非 success 降为 active，并保存结构化 verification。没有副作用、额外页面请求或额外模型轮数；它核实的是规划所见页面，不是随后动作的效果。每项保留 URL/documentId/updatedAt，taskPlan 进入下一轮上下文；旧已核对项仅是历史证据，不执行其条件/动作，不替代 done 的独立完成条件。用户更正可在后续响应改标题/状态，停止/接管的迟到响应不能写回。新增子目标超过总量则保留原计划并报告错误。
 
 可信 navigate 复用普通动作副作用检查点，automatic 条件为 url_equals，plan.value 保存规范化目标 URL。执行前持久化 executing；后台只派发一次，未知结果等待只读 URL 核对，恢复沿用原 deadline，不重置 taskId/steps，不把派发成功当作业务成功。
+
+未确定目标 guard 分类来自 C.agentTool(action)，与动作校验器/提示目录共用静态可信工具策略；取消、token、检查点、deadline 与 V2 结果恢复仍由原运行器控制，不把策略表当作另一个执行器。
