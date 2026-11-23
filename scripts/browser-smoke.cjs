@@ -838,13 +838,24 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     const list=await chrome.runtime.sendMessage({type:'task:history',tabId:tab.id});
     const detail=await chrome.runtime.sendMessage({type:'task:history-get',tabId:tab.id,taskId:first.taskId});
     const current=await store.get(tab.id);
+    const other=await chrome.tabs.create({url:origin+'/article',active:false});
+    await store.set(other.id,{...first,tabId:other.id,taskId:'history-independent',status:'paused'});
+    const independent=await store.get(other.id);
+    await store.set(tab.id,{...current,status:'paused',phase:'executing',steps:37,pending:{plan:{action:'click'}},check:{kind:'action',deadline:12345,dispatch:'unknown'}});
+    await store.setMemory(tab.id,origin,[{text:'Temporary close fixture'}]);
+    await chrome.alarms.create('task-id:history-second',{delayInMinutes:1});
     await chrome.tabs.remove(tab.id);
-    return {list,detail,currentId:current.taskId};
+    for(let attempt=0;attempt<100;attempt++){const state=await chrome.storage.session.get('taskRegistry');if(!state.taskRegistry.bindings[tab.id]&&!state.taskRegistry.pending)break;if(attempt===99)throw new Error('Member close did not release ownership');await new Promise(resolve=>setTimeout(resolve,50));}
+    const all=await chrome.storage.session.get(null),closed=all['conversation:'+tab.id+':history-second'],alarm=await chrome.alarms.get('task-id:history-second');
+    const after=await store.get(other.id);await chrome.tabs.remove(other.id);
+    return {list,detail,currentId:current.taskId,closed,alarm:!!alarm,memory:!!all['memory:'+tab.id],independent,after};
   },origin);
   assert.equal(conversationCheck.list.ok,true);assert.equal(conversationCheck.list.value.length,2);
   assert.equal(conversationCheck.detail.value.goal,'First isolated conversation');
   assert.equal(conversationCheck.detail.value.token,undefined);assert.equal(conversationCheck.currentId,'history-second');
   pass('conversation history preserves separate tasks and reads old records through trusted messages without replacing the current task');
+  assert.equal(conversationCheck.closed.status,'ended');assert.equal(conversationCheck.closed.reason,'member_closed');assert.equal(conversationCheck.closed.steps,37);assert.equal(conversationCheck.closed.check.deadline,12345);assert.equal(conversationCheck.closed.check.dispatch,'unknown');assert.deepEqual(conversationCheck.closed.members,[]);assert.equal(conversationCheck.closed.token,undefined);assert.equal(conversationCheck.alarm,false);assert.equal(conversationCheck.memory,false);assert.deepEqual(conversationCheck.after,conversationCheck.independent);
+  pass('real browser tab closure ends only its member task, clears alarms and temporary memory, and archives unknown operation evidence');
   await restartedPanel.close();
 
   // ── Finalize report ──────────────────────────────────────────────────

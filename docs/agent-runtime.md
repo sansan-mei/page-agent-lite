@@ -106,7 +106,7 @@ completed 必须带现有 1–5 项条件 checks；基于本轮规划快照 bind
 
 ## 跨站/多标签后续设计（未实现）
 
-[任务站点集合与标签归属设计](task-scope-v3.md) 规定以 taskId 调度、任务级取消/范围版本、原标签未确定副作用核对及用户标签关闭策略；当前控制器/调度/运行器仍按 tabId。先完成兼容迁移和成员对账，再分阶段开放授权站点集合及标签工具，不能据设计推断已具备。
+[任务站点集合与标签归属设计](task-scope-v3.md) 规定以 taskId 调度、任务级取消/范围版本、原标签未确定副作用核对及用户标签关闭策略；当前控制器/调度身份已迁至 taskId，tabId 仍为单成员兼容 API。单成员对账及关闭已实现，再分阶段开放授权站点集合及标签工具，不能据设计推断已具备。
 
 V3 单成员 store 通过原 tabId 接口解析 taskRoot/binding；runtime.update 保留 V3 版本。存储对账暂停 reason=scope_reconciled 的继续，和既有全局记忆变更保护一样保留 executing/check 原期限后只读核对，不能按普通重新规划丢弃未确定副作用。任务级运行资源迁移见下文，tabId API 仍兼容。
 
@@ -115,3 +115,7 @@ V3 单成员 store 通过原 tabId 接口解析 taskRoot/binding；runtime.updat
 运行锁、tick 去重 jobs 和请求控制器以 taskId 为身份。tabId API 保留，serial 先经过标签发布队列保护任务替换，再按当前 taskId 串行执行；控制器的 tab→task 临时索引只用于现有侧栏停止/接管入口。全局记忆变更比较 taskId，不能把当前任务控制器误当其他任务取消。
 
 tick(tabId,expectedTaskId?) 对指定身份再次核对，过期调度不执行该标签上的新任务。旧任务请求迟到不阻塞不同 taskId 的新任务，不覆盖新控制器或状态。任务级 timer/alarm 由后台持有，启动后按根记录绑定解析 active tab（当前仍单成员）。
+
+## 单成员关闭生命周期
+
+memberClosed(tabId) 先同步 abort 该标签对应 taskId 的请求，再在发布/任务队列内取消 timer/alarm 并按当前权威 taskId 归档关闭。不同于 stop/remove，不抹除未确定 executing/pending/check，也不读取已关闭网页或尝试撤销；没有成员后终态 ended，迟到模型/执行回执不能回写或重新派发。没有绑定时只清该标签临时记忆。启动 recover 先取只含 ID 的浏览器标签清单，确认缺失后用同一路径清理，即使任务此前 paused/completed；清单请求失败向上传递并阻止本次恢复，不凭页面权限或 URL 读取异常推断关闭。当前单成员约束由 store 校验，多成员选择/暂停尚未开放。

@@ -607,9 +607,28 @@
         else {await tools.clearPointer?.(tabId);await cancelSchedule(tabId);}
       }
     }
+    async function memberClosed(tabId){
+      // Abort synchronously before waiting for storage or a running update.
+      controllerForTab(tabId)?.abort();
+      return serial(tabId,async()=>{
+        const task=await store.get(tabId);
+        await cancelSchedule(tabId);
+        if(!task){await store.removeMemory(tabId);return null;}
+        controllers.get(task.taskId)?.abort();
+        return store.closeMember(tabId,task.taskId,now());
+      });
+    }
     async function remove(tabId) {controllerForTab(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
-    async function recover() {for(const task of await store.list())if(ACTIVE.has(task.status))schedule(task.tabId);}
-    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    async function recover() {
+      // Missing tabs can have closed while the worker was unavailable. Query failure
+      // propagates: absence must be proven, never inferred from a page access error.
+      const existing=tools.existingTabIds?new Set(await tools.existingTabIds()):null;
+      for(const task of await store.list()){
+        if(existing&&!existing.has(task.tabId)){await memberClosed(task.tabId);continue;}
+        if(ACTIVE.has(task.status))schedule(task.tabId);
+      }
+    }
+    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

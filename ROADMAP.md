@@ -196,4 +196,5 @@
 - [x] PA7/PA8 存储第一步：taskId 根记录、单成员 registry、写入意图与只读对账；旧 tabId API 兼容（侧栏现已解除镜像依赖），保留单成员/同源。197 项 Node 回归通过，真实 MV3 stub 范围见 changelog。
 - [x] PA7/PA8 任务级运行资源：控制器/运行锁/jobs、timer/alarm 按 taskId，旧任务唤醒身份校验，保留标签发布队列防替换竞态；200 项 Node 及完整 MV3 stub 范围见 changelog。
 - [x] PA7/PA8 根记录 UI：侧栏根/索引失效后经后台刷新，阻止归属中间态与迟到回复；不再双写 task:tabId。204 项 Node 及完整 MV3 stub 范围见 changelog。
-- [ ] PA7/PA8 下一步：完善成员关闭路由，再开放用户范围 UI/跨已授权 origin 导航与标签成员工具。
+- [x] PA7/PA8 单成员关闭路由：关闭最后成员取消请求/调度、归档 ended 并保留未确定动作证据；写入意图支持中断清理，启动仅用标签 ID 清单核对失联成员。211 项 Node 及真实 MV3 stub 范围见 changelog；多成员的活动/非活动关闭分支仍待开放成员时实现。
+- [ ] PA7/PA8 下一步：用户任务范围 UI/跨已授权 origin 导航，再实现标签成员加入/切换及多成员关闭策略。

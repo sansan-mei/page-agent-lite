@@ -15,6 +15,21 @@
       if(!task||task.taskId!==binding.taskId||task.tabId!==id||task.scopeRevision!==binding.revision)throw scopeError();
       return task;
     }
+    async function finishMemberClose(registry){
+      const intent=registry.pending,id=intent.tabId,binding=registry.bindings[id];
+      if(!binding||binding.taskId!==intent.binding.taskId||binding.revision!==intent.binding.revision)throw scopeError();
+      const task=(await area.get(rootKey(binding.taskId)))[rootKey(binding.taskId)];
+      if(!task||task.taskId!==binding.taskId||task.scopeRevision!==binding.revision||task.tabId!==id)throw scopeError();
+      // Terminal archive keeps unknown operation evidence; no browser effect or replay.
+      const {token,...view}=task;
+      const ended={...view,status:'ended',reason:'member_closed',members:[],activeTabId:null,activeOrigin:null,nextObservation:null,updatedAt:intent.closedAt,archived:true};
+      await area.set({['conversation:'+id+':'+task.taskId]:ended,[rootKey(task.taskId)]:ended});
+      await area.remove(key(id));await area.remove('memory:'+id);
+      const bindings={...registry.bindings};delete bindings[id];
+      await area.set({taskRegistry:{version:1,revision:registry.revision+1,bindings}});
+      try{await area.remove(rootKey(task.taskId));}catch{ /* Archived unbound root is cleaned at startup. */ }
+      return ended;
+    }
     function rooted(id,task,revision){
       if(!Number.isInteger(id)||id<0||task.tabId!==id||typeof task.taskId!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(task.taskId))throw new Error('任务根记录身份无效');
       return {...task,version:3,scopeRevision:revision,initialTabId:id,initialOrigin:task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:[task.origin],members:[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}]};
@@ -51,6 +66,15 @@
         if(!record||record.origin!==origin)throw new Error('对话不存在或不属于当前网站');
         const {token,pending,check,...view}=record;return view;
       },
+      async closeMember(id,expectedTaskId,closedAt){return serial(async()=>{
+        const registry=await readRegistry();if(registry.pending)throw scopeError();
+        const task=await get(id);if(!task||task.taskId!==expectedTaskId)return null;
+        const binding=registry.bindings[id];
+        if(!binding||task.members?.length!==1||task.members[0].tabId!==id)throw scopeError();
+        const pending={kind:'member_closed',tabId:id,binding,closedAt};
+        const journal={...registry,pending};await area.set({taskRegistry:journal});
+        return finishMemberClose(journal);
+      });},
       async removeHistory(id){
         for(const name of Object.keys(await area.get(null)))if(name.startsWith('conversation:'+id+':'))await area.remove(name);
       },
@@ -71,6 +95,7 @@
       async removeMemory(id){await area.remove('memory:'+id);},
       async reconcile(){return serial(async()=>{
         const registry=await readRegistry(),intent=registry.pending;if(!intent)return;
+        if(intent.kind==='member_closed'){await finishMemberClose(registry);return;}
         const id=intent.tabId,newBinding=intent.binding,root=(await area.get(rootKey(newBinding.taskId)))[rootKey(newBinding.taskId)];
         const binding=root?.scopeRevision===newBinding.revision&&root.tabId===id?newBinding:registry.bindings[id];
         const record=binding?(await area.get(rootKey(binding.taskId)))[rootKey(binding.taskId)]:(await area.get(key(id)))[key(id)];

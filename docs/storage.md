@@ -46,7 +46,7 @@ readwrite 事务在读取版本后写入；不匹配返回 MEMORY_CONFLICT。成
 
 ## 会话内对话历史（已实现）
 
-替换不同 taskId 时，task-store 在同一次 session.set 中保存 `conversation:tabId:taskId` 并写入新的 `task:tabId`；存储失败则不主动删除旧记录。归档移除 token、pending、check，不参与 runtime.list/recover，也不提供恢复执行入口。相同 taskId 的更新不额外生成对话，停止/暂停后的补充指令仍属于原对话。
+替换不同 taskId 时，task-store 在同一次 session.set 中保存 `conversation:tabId:taskId` 并写入新的 `taskRoot:taskId`（完整发布协议见 V3 章节）；存储失败则不主动删除旧记录。普通替换归档移除 token、pending、check；成员关闭归档保留未知操作证据（见下文），不参与 runtime.list/recover，也不提供恢复执行入口。相同 taskId 的更新不额外生成对话，停止/暂停后的补充指令仍属于原对话。
 
 历史目录只返回标题、状态、更新时间和 taskId；正文按需读取。后台仅接受可信侧栏的 task:history / task:history-get，按当前标签页完整 origin 校验。查看记录不请求模型、不改变活动任务，也不自动继承原任务上下文。关闭标签页删除其所有对话；清空当前任务不删除其他归档。继承 session 的生命周期与容量限制，配额不足时创建新任务可能失败，不静默裁剪旧历史。
 
@@ -94,6 +94,12 @@ metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/complet
 
 同一成员普通检查点更新不改变 scopeRevision，根记录始终权威。成功发布归属后清理旧键；启动迁移在验证已有根记录后重试清理，根缺失则保留迁移证据并报错。当前 worker 同一 session 对象的存储实例共享短写队列。成功替换后删除旧活动 root；未绑定 root 不进入 list/调度，启动只清理存在归档凭据的旧 root。remove 先清遗留旧键再释放归属，避免旧记录变回运行任务。
 
-V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。单成员页面关闭处理及 tabId API 保留，任务级调度见下文；跨站和多标签仍未实现。
+V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。tabId API 保留，单成员页面关闭改为独立终态归档（见下文），任务级调度见下文；跨站和多标签仍未实现。
 
 任务级调度仅由 taskRegistry 已提交 binding 的 getByTaskId 解析，不扫描未绑定 root 或历史对话作为运行任务。alarm 名为 task-id:taskId，旧 task:tabId alarm 只作清理/升级；timer/控制器/运行锁为 worker 内存资源，不新增持久任务键，恢复仍使用根记录原检查点/deadline。
+
+## 单成员关闭归档
+
+浏览器成员关闭走 closeMember(tabId,expectedTaskId,closedAt)，不复用用户清空任务。当前严格要求唯一 initial 成员，不接受多成员数据。先写 taskRegistry.pending={kind:member_closed,tabId,binding,closedAt}；再写 ended/reason=member_closed、members=[]、activeTabId/activeOrigin=null 的终态根及 conversation 归档，去掉 token，保留 steps、phase、pending/check 和原 deadline/dispatch 作为未知动作证据；清该标签旧键/临时记忆后释放 binding，最后清理无绑定根。归档在本浏览器会话保留，不提供跨标签恢复或关闭后历史检索入口；historyGet 仍不向侧栏暴露 pending/check/token。
+
+pending 期间读取拒绝执行；启动 reconcile 识别关闭意图，只读校验原 taskId/revision 后继续存储清理，不执行页面/模型，不把终态任务恢复运行。归档、临时记忆清理或索引提交失败保留意图；已释放 binding 的残留根由既有归档清理处理。重复或过期 taskId 关闭无操作，其他任务/历史/长期笔记不变。

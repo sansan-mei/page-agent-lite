@@ -96,3 +96,5 @@ PA7/PA8 下一步实施依据为 [任务站点集合与标签归属设计](task-
 PA7/PA8 存储第一步已实现：task-store.js 以 taskRoot:taskId + taskRegistry 单成员归属解析旧 tabId API，task:tabId 仅为旧版迁移输入，侧栏监听根/索引变化后经后台刷新；意图中断只读对账后暂停。任务级调度已迁移（见下文），尚未开放多成员或跨 origin 授权。
 
 任务运行资源已从 tabId 身份迁至 taskId：runtime 的 jobs/请求控制器/运行锁与后台 timers、task-id:taskId alarm；tab 发布队列及 API 仍作为替换/兼容边界。store.getByTaskId 仅解析已提交的当前归属。新调度携带 expectedTaskId，旧任务唤醒不能操作同标签新任务；旧 task:tabId alarm 清理并通过当前归属升级调度。
+
+成员关闭由 background.js 的 tabs.onRemoved 路由 runtime.memberClosed；运行器立即取消控制器，在标签发布/任务锁内取消调度并调用 store.closeMember，存储层用关闭意图完成终态归档和归属释放。不会复用 runtime.remove 或删除历史。恢复先由 browser-tools.existingTabIds 提供只含 ID 的可信清单，缺失成员走同一路径，清单查询失败则不做关闭推断；目录不发送给模型，不引入新工具动作或权限。当前只支持最后一个成员关闭，多成员暂停/移除策略仍待实现。

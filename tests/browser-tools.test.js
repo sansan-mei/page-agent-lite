@@ -56,3 +56,9 @@ test('trusted navigation enforces origin, permission and a consumed snapshot, ne
  granted=false;await assert.rejects(()=>tools.execute(1,pending),e=>e.code==='PERMISSION_DENIED');granted=true;
  current='https://example.test/changed';await assert.rejects(()=>tools.execute(1,pending),e=>e.code==='STALE');assert.equal(updates,2);
 });
+
+
+test('startup tab inventory returns IDs only and propagates query failure',async()=>{
+ const chrome={tabs:{async query(options){assert.deepEqual(options,{});return [{id:1,url:'https://private.test',title:'Private'},{id:2},{id:null}];}}};
+ assert.deepEqual(await createBrowserTools(chrome).existingTabIds(),[1,2]);chrome.tabs.query=async()=>{throw Error('unavailable');};await assert.rejects(()=>createBrowserTools(chrome).existingTabIds(),/unavailable/);
+});

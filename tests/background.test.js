@@ -1,19 +1,19 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(registered=[]){
- let listener;const calls=[];
- const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){},async tick(){}};
+ let listener,removed;const calls=[];
+ const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async tick(){}};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
  storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
  scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
  alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},
- tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}}},action:{onClicked:{addListener(){}}}};
+ tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(fn){removed=fn;}}},action:{onClicked:{addListener(){}}}};
  vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,URL,setTimeout,clearTimeout,importScripts(){},
   PageAgentCore:{},PageAgentSiteMemory:{createSiteMemory(){return {};}},PageAgentBackend:{createService(){return {async init(){},async handle(){return 'service';}};}},
   PageAgentTaskStore:{createTaskStore(){return {async migrate(){}};}},
   PageAgentBrowserTools:{createBrowserTools(){return {async inject(){calls.push(['tools.inject']);}};}},
   PageAgentRuntime:{createRuntime(){return runtime;}}});await flush();
- return {calls,send:(m,s)=>new Promise(r=>listener(m,s,r))};
+ return {calls,removed,send:(m,s)=>new Promise(r=>listener(m,s,r))};
 }
 const panel={id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0};
 test('only trusted sidepanel owns runtime commands; content cannot create/read/stop tasks',async()=>{
@@ -67,4 +67,9 @@ test('global memory management works without a target tab only for trusted exten
  assert.equal((await f.send({type:'task:global-memory'},sender)).value.scope,'global');assert.equal((await f.send({type:'task:global-memory-change',action:'clear',expectedVersion:0},sender)).ok,true);
  }
  for(const sender of [{...panel,frameId:1},{...panel,url:panel.url+'?x'}, {id:'test',url:'https://example.test',frameId:0,tab:{id:1}}])for(const type of ['task:global-memory','task:global-memory-change'])assert.equal((await f.send({type},sender)).ok,false);
+});
+
+
+test('browser tab close routes to member lifecycle without clearing task history',async()=>{
+ const f=await fixture();f.removed(7);await flush();assert.deepEqual(f.calls,[['member-closed',7]]);
 });

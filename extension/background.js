@@ -148,5 +148,5 @@ chrome.tabs.onUpdated.addListener((id,change)=>{
     if(task&&['running','waiting_page'].includes(task.status))schedule(id);
   }).catch(()=>{});
 });
-chrome.tabs.onRemoved.addListener(id=>{void ready.then(ok=>ok&&runtime.remove(id).then(()=>store.removeHistory(id))).catch(()=>{});});
+chrome.tabs.onRemoved.addListener(id=>{void ready.then(ok=>ok&&runtime.memberClosed(id)).catch(()=>{});});
 }

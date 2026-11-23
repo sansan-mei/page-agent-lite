@@ -766,3 +766,41 @@ test('replacement task runs without waiting for an aborted old task request to s
  const second=await f.runtime.start(1,'Second');await f.runtime.tick(1,second.taskId);assert.equal((await f.runtime.get(1)).status,'completed');
  resolve({text:JSON.stringify({reply:'Old click',action:'click',id:'t0'})});await old;assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).taskId,second.taskId);
 });
+
+
+test('member close aborts a live model, archives through the real store, and rejects late click replies',async()=>{
+ const {createTaskStore}=require('../extension/task-store.js');const data={};
+ const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});let resolve,signal;const cancelled=[];
+ const f=fixture({store,cancelSchedule:async id=>cancelled.push(id),model:async(text,s)=>{signal=s;return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'First');await f.runtime.start(2,'Independent');const independent=await store.get(2),tick=f.runtime.tick(1);
+ while(!resolve)await new Promise(r=>setImmediate(r));
+ const close=f.runtime.memberClosed(1);assert.equal(signal.aborted,true);await close;
+ resolve({text:'{"reply":"Late","action":"click","id":"t0"}'});await tick;
+ assert.equal(await store.get(1),null);assert.equal(f.executed.length,0);assert.deepEqual(await store.get(2),independent);assert.ok(cancelled.includes(1));assert.equal(cancelled.includes(2),false);
+ const archived=data[Object.keys(data).find(k=>k.startsWith('conversation:1:'))];assert.equal(archived.status,'ended');assert.equal(archived.steps,1);
+ await f.runtime.memberClosed(1);await f.runtime.recover();assert.equal(await store.get(1),null);
+});
+
+
+test('startup closes missing members using ID inventory and retains unknown dispatched checks',async()=>{
+ const {createTaskStore}=require('../extension/task-store.js');const data={};
+ const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});let unavailable=true;
+ const f=fixture({store,tools:{async existingTabIds(){if(unavailable)throw Error('inventory unavailable');return [2];}}});
+ await f.runtime.start(1,'Missing');await f.runtime.start(2,'Retained');const task=await store.get(1),check={kind:'action',deadline:9876,dispatch:'unknown'};await store.set(1,{...task,phase:'executing',check,pending:{plan:{action:'click'}}});f.scheduled.length=0;
+ await assert.rejects(()=>f.runtime.recover(),/inventory unavailable/);assert.equal((await store.get(1)).status,'running');assert.equal(f.scheduled.length,0);
+ unavailable=false;await f.runtime.recover();assert.equal(await store.get(1),null);assert.deepEqual(f.scheduled.map(x=>x.id),[2]);assert.deepEqual(data['conversation:1:'+task.taskId].check,check);assert.equal(f.executed.length,0);
+});
+
+
+test('closing during dispatch preserves its executing checkpoint and cannot replay a lost reply',async()=>{
+ const {createTaskStore}=require('../extension/task-store.js');const data={};
+ const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});let resolve,dispatches=0;
+ const f=fixture({store,model:async()=>({text:'{"reply":"Click","action":"click","id":"t0"}'}),tools:{async execute(){dispatches++;return new Promise(r=>resolve=r);}}});
+ const started=await f.runtime.start(1,'Work'),tick=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));const before=await store.get(1);assert.equal(before.phase,'executing');assert.ok(before.pending);
+ await f.runtime.memberClosed(1);const archive=data['conversation:1:'+started.taskId];assert.deepEqual(archive.pending,before.pending);assert.deepEqual(archive.check,before.check);assert.equal(archive.phase,'executing');
+ resolve({version:2,status:'unknown',dispatch:'unknown',scope:'dispatch',code:'REPLY_LOST'});await tick;await f.runtime.recover();await f.runtime.tick(1,started.taskId);
+ assert.equal(dispatches,1);assert.equal(await store.get(1),null);assert.deepEqual(data['conversation:1:'+started.taskId],archive);
+});
