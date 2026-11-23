@@ -38,10 +38,10 @@ test('single-member task roots are authoritative and migration preserves unknown
  const old={version:2,taskId:'old',tabId:3,origin:'https://example.test',goal:'Work',status:'running',phase:'executing',steps:27,token:'original',pending:{plan:{action:'click'},documentId:'doc'},check:{kind:'action',deadline:12345,dispatch:'unknown',expected:[{kind:'url_equals',value:'https://example.test/next'}]},results:[],events:[]};
  const data={'task:3':old};const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
  const store=createTaskStore({storage:{session:area}});await store.migrate();const task=await store.get(3);
- assert.equal(task.version,3);assert.equal(task.steps,27);assert.equal(task.token,'original');assert.deepEqual(task.check,old.check);assert.deepEqual(task.allowedOrigins,[old.origin]);assert.equal(task.members[0].kind,'initial');assert.equal(data.taskRegistry.bindings[3].taskId,'old');
+ assert.equal(data['task:3'],undefined);assert.equal(task.version,3);assert.equal(task.steps,27);assert.equal(task.token,'original');assert.deepEqual(task.check,old.check);assert.deepEqual(task.allowedOrigins,[old.origin]);assert.equal(task.members[0].kind,'initial');assert.equal(data.taskRegistry.bindings[3].taskId,'old');
  data['task:3']={...old,steps:0};assert.equal((await store.get(3)).steps,27);
  await assert.rejects(()=>store.set(4,{...task,tabId:4}),/其他标签/);assert.equal((await store.list()).length,1);
- await store.migrate();assert.equal((await store.get(3)).steps,27);
+ await store.migrate();assert.equal(data['task:3'],undefined);assert.equal((await store.get(3)).steps,27);
 });
 
 test('interrupted ownership publication fails closed and reconciles only to a paused checkpoint',async()=>{
@@ -67,4 +67,12 @@ test('task identity lookup follows only committed current ownership',async()=>{
  const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
  const store=createTaskStore({storage:{session:area}}),task={taskId:'first',tabId:7,origin:'https://one.test',goal:'Work',status:'paused',steps:3};
  await store.set(7,task);assert.equal((await store.getByTaskId('first')).tabId,7);await store.set(7,{...task,taskId:'second'});assert.equal(await store.getByTaskId('first'),null);assert.equal((await store.getByTaskId('second')).taskId,'second');await store.remove(7);assert.equal(await store.getByTaskId('second'),null);
+});
+
+
+test('new tasks and checkpoints store one payload and invalid roots retain legacy migration evidence',async()=>{
+ const data={},writes=[],area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){writes.push(...Object.keys(v));Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}}),task={taskId:'one',tabId:1,origin:'https://one.test',goal:'Work',status:'paused',steps:1};
+ await store.set(1,task);await store.set(1,{...await store.get(1),steps:2});assert.equal(data['task:1'],undefined);assert.equal(writes.includes('task:1'),false);assert.equal((await store.get(1)).steps,2);
+ data['task:1']=task;delete data['taskRoot:one'];await assert.rejects(()=>store.migrate(),e=>e.code==='TASK_SCOPE_INCONSISTENT');assert.deepEqual(data['task:1'],task);
 });

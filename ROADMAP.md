@@ -193,6 +193,7 @@
 - [x] PA12 严格文本响应诊断：统一解析 content/usage，截断/拒绝/原生工具调用/非文本/空值等稳定 code，阻止 HTTP 200 截断动作及自动重试。193 项 Node 通过，完整扩展 stub 结果见 changelog；原生 function calling 双路径仍未实现。
 
 - [x] PA7/PA8 实施前置设计：明确任务根记录/成员索引一致性、逐任务 origin 授权、用户标签保护、取消/恢复与 V2 迁移矩阵，见 [设计](docs/task-scope-v3.md)。本次仅文档核对，不代表跨站/多标签已实现。
-- [x] PA7/PA8 存储第一步：taskId 根记录、单成员 registry、写入意图与只读对账；旧 tabId API/侧栏镜像兼容，保留单成员/同源。197 项 Node 回归通过，真实 MV3 stub 范围见 changelog。
+- [x] PA7/PA8 存储第一步：taskId 根记录、单成员 registry、写入意图与只读对账；旧 tabId API 兼容（侧栏现已解除镜像依赖），保留单成员/同源。197 项 Node 回归通过，真实 MV3 stub 范围见 changelog。
 - [x] PA7/PA8 任务级运行资源：控制器/运行锁/jobs、timer/alarm 按 taskId，旧任务唤醒身份校验，保留标签发布队列防替换竞态；200 项 Node 及完整 MV3 stub 范围见 changelog。
-- [ ] PA7/PA8 下一步：移除 UI 对旧 task:tabId 镜像的依赖，完善成员关闭路由，再开放用户范围 UI/跨已授权 origin 导航与标签成员工具。
+- [x] PA7/PA8 根记录 UI：侧栏根/索引失效后经后台刷新，阻止归属中间态与迟到回复；不再双写 task:tabId。204 项 Node 及完整 MV3 stub 范围见 changelog。
+- [ ] PA7/PA8 下一步：完善成员关闭路由，再开放用户范围 UI/跨已授权 origin 导航与标签成员工具。

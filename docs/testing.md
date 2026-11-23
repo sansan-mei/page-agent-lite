@@ -154,8 +154,12 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 
 ## V3 单成员根记录基础
 
-197 项 Node 回归通过：V2 迁移保留未知动作/预算/期限、根记录权威、同任务跨标签抢占拒绝、两个 store 实例并发归属、写入前/根已写但索引未提交的故障注入、历史补归档、对账暂停及恢复只读核对。完整 MV3 stub 回归新增真实 session root/binding 修订匹配和单 origin 范围检查，结果见 changelog。镜像双写仍临时存在，不将本次视为 taskId 调度或跨站/多标签验收。
+197 项 Node 回归通过：V2 迁移保留未知动作/预算/期限、根记录权威、同任务跨标签抢占拒绝、两个 store 实例并发归属、写入前/根已写但索引未提交的故障注入、历史补归档、对账暂停及恢复只读核对。完整 MV3 stub 回归新增真实 session root/binding 修订匹配和单 origin 范围检查，结果见 changelog。旧镜像双写现已移除；此项本身不代表跨站/多标签验收。
 
 ## 任务级调度与取消迁移
 
-200 项 Node 回归通过，新增旧 expectedTaskId 不执行替换任务、已取消但未回报的旧请求不阻塞新 taskId、迟到点击不派发，以及 getByTaskId 只解析当前归属。完整 MV3 stub 新增 task-id alarm 命名断言并保留真实 worker 停止/原 deadline 恢复，实际结果见 changelog。未开放跨站/多成员，侧栏根记录镜像及单成员 tabs.onRemoved 策略仍保留。
+200 项 Node 回归通过，新增旧 expectedTaskId 不执行替换任务、已取消但未回报的旧请求不阻塞新 taskId、迟到点击不派发，以及 getByTaskId 只解析当前归属。完整 MV3 stub 新增 task-id alarm 命名断言并保留真实 worker 停止/原 deadline 恢复，实际结果见 changelog。未开放跨站/多成员，侧栏现已改为根记录失效刷新；单成员 tabs.onRemoved 策略仍保留。
+
+## 根记录 UI 与旧镜像移除
+
+204 项 Node 回归通过：旧镜像/无关归属事件不刷新，根变化经后台读权威值，pending 归属取消迟到读取并等待提交，命令期间新检查点不被旧回复覆盖；新建/检查点不写旧键，迁移成功清理旧键，根缺失时保留证据。完整 MV3 stub 新增 session 中无整份旧镜像断言，结果见 changelog。原生侧栏手势、真实模型及多成员关闭未验收。

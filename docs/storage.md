@@ -9,7 +9,7 @@
 | local savedPages | 文章记录 | origin + pathname + search，忽略 hash |
 | IndexedDB page-agent-memory / sites | 按完整 origin 保存长期笔记和版本 | 本机跨重启；用户删除或卸载/清理存储后消失 |
 | IndexedDB page-agent-memory / global | 独立 scope=global 记录，全局偏好和通用经验及版本 | 本机跨站/任务/标签页/重启共享，不同步 |
-| session task:tabId | 任务更新兼容镜像（主记录见 V3 根记录） | 会话内；关闭标签页删除 |
+| session task:tabId | 旧版迁移记录（不再双写） | 成功迁移/核对根记录后删除 |
 | session memory:tabId | 按 origin 保存的临时笔记 | 模型决定维护；任务结束保留，清空任务或关标签删除 |
 
 API 初始化强制 local 为 TRUSTED_CONTEXTS；缺少该 API 拒绝初始化，不降低密钥隔离要求。session 默认仅可信扩展上下文访问。
@@ -88,11 +88,11 @@ metrics.timings 可选 model/summary/tool 分组，分别保存 attempts/complet
 
 任务主记录为 session taskRoot:taskId，version=3；taskRegistry={version:1,revision,bindings:{tabId:{taskId,revision}},pending?} 为单成员归属权威。根记录 scopeRevision 须与 binding 对应；同一 taskId 不可归属两个标签。当前 root 固定 initialTabId=activeTabId=tabId、initialOrigin=activeOrigin=origin、allowedOrigins=[origin]，members 只有 kind=initial/tabRef=tab0 一项，写入不会接受调用方扩大范围。
 
-现有 store.get/set/history/list(tabId) 接口保留；task:tabId 为侧栏 session 更新兼容镜像，不作为已有 binding 的主记录。外部直接改镜像不覆盖根记录；生产后台统一经 store 写。镜像暂时重复占用会话容量，后续任务级 UI/调度完成再移除。临时记忆及 conversation 历史键仍不变。
+现有 store.get/set/history/list(tabId) 接口保留；task:tabId 仅为旧版迁移输入，不再双写整份任务。侧栏监听根记录/归属索引作为失效信号，通过可信 task:get 读取当前任务，忽略旧键事件内容；pending 归属期间暂停刷新，取消迟到读取。外部直接改旧键不覆盖已有 binding 的根记录；生产后台统一经 store 写。临时记忆及 conversation 历史键仍不变。
 
-新建/替换归属先写 registry.pending 意图，再写 root/镜像/必要历史，最后提交 binding；不假设多键写入原子性。pending 存在时读取拒绝执行（TASK_SCOPE_INCONSISTENT）。启动 migrate 先只读存储对账：新 root 已写且 revision 匹配则采用，否则回到旧 binding/旧记录；缺失的旧对话从旧 root 补归档。存活任务置 paused/reason=scope_reconciled，保留 token/steps/pending/check/deadline/dispatch，用户继续只读核对。故障持续时保留现场，不自动重建任务或扩大站点。
+新建/替换归属先写 registry.pending 意图，再写 root/必要历史，最后提交 binding；不假设多键写入原子性。pending 存在时读取拒绝执行（TASK_SCOPE_INCONSISTENT）。启动 migrate 先只读存储对账：新 root 已写且 revision 匹配则采用，否则回到旧 binding/旧记录；缺失的旧对话从旧 root 补归档。存活任务置 paused/reason=scope_reconciled，保留 token/steps/pending/check/deadline/dispatch，用户继续只读核对。故障持续时保留现场，不自动重建任务或扩大站点。
 
-同一成员普通检查点更新不改变 scopeRevision，根记录始终权威；镜像写失败不会让旧镜像取得执行权。当前 worker 同一 session 对象的存储实例共享短写队列。成功替换后删除旧活动 root；未绑定 root 不进入 list/调度，启动只清理存在归档凭据的旧 root。remove 先清镜像再释放归属，避免旧镜像变回运行任务。
+同一成员普通检查点更新不改变 scopeRevision，根记录始终权威。成功发布归属后清理旧键；启动迁移在验证已有根记录后重试清理，根缺失则保留迁移证据并报错。当前 worker 同一 session 对象的存储实例共享短写队列。成功替换后删除旧活动 root；未绑定 root 不进入 list/调度，启动只清理存在归档凭据的旧 root。remove 先清遗留旧键再释放归属，避免旧记录变回运行任务。
 
 V2 task:tabId 启动时迁移；chat 旧版仍先转为暂停任务。迁移保留任务身份/预算/未知动作，不自动新增站点/成员。单成员页面关闭处理及 tabId API 保留，任务级调度见下文；跨站和多标签仍未实现。
 

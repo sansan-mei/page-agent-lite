@@ -2,9 +2,9 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(granted,hook=()=>undefined,management=false,contains=async()=>false,extraGlobals={}){
  const {document,window}=parseHTML(fs.readFileSync(management?'extension/options.html':'extension/sidepanel.html','utf8'));
- const calls=[];let updated,added,removed;const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/task',title:'Homework'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(){}}}};
+ const calls=[];let updated,added,removed,storageChanged;const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/task',title:'Homework'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(fn){storageChanged=fn;}}}};
  vm.runInNewContext(fs.readFileSync(management?'extension/management.js':'extension/sidepanel.js','utf8'),{chrome,document,window,URL,Date,...extraGlobals});await flush();
- return {document,window,calls,updated,added,removed};
+ return {document,window,calls,updated,added,removed,storageChanged};
 }
 test('sidepanel requests only current origin directly from gesture, then connects',async()=>{
  const f=await fixture(true);assert.equal(f.document.getElementById('grant').disabled,false);
@@ -243,4 +243,35 @@ test('statistics export creates only the trusted report download and reports suc
  f.document.getElementById('export-diagnostics').dispatchEvent(new f.window.Event('click'));await flush();
  assert.deepEqual(JSON.parse(await blob.text()),report);assert.equal(revoked,true);assert.match(f.document.getElementById('status').textContent,/已导出当前任务统计/);
  assert.equal(f.calls.filter(c=>c[0]==='message'&&c[1].type==='task:diagnostics').length,1);
+});
+
+
+test('root changes refresh through backend while obsolete mirrors and unrelated bindings are ignored',async()=>{
+ let current={taskId:'root',goal:'Original',status:'paused',steps:1,prefs:{maxSteps:50},events:[]};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:current}:undefined);f.calls.length=0;
+ f.storageChanged({'task:9':{newValue:{...current,goal:'Forged mirror'}},'taskRoot:other':{newValue:current}},'session');
+ f.storageChanged({taskRegistry:{oldValue:{bindings:{}},newValue:{bindings:{8:{taskId:'other',revision:2}}}}},'session');await flush();
+ assert.equal(f.calls.length,0);assert.equal(f.document.getElementById('goal').textContent,'Original');
+ current={...current,goal:'Canonical update'};f.storageChanged({'taskRoot:root':{newValue:{goal:'Untrusted event'}}},'session');await flush();
+ assert.deepEqual(f.calls.map(c=>c[1].type),['task:get']);assert.equal(f.document.getElementById('goal').textContent,'Canonical update');
+});
+
+test('pending ownership blocks refresh and discards a late root read until committed binding',async()=>{
+ const task={taskId:'root',goal:'Original',status:'paused',steps:1,prefs:{maxSteps:50},events:[]};let delayed=false,resolve,current=task;
+ const f=await fixture(true,m=>m.type==='task:get'?delayed?new Promise(r=>resolve=r):{ok:true,value:current}:undefined);
+ delayed=true;f.storageChanged({'taskRoot:root':{newValue:task}},'session');
+ const before={bindings:{9:{taskId:'root',revision:1}}},pending={...before,pending:{tabId:9,binding:{taskId:'replacement',revision:2}}};
+ f.storageChanged({taskRegistry:{oldValue:before,newValue:pending}},'session');resolve({ok:true,value:{...task,goal:'Late obsolete'}});await flush();
+ const count=f.calls.length;f.storageChanged({'taskRoot:root':{newValue:task}},'session');await flush();assert.equal(f.calls.length,count);assert.equal(f.document.getElementById('goal').textContent,'Original');
+ delayed=false;current={...task,taskId:'replacement',goal:'Replacement'};
+ f.storageChanged({taskRegistry:{oldValue:pending,newValue:{bindings:{9:{taskId:'replacement',revision:2}}}}},'session');await flush();
+ assert.equal(f.document.getElementById('goal').textContent,'Replacement');
+});
+
+test('a root update during a command is reread after its older response',async()=>{
+ const task={taskId:'root',goal:'Original',status:'paused',steps:1,prefs:{maxSteps:50},events:[]};let current=task,resolve;
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:current}:m.type==='task:submit'?new Promise(r=>resolve=r):undefined);
+ f.document.getElementById('instruction').value='Continue';f.document.getElementById('chat').dispatchEvent(new f.window.Event('submit'));
+ current={...task,goal:'New checkpoint'};f.storageChanged({'taskRoot:root':{newValue:current}},'session');resolve({ok:true,value:task});await flush();
+ assert.equal(f.document.getElementById('goal').textContent,'New checkpoint');
 });

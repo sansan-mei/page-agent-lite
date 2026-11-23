@@ -608,8 +608,8 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await page.goto(origin+'/task-one');await page.bringToFront();
   const command=(type,extra={})=>panel.evaluate(async ({type,tabId,extra})=>chrome.runtime.sendMessage({type,tabId,...extra}),{type,tabId,extra});
   const started=await command('task:start',{goal:'Fill answer 4 then go to the next page'});assert.equal(started.ok,true);
-  const rootState=await sw.evaluate(async({tabId,taskId})=>{const all=await chrome.storage.session.get(null);return {binding:all.taskRegistry.bindings[tabId],root:all['taskRoot:'+taskId]};},{tabId,taskId:started.value.taskId});
-  assert.equal(rootState.root.version,3);assert.equal(rootState.binding.taskId,started.value.taskId);assert.equal(rootState.root.scopeRevision,rootState.binding.revision);assert.deepEqual(rootState.root.allowedOrigins,[origin]);assert.equal(rootState.root.members.length,1);
+  const rootState=await sw.evaluate(async({tabId,taskId})=>{const all=await chrome.storage.session.get(null);return {binding:all.taskRegistry.bindings[tabId],root:all['taskRoot:'+taskId],legacy:all['task:'+tabId]};},{tabId,taskId:started.value.taskId});
+  assert.equal(rootState.legacy,undefined);assert.equal(rootState.root.version,3);assert.equal(rootState.binding.taskId,started.value.taskId);assert.equal(rootState.root.scopeRevision,rootState.binding.revision);assert.deepEqual(rootState.root.allowedOrigins,[origin]);assert.equal(rootState.root.members.length,1);
   pass('real session storage publishes one authoritative task root and matching single-member registry without widening origin scope');
 
   await poll(async()=>((await command('task:get')).value?.status)==='completed','automatic fill and navigation complete',20000);

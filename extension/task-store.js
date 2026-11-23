@@ -28,7 +28,7 @@
         if(Object.entries(registry.bindings).some(([tab,b])=>Number(tab)!==id&&b.taskId===task.taskId))throw new Error('任务已归属其他标签页');
         const same=binding?.taskId===task.taskId,revision=same?binding.revision:registry.revision+1;
         if(same&&task.scopeRevision!==undefined&&task.scopeRevision!==revision)throw scopeError();
-        const record=rooted(id,task,revision),values={[rootKey(task.taskId)]:record,[key(id)]:record};
+        const record=rooted(id,task,revision),values={[rootKey(task.taskId)]:record};
         if(previous?.taskId&&previous.taskId!==task.taskId){const {token,pending,check,...view}=previous;values['conversation:'+id+':'+previous.taskId]={...view,archived:true};}
         if(same){await area.set(values);return;}
         // Journal membership before root publication; a pending intent blocks execution.
@@ -36,6 +36,7 @@
         await area.set({taskRegistry:{...registry,pending:{tabId:id,binding:next,previousTaskId:previous?.taskId||null}}});
         await area.set(values);
         await area.set({taskRegistry:{version:1,revision,bindings:{...registry.bindings,[id]:next}}});
+        try{await area.remove(key(id));}catch{ /* The committed root remains authoritative; startup retries legacy cleanup. */ }
         if(previous?.taskId&&previous.taskId!==task.taskId)try{await area.remove(rootKey(previous.taskId));}catch{ /* Unbound roots cannot execute; cleanup retries at startup. */ }
       });},
       async history(id,origin){
@@ -77,16 +78,17 @@
           const previous=(await area.get(rootKey(intent.previousTaskId)))[rootKey(intent.previousTaskId)];
           if(previous){const {token,pending,check,...view}=previous;await area.set({['conversation:'+id+':'+previous.taskId]:{...view,archived:true}});}
         }
-        if(record){const paused={...record,status:['completed','ended','stopped'].includes(record.status)?record.status:'paused',reason:'scope_reconciled'};await area.set({[key(id)]:paused,...(binding?{[rootKey(binding.taskId)]:paused}:{})});}
+        if(record){const paused={...record,status:['completed','ended','stopped'].includes(record.status)?record.status:'paused',reason:'scope_reconciled'};await area.set(binding?{[rootKey(binding.taskId)]:paused}:{[key(id)]:paused});}
         const bindings={...registry.bindings};if(binding)bindings[id]=binding;else delete bindings[id];
         await area.set({taskRegistry:{version:1,revision:Math.max(registry.revision,newBinding.revision),bindings}});
+        if(binding)await area.remove(key(id));
       });},
       async migrate(){
         await this.reconcile();
         const registry=await readRegistry(),bound=new Set(Object.values(registry.bindings).map(b=>rootKey(b.taskId)));
         for(const [name,record] of Object.entries(await area.get(null)))if(name.startsWith('taskRoot:')&&!bound.has(name)){const archived=(await area.get('conversation:'+record.tabId+':'+record.taskId))['conversation:'+record.tabId+':'+record.taskId];if(archived)await area.remove(name);}
         for(const [name,old] of Object.entries(await area.get(null))){
-          if(name.startsWith('task:')){const id=Number(name.slice(5));if(Number.isInteger(id)){const registry=await readRegistry();if(!registry.bindings[id])await this.set(id,{...old,metrics:old.metrics||{observations:0,verifications:0,actions:0},check:old.check||null,waitDeadline:old.waitDeadline||null});}}
+          if(name.startsWith('task:')){const id=Number(name.slice(5));if(Number.isInteger(id)){const registry=await readRegistry();if(!registry.bindings[id])await this.set(id,{...old,metrics:old.metrics||{observations:0,verifications:0,actions:0},check:old.check||null,waitDeadline:old.waitDeadline||null});else {await get(id);await area.remove(name);}}}
           if(!name.startsWith('chat:'))continue;
           const tabId=Number(name.slice(5)),s=old?.state;
           if(Number.isInteger(tabId)&&s?.goal&&!await this.get(tabId))await this.set(tabId,{

@@ -93,6 +93,6 @@ PA12 backend.js 的 parseChatResponse 统一解析非流式兼容文本与 usage
 
 PA7/PA8 下一步实施依据为 [任务站点集合与标签归属设计](task-scope-v3.md)（未实现）。设计覆盖 root/registry 双记录一致性、任务级调度、显式站点/成员授权及只读恢复；当前架构仍是单标签单 origin，不因设计新增可调用工具或权限。
 
-PA7/PA8 存储第一步已实现：task-store.js 以 taskRoot:taskId + taskRegistry 单成员归属解析旧 tabId API，task:tabId 仅为 UI 更新镜像；意图中断只读对账后暂停。尚未迁移任务级调度，也未开放多成员或跨 origin 授权。
+PA7/PA8 存储第一步已实现：task-store.js 以 taskRoot:taskId + taskRegistry 单成员归属解析旧 tabId API，task:tabId 仅为旧版迁移输入，侧栏监听根/索引变化后经后台刷新；意图中断只读对账后暂停。任务级调度已迁移（见下文），尚未开放多成员或跨 origin 授权。
 
 任务运行资源已从 tabId 身份迁至 taskId：runtime 的 jobs/请求控制器/运行锁与后台 timers、task-id:taskId alarm；tab 发布队列及 API 仍作为替换/兼容边界。store.getByTaskId 仅解析已提交的当前归属。新调度携带 expectedTaskId，旧任务唤醒不能操作同标签新任务；旧 task:tabId alarm 清理并通过当前归属升级调度。

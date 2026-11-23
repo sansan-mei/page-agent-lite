@@ -2,7 +2,13 @@
 (() => {
   const $=id=>document.getElementById(id);
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
-  let permissionCheck=0;
+  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false;
+  async function refreshTask(){
+    const target=tabId,view=selection,version=++taskRefresh;if(target===null)return;
+    try{const value=await send('task:get');if(target!==tabId||view!==selection||version!==taskRefresh)return;const previousId=task?.taskId;task=value;if(historyTask?.taskId===task?.taskId)historyTask=task;render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
+    catch(error){if(target===tabId&&view===selection&&version===taskRefresh&&!scopePending)$('status').textContent=error.message;}
+  }
+  function invalidateTask(){if(busy){++taskRefresh;refreshAfterAction=true;}else void refreshTask();}
   async function refreshPermissions(){
     const version=++permissionCheck,origin=tabOrigin;
     $('grant').hidden=true;$('grant-all').hidden=true;
@@ -204,7 +210,7 @@
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
   }
   async function selectTab(){
-    const version=++selection;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;tabId=null;tabOrigin=null;task=null;render();void refreshPermissions();
+    const version=++selection;++taskRefresh;scopePending=false;refreshAfterAction=false;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;tabId=null;tabOrigin=null;task=null;render();void refreshPermissions();
     $('status').textContent='';
     try{
       const tabs=await chrome.tabs.query({active:true,currentWindow:true});
@@ -219,7 +225,7 @@
       $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'请选择普通 HTTP/HTTPS 网页';
       if(!tabOrigin)$('status').textContent=tab?.url?'浏览器内部页、扩展页面等不支持操作。':'无法读取网页地址，请重新加载扩展并确认新增权限。';
       if(tabId===null){render();return;}
-      const value=await send('task:get');if(version!==selection)return;task=value;render();
+      const refreshVersion=++taskRefresh,value=await send('task:get');if(version!==selection||refreshVersion!==taskRefresh)return;task=value;render();
     }catch(e){if(version===selection)$('status').textContent=e.message;}
   }
   async function action(type,extra,draft){
@@ -232,7 +238,7 @@
       if(type==='task:submit'&&tabId===target){historyOpen=false;if($('instruction').value===draft)$('instruction').value='';}
     }
     catch(e){$('status').textContent=e.message;}
-    finally{busy=false;render();}
+    finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
   $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim()},draft);});
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
@@ -291,7 +297,14 @@
     if(id===tabId&&(change.url||change.status==='complete'))void selectTab();
   });
   chrome.storage.onChanged.addListener((changes,area)=>{
-    if(area==='session'&&tabId!==null&&changes['task:'+tabId]){const previousId=task?.taskId;task=changes['task:'+tabId].newValue||null;if(historyTask?.taskId===task?.taskId)historyTask=task;render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
+    if(area!=='session'||tabId===null)return;
+    const registry=changes.taskRegistry;
+    if(registry){
+      const before=registry.oldValue||{},after=registry.newValue||{};
+      const relevant=before.pending?.tabId===tabId||after.pending?.tabId===tabId||JSON.stringify(before.bindings?.[tabId])!==JSON.stringify(after.bindings?.[tabId]);
+      if(relevant){scopePending=after.pending?.tabId===tabId;if(scopePending){++taskRefresh;return;}invalidateTask();return;}
+    }
+    if(!scopePending&&task?.taskId&&changes['taskRoot:'+task.taskId])invalidateTask();
   });
   void selectTab();
 })();
