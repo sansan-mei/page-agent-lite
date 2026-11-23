@@ -85,3 +85,7 @@ Edge 158 本机真实扩展、stub 模型：30 个流程断言、37 次模型请
 ## PA2 原生字段输入兼容增量
 
 156 项 Node 测试通过，覆盖 beforeinput 取消、focus/beforeinput/input 替换节点不继续写入/change，以及取消后 worker 重建不重放。`scripts/form-input-smoke.cjs` 在本机 Edge 无窗口通过：真实原型 setter 绕过实例跟踪器、input/textarea 状态接受、InputEvent 数据与聚焦、取消保留值、异步回滚、节点替换及日期/数字格式清洗前拒绝。受控 fixture 模拟值跟踪，不是实际 React/Vue；Chrome 消息为 stub，未验证完整扩展、线上模型或真实网站。脚本以 Playwright 路由提供合成 HTTPS 内容，不访问外部网站；PAGE_AGENT_CHROMIUM 可指定浏览器。
+
+## PA2 ARIA 选择控件增量
+
+158 项 Node 回归通过，新增同名 option 按 listbox/唯一 owner 分组、aria-owns、归属改变旧签名失效、多 owner 不任取、selected/expanded 条件及缺失/非法/隐藏状态为 unknown。`scripts/aria-select-smoke.cjs` 在本机 Edge 无窗口通过：打开两组独立弹层、分组选中同名 Paris、异步回滚为 not_satisfied、弹层隐藏后 unknown。使用真实 DOM 与 Chrome 消息 stub，无真实框架、完整扩展或线上模型验收；PAGE_AGENT_CHROMIUM 指定浏览器，页面由 Playwright 路由合成。

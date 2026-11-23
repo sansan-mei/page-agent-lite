@@ -175,3 +175,14 @@ test('fill honors cancelled beforeinput and stops when event handlers replace a 
   if(mode!=='input-replace')assert.equal(n.value,'original');
  }
 });
+
+test('ARIA popup groups disambiguate same-label options and owner changes stale old targets',()=>{
+ const {document}=parseHTML('<html><body><div role="combobox" aria-label="Departure" aria-controls="from"></div><div role="combobox" aria-label="Arrival" aria-owns="to"></div><div role="listbox" id="from"><div role="option" aria-selected="false">Paris</div></div><div role="listbox" id="to"><div role="option" aria-selected="true">Paris</div></div></body></html>');
+ const snap=C.agentSnapshot(document),options=snap.page.elements.filter(e=>e.role==='option');
+ assert.deepEqual(options.map(e=>snap.page.groups.find(g=>g.id===e.group).label),['Departure','Arrival']);
+ assert.ok(snap.page.regions.some(r=>r.role==='listbox'&&r.label==='Arrival'));
+ document.querySelector('[aria-controls]').setAttribute('aria-controls','to');
+ assert.throws(()=>C.agentExecute({action:'click',id:options[0].id},snap,document),e=>e.code==='STALE');
+ const multiple=C.agentSnapshot(document),arrival=multiple.page.elements.find(e=>e.role==='option'&&e.selected);
+ assert.equal(multiple.page.groups.find(g=>g.id===arrival.group).label,'');
+});

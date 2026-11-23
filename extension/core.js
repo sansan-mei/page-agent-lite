@@ -96,6 +96,14 @@ function agentScrollInfo(n){
  const x=Math.max(0,(n.scrollWidth||0)-(n.clientWidth||0)),y=Math.max(0,(n.scrollHeight||0)-(n.clientHeight||0));
  return {x:n.scrollLeft||0,y:n.scrollTop||0,maxX:x,maxY:y};
 }
+// ARIA popup ownership is reference data, never an instruction or a selector from the model.
+function agentPopup(n){
+ const popup=n.closest('[role="listbox"]');if(!popup)return null;
+ const owners=popup.id?[...n.ownerDocument.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')].filter(c=>{if(c.closest('[hidden],[aria-hidden="true"],[data-page-agent],input[type="password"],input[type="hidden"]'))return false;for(let p=c;p;p=p.parentElement){const style=n.ownerDocument.defaultView?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;}).filter(c=>[c.getAttribute('aria-controls'),c.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/).includes(popup.id)):[];
+ const owner=owners.length===1?owners[0]:null;
+ const label=owner?(owner.getAttribute('aria-label')||owner.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>n.ownerDocument.getElementById(id)?.textContent||'').join(' ')||owner.getAttribute('title')||owner.getAttribute('placeholder')||owner.getAttribute('name')||'').trim().slice(0,180):'';
+ return {popup,label,signature:[label,agentNodeKey(popup),popup.id,popup.getAttribute('aria-label'),popup.getAttribute('aria-labelledby'),owners.map(c=>[agentNodeKey(c),c.getAttribute('aria-label'),c.getAttribute('aria-controls'),c.getAttribute('aria-owns')])]};
+}
 function agentReadOptions(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query'].includes(k))||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
  return value;
@@ -140,7 +148,8 @@ function agentSnapshot(doc, textOffset=0){
   if(matchedElements++<elementOffset)continue;
   if(elements.length>=120)continue;
   let container=n.closest('fieldset,[role="radiogroup"],[role="group"],form,dialog,[role="dialog"],[role="alertdialog"],[data-question-id],.question,.question-item,.ques-item');
-  container=n.closest(dialogSelector)||container;
+  const popup=agentPopup(n);
+  container=popup?.popup||n.closest(dialogSelector)||container;
   if(!container&&['radio','checkbox'].includes(n.type)){
    for(let p=n.parentElement,depth=0;p&&p!==doc.body&&depth<6;p=p.parentElement,depth++){
     const choices=[...p.querySelectorAll('input[type="radio"],input[type="checkbox"]')];
@@ -154,7 +163,7 @@ function agentSnapshot(doc, textOffset=0){
     const c=container.cloneNode(true);for(const x of c.querySelectorAll(blocked))x.remove();
     const context=(c.textContent||'').replace(/\s+/g,' ').trim().slice(0,Math.min(500,contextBudget));contextBudget-=context.length;
     const heading=container.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
-    const groupLabel=(container.getAttribute('aria-label')||container.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ')||heading?.textContent||(inDialog(container)?context:'')).trim().slice(0,180);
+    const groupLabel=(container.getAttribute('aria-label')||container.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ')||heading?.textContent||popup?.label||(inDialog(container)?context:'')).trim().slice(0,180);
     group={id:'g'+groups.length,label:groupLabel,context,optionIds:[]};groupNodes.set(container,group);groups.push(group);
    }
    group.optionIds.push(id);
@@ -165,17 +174,17 @@ function agentSnapshot(doc, textOffset=0){
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
   const controlled=related?.split(/\s+/).slice(0,5).map(id=>doc.getElementById(id)).filter(Boolean);
   const expanded=n.getAttribute('aria-expanded'),selected=n.getAttribute('aria-selected');
-  elements.push({inViewport:inViewport(n),expanded:expanded===null?undefined:expanded==='true',selected:selected===null?undefined:selected==='true',haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),value:n.value?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
+  elements.push({inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),value:n.value?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  let regionBudget=5000;
- for(const n of prioritize(doc.querySelectorAll('main,section,article,fieldset,form,dialog,[role="status"],[role="alert"],[role="dialog"],[role="alertdialog"],[role="region"],[role="list"],[role="table"]'))){
+ for(const n of prioritize(doc.querySelectorAll('main,section,article,fieldset,form,dialog,[role="status"],[role="alert"],[role="dialog"],[role="alertdialog"],[role="region"],[role="list"],[role="table"],[role="listbox"]'))){
   if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}if(regions.length>=40||regionBudget<=0){regionsComplete=false;break;}
   const copy=n.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();
   const raw=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
   const heading=n.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
   const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>doc.getElementById(id)?.textContent||'').join(' ');
-  const id='r'+regions.length,label=(n.getAttribute('aria-label')||labelled||heading?.textContent||'').trim().slice(0,180);
+  const id='r'+regions.length,label=(n.getAttribute('aria-label')||labelled||heading?.textContent||agentPopup(n)?.label||'').trim().slice(0,180);
   const limit=Math.min(1000,regionBudget),regionText=raw.slice(0,limit);regionBudget-=regionText.length;
   regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textTruncated:raw.length>limit,visible:visible(n)});
   nodes.set(id,{node:n,signature:agentSignature(n)});
@@ -193,7 +202,7 @@ function agentVerify(plan,snap){
  const verified=actual===plan.value;
  return {verified,actual,message:verified?'已核对目标字段状态与本次指定值一致':'实际字段状态与指定值不一致，操作未生效；需重新读取并修正'};
 }
-function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls')]);}
+function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
  if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');

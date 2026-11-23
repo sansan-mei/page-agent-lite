@@ -45,7 +45,7 @@ fill/check/select 自动添加实际 value/checked 相符条件。字段节点�
 
 code 为稳定机器代码，控制流不依赖中文 message。旧 navigation/connection/verification 由 tool-protocol.js 适配；回执丢失一律 unknown，恢复后也不假装原动作已成功。
 
-expected 为 1–5 个 AND 条件，每项 `{kind, id, value?}`，或 `{kind, target, value?}`。target 为受限语义目标 `{category: 'element'|'region', label, role?, name?, group?}`，不接受选择器/脚本。支持 field_equals、checked_equals、element_visible、element_absent、text_present、url_changed、url_equals。text_present 必须指向具体可读取区域；URL 比较仍受同源限制。
+expected 为 1–5 个 AND 条件，每项 `{kind, id, value?}`，或 `{kind, target, value?}`。target 为受限语义目标 `{category: 'element'|'region', label, role?, name?, group?}`，不接受选择器/脚本。支持 field_equals、checked_equals、selected_equals、expanded_equals、element_visible、element_absent、text_present、url_changed、url_equals。text_present 必须指向具体可读取区域；URL 比较仍受同源限制。
 
 示例：`{"action":"click","id":"t2","reply":"保存","expected":[{"kind":"text_present","id":"r0","value":"保存成功"}]}`。运行器会保存语义目标、原文档和 deadline，区域中的新反馈才可满足条件，其他位置的同名提示不算证据。
 
@@ -99,3 +99,9 @@ fill 仍只接受现有 input 类型及 textarea。使用原型 value setter 绕
 聚焦后重核对节点签名，再派发可取消 beforeinput；支持 InputEvent 时携带 data、inputType=insertReplacementText、isComposing=false 和 composed=true。网页 preventDefault 返回 INPUT_CANCELLED，不继续 setter/input/change；因处理器可能已有副作用，dispatch=unknown，不冒称撤销或自动重试。允许输入后使用原生 setter，再派发 input/change；select 保留普通 input/change。聚焦/事件处理器替换、隐藏、禁用节点或修改字段类型时返回 TARGET_CHANGED 并停止后续事件。InputEvent 不可用时降级普通 Event。
 
 现有稳定观察及字段 expected 仍核对实际值：异步回滚为 not_satisfied，替换后只能唯一语义匹配核对；不自动补写。控制器可能要求 isTrusted/键盘/IME 或特定框架协议，本增量不保证兼容，不支持组合输入、富文本或任意脚本。
+
+## ARIA 选择控件与状态核对
+
+listbox 内控件优先按 listbox 分组（包括位于 dialog 内或独立挂载的弹层）；名称先用自身 aria-label/aria-labelledby/标题，再用唯一可见 combobox 的名称。通过 aria-controls/aria-owns 的 DOM ID 引用关联，不执行选择器；多 owner 时不任取一个，不以选项文字冒充控件名称。listbox 也作为可读 region，仍受原预算限制。弹层节点或归属关联改变使旧目标签名失效。
+
+selected_equals 和 expanded_equals 接收布尔 value，分别只读核对明确的 aria-selected/aria-expanded；缺失或非 true/false 状态为 unknown，不能默认为 false。这两个条件沿用 expected、wait、verify、done 及证据展示，不新增选择器专用动作。先 click 打开，再按新快照分组挑选选项；选项 click 后派发不等于选中成功。选项消失/隐藏后不能核实 selected_equals，应核对 combobox 值或指定结果区域。不推断键盘焦点等于选中，不派发可信键盘事件。

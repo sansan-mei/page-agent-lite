@@ -1,6 +1,6 @@
 (function(root){
   'use strict';
-  const kinds=['field_equals','checked_equals','element_visible','element_absent','text_present','url_changed','url_equals'];
+  const kinds=['field_equals','checked_equals','selected_equals','expanded_equals','element_visible','element_absent','text_present','url_changed','url_equals'];
   const descriptorKeys=['category','tag','role','label','name','type','group','key'];
   function validate(list){
     if(!Array.isArray(list)||list.length<1||list.length>5)throw new Error('验证条件必须为 1–5 项');
@@ -16,7 +16,7 @@
           if(!c.target||typeof c.target!=='object'||Array.isArray(c.target)||!Object.keys(c.target).length||Object.keys(c.target).some(k=>!descriptorKeys.includes(k))||!Object.values(c.target).every(v=>typeof v==='string'&&v.length<=500)||!['element','region'].includes(c.target.category)||!c.target.label&&!c.target.name&&!c.target.key)throw new Error('语义目标需要明确名称或标签');
         }
         if(['field_equals','text_present'].includes(c.kind)&&(typeof c.value!=='string'||c.value.length>(c.kind==='text_present'?300:4000)||c.kind==='text_present'&&!c.value))throw new Error('验证值无效');
-        if(c.kind==='checked_equals'&&typeof c.value!=='boolean')throw new Error('验证勾选值无效');
+        if(['checked_equals','selected_equals','expanded_equals'].includes(c.kind)&&typeof c.value!=='boolean')throw new Error('验证勾选值无效');
       }
     }
     return list;
@@ -71,6 +71,7 @@
       if(c.kind==='element_absent')return answer(false,'ELEMENT_PRESENT');
       if(c.kind==='field_equals')return answer(item.value===undefined?null:item.value===c.value,'FIELD_OBSERVED',item.value??null);
       if(c.kind==='checked_equals')return answer(typeof item.checked!=='boolean'?null:item.checked===c.value,'CHECKED_OBSERVED',item.checked??null);
+      if(['selected_equals','expanded_equals'].includes(c.kind)){const key=c.kind==='selected_equals'?'selected':'expanded';return answer(typeof item[key]!=='boolean'?null:item[key]===c.value,key==='selected'?'SELECTED_OBSERVED':'EXPANDED_OBSERVED',item[key]??null);}
       if(item.text===undefined)return answer(null,'TEXT_SCOPE_UNAVAILABLE');
       const matched=item.text.includes(c.value);
       return answer(!matched&&item.textTruncated?null:matched,matched?'TEXT_FOUND':item.textTruncated?'TRUNCATED_SCOPE':'TEXT_NOT_FOUND',item.text.slice(0,500));

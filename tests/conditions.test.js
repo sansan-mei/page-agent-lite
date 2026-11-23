@@ -72,3 +72,17 @@ test('background Submit cannot be mistaken for new dialog Submit after original 
  document.getElementById('open').remove();document.querySelector('[role="dialog"]').removeAttribute('hidden');
  assert.equal(G.evaluate(bound,capture(document)).status,'unknown');
 });
+
+test('selection and expansion checks use unique popup groups and preserve missing ARIA as unknown',()=>{
+ const {document}=parseHTML('<html><body><div role="combobox" aria-label="From" aria-controls="from" aria-expanded="false"></div><div role="combobox" aria-label="To" aria-controls="to"></div><div role="listbox" id="from"><div role="option" aria-selected="false">Paris</div></div><div role="listbox" id="to"><div role="option" aria-selected="true">Paris</div></div></body></html>');
+ const before=capture(document),option=before.page.elements.find(e=>e.role==='option'&&!e.selected),combo=before.page.elements.find(e=>e.label==='From');
+ const checks=G.bind([{kind:'selected_equals',id:option.id,value:true},{kind:'expanded_equals',id:combo.id,value:true}],before);
+ assert.equal(G.evaluate(checks,before).status,'not_satisfied');
+ document.querySelector('#from [role="option"]').setAttribute('aria-selected','true');document.querySelector('[aria-controls="from"]').setAttribute('aria-expanded','true');
+ assert.equal(G.evaluate(checks,capture(document)).status,'success');
+ document.querySelector('#from [role="option"]').setAttribute('aria-selected','mixed');
+ assert.equal(G.evaluate(checks,capture(document)).status,'unknown');
+ document.querySelector('#from').setAttribute('hidden','');assert.equal(G.evaluate(checks,capture(document)).status,'unknown');
+ assert.throws(()=>G.validate([{kind:'expanded_equals',id:combo.id,value:'false'}]));
+ assert.throws(()=>G.validate([{kind:'selected_equals',id:option.id,value:0}]));
+});

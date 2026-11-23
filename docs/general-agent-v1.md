@@ -96,6 +96,7 @@ V1 交付以下能力：
 |---|---|
 | field_equals | 字段实际值等于指定值 |
 | checked_equals | 单/多选或受支持开关状态相符 |
+| selected_equals / expanded_equals | 显式 ARIA 选中/展开状态相符；缺失或非法状态为 unknown |
 | element_visible | 指定区域/元素存在且可见 |
 | element_absent | 在已完整观察的指定范围内不存在 |
 | text_present | 已定位区域出现指定文本，限制文本长度 |
