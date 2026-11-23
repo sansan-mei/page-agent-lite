@@ -605,3 +605,19 @@ test('wheel is checkpointed, interrupted execution and stop never replay it',asy
  const recovered=createRuntime(f.deps);await recovered.tick(1);assert.equal((await recovered.get(1)).reason,'uncertain');assert.equal(f.executed.length,1);
  await recovered.stop(1);await createRuntime(f.deps).tick(1);assert.equal(f.executed.length,1);
 });
+
+
+test('compact mouse and keyboard actions stop before dispatch and never replay interrupted input',async()=>{
+ for(const action of ['press_key','double_click','right_click']){
+  let release;
+  const plan={reply:'Input',action,id:'t0',...(action==='press_key'?{value:'ArrowDown'}:{})};
+  const f=fixture({model:()=>new Promise(r=>{release=()=>r({text:JSON.stringify(plan)});})});
+  await f.runtime.start(1,'input');const pending=f.runtime.tick(1);
+  while(!release)await new Promise(r=>setImmediate(r));
+  await f.runtime.stop(1);release();await pending;assert.equal(f.executed.length,0);
+  const g=fixture({model:async()=>({text:JSON.stringify(plan)})});
+  await g.runtime.start(1,'input');await g.runtime.tick(1);assert.equal(g.executed.length,1);
+  const t=await g.runtime.get(1);t.phase='executing';t.check=null;await g.store.set(1,t);
+  const fresh=createRuntime(g.deps);await fresh.tick(1);assert.equal((await fresh.get(1)).reason,'uncertain');assert.equal(g.executed.length,1);
+ }
+});

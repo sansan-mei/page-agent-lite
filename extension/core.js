@@ -218,7 +218,7 @@ function agentVerify(plan,snap){
 function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','wheel','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!['done','pause','observe','verify','wait','click','hover','fill','check','select','scroll','wheel','press_key','double_click','right_click','memory_read','memory_write','memory_delete','memory_clear','history_read','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'].includes(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice'].includes(k)))throw new Error('模型操作格式无效');
  if(p.action==='observe'&&p.value!==undefined){if(typeof p.value==='object')agentReadOptions(p.value);else if(!Number.isSafeInteger(p.value)||p.value<0)throw new Error('Invalid text offset');}
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
@@ -226,17 +226,18 @@ function agentPlan(raw,snap){
  if(p.expected!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;G.validate(p.expected);}
  if(p.action==='verify'&&!p.expected)throw new Error('验证需要明确条件');
  if(p.action==='wait'&&!p.expected&&p.timeoutMs===undefined)throw new Error('纯延时等待需要 timeoutMs');
- if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','hover','fill','check','select','scroll','wheel'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
+ if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!['wait','click','hover','fill','check','select','scroll','wheel','press_key','double_click','right_click'].includes(p.action)))throw new Error('等待时间需为 100–30000 毫秒');
  if(['memory_write','memory_delete','site_memory_write','site_memory_delete','site_memory_read','global_memory_read','global_memory_write','global_memory_delete'].includes(p.action)&&(typeof p.id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(p.id)))throw new Error('记忆名称无效');
  if(p.action==='history_read'&&(typeof p.id!=='string'||!/^h[0-9]+$/.test(p.id)||(p.value!==undefined&&(!Number.isSafeInteger(p.value)||p.value<0))))throw new Error('历史记录读取参数无效');
  if(['memory_write','site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
- if(['click','hover','fill','check','select','wheel'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
+ if(['click','hover','fill','check','select','wheel','press_key','double_click','right_click'].includes(p.action)&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
  if(p.action==='check'&&typeof p.value!=='boolean')throw new Error('勾选状态无效');
  if(p.action==='scroll'||p.action==='wheel'){
   if(!['up','down','left','right'].includes(p.value))throw new Error('滚动方向无效');
   if(p.id!==undefined&&!snap.nodes.has(p.id))throw new Error('滚动目标无效');
  }
+ if(p.action==='press_key')agentKey(p.value);
  return p;
 }
 function agentExecute(p,snap,doc){
@@ -248,6 +249,7 @@ function agentExecute(p,snap,doc){
  for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});}
  if(p.action==='scroll')return agentScroll(p,n,doc,false);
  if(p.action==='wheel')return agentWheel(p,n,doc);
+ if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature);
  // Visual feedback never gates or changes the actual operation.
  try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,doc);}catch{}
  if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover');return;}
@@ -296,6 +298,41 @@ function agentScroll(p,n,doc,page){
  if(page)doc.defaultView.scrollBy(x,y);else n.scrollBy({left:x,top:y,behavior:'instant'});
  const after=agentScrollInfo(n),delta=after[axis]-before[axis];
  return {axis,before:before[axis],after:after[axis],delta,atStart:after[axis]<=0,atEnd:after[axis]>=max};
+}
+// Bounded input vocabulary: no text, scripts, arbitrary codes or held-key state.
+function agentKey(value){
+ if(typeof value!=='string')throw new Error('按键参数无效');
+ const parts=value.split('+'),key=parts.pop(),modifiers=parts;
+ if(!['Enter','Escape','Tab','Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown','Backspace','Delete',...'abcdefghijklmnopqrstuvwxyz'].includes(key)||modifiers.some(m=>!['Control','Alt','Shift','Meta'].includes(m))||new Set(modifiers).size!==modifiers.length)throw new Error('不支持的按键或组合键');
+ return {key:key==='Space'?' ':key,ctrlKey:modifiers.includes('Control'),altKey:modifiers.includes('Alt'),shiftKey:modifiers.includes('Shift'),metaKey:modifiers.includes('Meta')};
+}
+function agentInput(p,n,doc,signature){
+ const win=doc.defaultView;
+ n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
+ const r=n.getBoundingClientRect(),x=(Math.max(0,r.left)+Math.min(win.innerWidth,r.right))/2,y=(Math.max(0,r.top)+Math.min(win.innerHeight,r.bottom))/2;
+ const hit=doc.elementFromPoint(x,y);
+ if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ const guard=()=>{
+  if(!n.isConnected||!hit.isConnected||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled]')||!n.contains(doc.elementFromPoint(x,y)))throw Object.assign(new Error('输入期间目标变化，停止后续事件'),{code:'TARGET_CHANGED'});
+  for(let e=n;e;e=e.parentElement){const s=win.getComputedStyle(e);if(s.display==='none'||s.visibility==='hidden')throw Object.assign(new Error('输入期间目标隐藏'),{code:'TARGET_CHANGED'});}
+ };
+ if(p.action==='press_key'){
+  const opts=agentKey(p.value);
+  n.focus?.({preventScroll:true});guard();
+  if(doc.activeElement!==n)throw Object.assign(new Error('目标无法获得键盘焦点'),{code:'TARGET_CHANGED'});
+  n.dispatchEvent(new win.KeyboardEvent('keydown',{...opts,bubbles:true,cancelable:true,composed:true}));
+  guard();if(doc.activeElement!==n)throw Object.assign(new Error('按键期间焦点变化，停止后续事件'),{code:'TARGET_CHANGED'});
+  n.dispatchEvent(new win.KeyboardEvent('keyup',{...opts,bubbles:true,cancelable:true,composed:true}));
+  return {input:'keyboard',key:opts.key};
+ }
+ if(p.action==='double_click'){
+  agentClick(n,doc);guard();agentClick(n,doc);guard();
+  hit.dispatchEvent(new win.MouseEvent('dblclick',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,detail:2}));
+ }else{
+  const opts={bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:2};
+  for(const type of ['pointerdown','mousedown','pointerup','mouseup','contextmenu']){guard();const C=type.startsWith('pointer')?win.PointerEvent:win.MouseEvent;hit.dispatchEvent(new C(type,{...opts,buttons:type.endsWith('down')?2:0,pointerId:1,pointerType:'mouse',isPrimary:true}));}
+ }
+ return {input:p.action};
 }
 function agentWheel(p,n,doc){
  const win=doc.defaultView;

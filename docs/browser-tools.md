@@ -127,3 +127,9 @@ verify 和动作后核对会针对绑定条件中具名 region 进行额外只�
 fill 仅将指定字符串写入 textContent（最多 4000 字符），不解析 HTML，不调用 execCommand 或框架命令。先检查结构，再聚焦、可取消 beforeinput、重新校验节点/签名，然后写入并派发 input/change；已有取消、隐藏、禁用、只读和节点替换保护适用。复杂结构在聚焦/输入事件前返回 UNSUPPORTED_EDITABLE、status=unsupported、dispatch=not_sent，运行器暂停，不删除原节点。
 
 自动 field_equals 与短暂观察核对实际纯文本，异步回滚为 not_satisfied；后续变成复杂结构则无可读取值，保持 unknown。仅证明本地内容，不证明服务端或框架保存；继承可编辑根、复杂 DOM 编辑器、富文本格式、IME/受信任键盘及撤销栈未支持。
+
+## 精简鼠标与键盘输入
+
+press_key 必须指定当前元素 id，value 为按键或组合键（例如 ArrowDown、Escape、Control+a、Shift+Tab）。修饰键仅 Control/Alt/Shift/Meta，不可重复；主键仅 Enter/Escape/Tab/Space/ArrowUp/ArrowDown/ArrowLeft/ArrowRight/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a-z。先检查遮挡、聚焦目标，派发 keydown/keyup；目标、焦点或遮挡改变即停止后续事件。没有跨动作按住状态，不补发浏览器原生编辑/默认行为，文本使用 fill。
+
+double_click 向当前 id 执行两次受保护 click 后派发 detail=2 的 dblclick；中间变化立即中断，前一次点击可能已生效。right_click 派发右键 pointer/mouse down/up 和 contextmenu，不打开浏览器原生菜单。事件回执仍是 sent/unknown，需独立核对；不新增权限、坐标或选择器输入。拖拽、长按及 OS 输入不在本版范围内。
