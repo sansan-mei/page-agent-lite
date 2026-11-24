@@ -116,12 +116,39 @@ function agentString(v){return typeof v==='string'?v:undefined;}
 // Agent targets are ephemeral references, never model-provided selectors or scripts.
 const agentNodeKeys=new WeakMap();let agentNodeCounter=0;
 function agentNodeKey(node){if(!agentNodeKeys.has(node))agentNodeKeys.set(node,'node'+(++agentNodeCounter));return agentNodeKeys.get(node);}
-function agentGeometry(n,win){
- const r=n.getBoundingClientRect?.();
+// Same-origin iframes are read one level below the top document only. Each frame document maps back to its
+// iframe element so geometry, hit tests and liveness checks can cross exactly that boundary.
+const agentFrames=new WeakMap();
+function agentFrame(doc){return doc&&agentFrames.get(doc)||null;}
+function agentLive(n){if(!n?.isConnected)return false;const f=agentFrame(n.ownerDocument);return !f||f.isConnected&&f.contentDocument===n.ownerDocument;}
+function agentFrameOffset(f){const r=f.getBoundingClientRect(),s=f.ownerDocument.defaultView?.getComputedStyle?.(f);return {x:r.left+(f.clientLeft||0)+(parseFloat(s?.paddingLeft)||0),y:r.top+(f.clientTop||0)+(parseFloat(s?.paddingTop)||0)};}
+// Visible box in top viewport coordinates: own viewport, overflow ancestors and, inside a frame, the iframe's visible box.
+function agentVisibleRect(n){
+ const r=n.getBoundingClientRect?.(),win=n.ownerDocument?.defaultView;
  if(!r||!Number.isFinite(win?.innerHeight)||!Number.isFinite(win?.innerWidth))return null;
  let left=Math.max(0,r.left),top=Math.max(0,r.top),right=Math.min(win.innerWidth,r.right),bottom=Math.min(win.innerHeight,r.bottom);
  for(let p=n.parentElement;p;p=p.parentElement){const style=win.getComputedStyle?.(p),box=p.getBoundingClientRect?.();if(!box)continue;if(/auto|scroll|hidden|clip/.test(style?.overflowX)){left=Math.max(left,box.left);right=Math.min(right,box.right);}if(/auto|scroll|hidden|clip/.test(style?.overflowY)){top=Math.max(top,box.top);bottom=Math.min(bottom,box.bottom);}}
- return {inViewport:r.width>0&&r.height>0&&right>left&&bottom>top};
+ const f=agentFrame(n.ownerDocument);
+ if(f){const o=agentFrameOffset(f),outer=agentVisibleRect(f);if(!outer)return null;left=Math.max(outer.left,left+o.x);top=Math.max(outer.top,top+o.y);right=Math.min(outer.right,right+o.x);bottom=Math.min(outer.bottom,bottom+o.y);}
+ return {left,top,right,bottom,width:r.width,height:r.height};
+}
+function agentGeometry(n){const b=agentVisibleRect(n);return b&&{inViewport:b.width>0&&b.height>0&&b.right>b.left&&b.bottom>b.top};}
+// Read same-origin frames one level deep (at most 10); list cross-origin, nested, loading or over-limit frames as not read.
+function agentFrameScan(doc,visible){
+ const frames=[],docs=new Map(),origin=d=>d?.defaultView?.origin;let complete=true,count=0;
+ const scan=(d,nested)=>{for(const f of d.querySelectorAll('iframe,frame')){
+  if(!visible(f))continue;
+  let fd=null;try{fd=f.contentDocument;}catch{}
+  const src=(f.getAttribute('src')||'').trim(),box=f.getBoundingClientRect?.();
+  const reason=nested?'nested':!fd||origin(fd)&&origin(doc)&&origin(fd)!==origin(doc)?'cross_origin':fd.readyState==='loading'||!fd.body||src&&!/^about:/i.test(src)&&fd.URL==='about:blank'?'loading':docs.size>=10?'limit':null;
+  if(reason&&box&&box.width*box.height<4)continue;// zero-size trackers hold nothing readable
+  const entry={id:'f'+count++,key:agentNodeKey(f),label:(f.getAttribute('title')||f.getAttribute('aria-label')||f.getAttribute('name')||'').trim().slice(0,100),read:!reason,reason:reason||undefined};
+  if(reason)complete=false;
+  if(!reason||frames.length<20)frames.push(entry);
+  if(!reason){agentFrames.set(fd,f);docs.set(f,{doc:fd,entry});}
+ }};
+ scan(doc,false);for(const f of [...docs.values()])scan(f.doc,true);
+ return {frames,docs,complete};
 }
 function agentScrollInfo(n){
  const x=Math.max(0,(n.scrollWidth||0)-(n.clientWidth||0)),y=Math.max(0,(n.scrollHeight||0)-(n.clientHeight||0));
@@ -180,17 +207,20 @@ function agentSnapshot(doc, textOffset=0, policy={}){
  if(!Number.isSafeInteger(textOffset)||textOffset<0)throw new Error("Invalid text offset");
  const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let semanticBudget=4000;let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
  const blocked=sensitiveSelector+',[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"]';
- const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;return !agentHidden(n,doc.defaultView);};
+ const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;return !agentHidden(n,n.ownerDocument.defaultView);};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
- const inDialog=n=>!!n.closest(dialogSelector);
+ const scan=agentFrameScan(doc,visible),frameOf=n=>agentFrame(n.ownerDocument),frameId=n=>scan.docs.get(frameOf(n))?.entry.id;
+ const inDialog=n=>!!n.closest(dialogSelector)||!!frameOf(n)?.closest(dialogSelector);
+ // Frame nodes follow their iframe element so document order and shared budgets stay intact.
+ const all=[];for(const n of doc.querySelectorAll('*')){all.push(n);const f=scan.docs.get(n);if(f)all.push(...f.doc.querySelectorAll('*'));}
  const geometry=new Map(),scrollables=new Set();
- const inViewport=n=>{if(!geometry.has(n))geometry.set(n,agentGeometry(n,doc.defaultView));return geometry.get(n)?.inViewport;};
- for(const n of doc.querySelectorAll('*')){const info=agentScrollInfo(n);if(n===doc.body||n===doc.documentElement||(!info.maxX&&!info.maxY))continue;const style=doc.defaultView?.getComputedStyle?.(n);if((info.maxX&&/auto|scroll/.test(style?.overflowX))||(info.maxY&&/auto|scroll/.test(style?.overflowY)))scrollables.add(n);}
+ const inViewport=n=>{if(!geometry.has(n))geometry.set(n,agentGeometry(n));return geometry.get(n)?.inViewport;};
+ for(const n of all){const info=agentScrollInfo(n),own=n.ownerDocument;if(n===own.body||n===own.documentElement||(!info.maxX&&!info.maxY))continue;const style=own.defaultView?.getComputedStyle?.(n);if((info.maxX&&/auto|scroll/.test(style?.overflowX))||(info.maxY&&/auto|scroll/.test(style?.overflowY)))scrollables.add(n);}
  const prioritize=items=>[...items].sort((a,b)=>Number(inDialog(b))-Number(inDialog(a))||Number(!!inViewport(b))-Number(!!inViewport(a)));
  let fullText='';
  if(reading.includeText!==false){
-  const copy=doc.body.cloneNode(true);for(const n of copy.querySelectorAll(blocked))n.remove();
-  fullText=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
+  const read=d=>{const copy=d.body.cloneNode(true);for(const n of copy.querySelectorAll(blocked))n.remove();return (copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();};
+  fullText=[read(doc),...[...scan.docs.values()].map(f=>{const t=read(f.doc);return t&&`[${f.entry.id}${f.entry.label?' '+f.entry.label:''}] ${t}`;})].filter(Boolean).join(' ');
  }
  const start=Math.min(textOffset,fullText.length),text=fullText.slice(start,start+16000);
  const textRange=reading.includeText===false?{start:0,end:0,total:null,nextOffset:null,omitted:true}:{start,end:start+text.length,total:fullText.length,nextOffset:start+text.length<fullText.length?start+text.length:null};
@@ -198,22 +228,22 @@ function agentSnapshot(doc, textOffset=0, policy={}){
  const controls='[contenteditable="true"],[contenteditable=""],[contenteditable="plaintext-only"],button,a[href],input,textarea,select,[role="button"],[role="radio"],[role="checkbox"],[role="link"],[role="menuitem"],[role="switch"],[role="combobox"],[role="option"],[role="tab"],[onclick],[tabindex]';
  const explicit=n=>n.matches(controls)&&(n.getAttribute('tabindex')===null||Number(n.getAttribute('tabindex'))>=0||n.matches(controls.replace(',[tabindex]','')));
  const cursors=new Map();
- const pointer=n=>{if(!n)return false;if(!cursors.has(n))cursors.set(n,doc.defaultView?.getComputedStyle?.(n)?.cursor);return cursors.get(n)==='pointer';};
+ const pointer=n=>{if(!n)return false;if(!cursors.has(n))cursors.set(n,n.ownerDocument.defaultView?.getComputedStyle?.(n)?.cursor);return cursors.get(n)==='pointer';};
  // Inside a clickable row, keep children that carry their own interaction signal (e.g. hover-revealed actions).
  const distinct=n=>n.matches('a,label,summary,[aria-haspopup]:not([aria-haspopup="false"]),[aria-expanded],[aria-pressed],[data-testid]');
- for(const n of prioritize(doc.querySelectorAll('*'))){
+ for(const n of prioritize(all)){
   const direct=explicit(n)||scrollables.has(n);
   if(!direct){
    // A pointer cursor is inherited: expose its boundary, not every icon/count child.
-   if(!pointer(n)||n===doc.body||n===doc.documentElement||pointer(n.parentElement)&&!distinct(n)||n.closest(controls)||n.querySelector(controls))continue;
+   if(!pointer(n)||n===n.ownerDocument.body||n===n.ownerDocument.documentElement||pointer(n.parentElement)&&!distinct(n)||n.closest(controls)||n.querySelector(controls))continue;
   }
   if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
   const id='t'+elements.length,editable=agentEditable(n);
   const associated=[...(n.labels||[])];
   if(n.closest('label'))associated.push(n.closest('label'));
   const nodeId=n.getAttribute('id'),type=agentString(n.type),name=agentString(n.name);
-  if(nodeId)for(const l of doc.querySelectorAll('label[for]'))if(l.getAttribute('for')===nodeId)associated.push(l);
-  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ').trim();
+  if(nodeId)for(const l of n.ownerDocument.querySelectorAll('label[for]'))if(l.getAttribute('for')===nodeId)associated.push(l);
+  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(n.ownerDocument.getElementById(id))).join(' ').trim();
   const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>agentText(l)).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(type)?agentString(n.value):'')||(editable?'':agentText(n))||n.getAttribute('placeholder')||name||'').trim().slice(0,180);
   if(reading.query&&!label.toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase())&&!(name||'').toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase()))continue;
   if(matchedElements++<elementOffset)continue;
@@ -222,7 +252,7 @@ function agentSnapshot(doc, textOffset=0, policy={}){
   const popup=agentPopup(n);
   container=popup?.popup||n.closest(dialogSelector)||container;
   if(!container&&['radio','checkbox'].includes(type)){
-   for(let p=n.parentElement,depth=0;p&&p!==doc.body&&depth<6;p=p.parentElement,depth++){
+   for(let p=n.parentElement,depth=0;p&&p!==n.ownerDocument.body&&depth<6;p=p.parentElement,depth++){
     const choices=[...p.querySelectorAll('input[type="radio"],input[type="checkbox"]')];
     if(choices.length>=2&&choices.every(c=>!name||c.name===name)){container=p;break;}
    }
@@ -234,7 +264,7 @@ function agentSnapshot(doc, textOffset=0, policy={}){
     const c=container.cloneNode(true);for(const x of c.querySelectorAll(blocked))x.remove();
     const context=(c.textContent||'').replace(/\s+/g,' ').trim().slice(0,Math.min(500,contextBudget));contextBudget-=context.length;
     const heading=container.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
-    const groupLabel=(container.getAttribute('aria-label')||container.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ')||agentText(heading)||popup?.label||(inDialog(container)?context:'')).trim().slice(0,180);
+    const groupLabel=(container.getAttribute('aria-label')||container.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(container.ownerDocument.getElementById(id))).join(' ')||agentText(heading)||popup?.label||(inDialog(container)?context:'')).trim().slice(0,180);
     group={id:'g'+groups.length,label:groupLabel,context,optionIds:[]};groupNodes.set(container,group);groups.push(group);
    }
    group.optionIds.push(id);
@@ -243,20 +273,20 @@ function agentSnapshot(doc, textOffset=0, policy={}){
   const role=n.getAttribute('role')||(editable?'textbox':null)||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(type)?type:n.localName==='input'?'textbox':'button');
   const ariaChecked=n.getAttribute('aria-checked');
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
-  const controlled=related?.split(/\s+/).slice(0,5).map(id=>doc.getElementById(id)).filter(Boolean);
+  const controlled=related?.split(/\s+/).slice(0,5).map(id=>n.ownerDocument.getElementById(id)).filter(Boolean);
   const expanded=n.getAttribute('aria-expanded'),selected=n.getAttribute('aria-selected');
   const semantic=semanticBudget>0?agentContext(n):null;
   const context=semantic?{path:semantic.path.map(label=>{const part=label.slice(0,semanticBudget);semanticBudget-=part.length;return part;}).filter(Boolean),description:semantic.description.slice(0,semanticBudget)}:undefined;
   if(context)semanticBudget=Math.max(0,semanticBudget-context.description.length);
-  elements.push({context,inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:type||n.getAttribute('role'),name:name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:agentString(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
+  elements.push({context,inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),frame:frameId(n),tag:n.localName,role,type:type||n.getAttribute('role'),name:name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:agentString(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  const regionOffset=reading.regionOffset||0;let matchedRegions=0;
  let regionBudget=5000;
- for(const n of prioritize(doc.querySelectorAll('main,section,article,fieldset,form,dialog,[role="status"],[role="alert"],[role="dialog"],[role="alertdialog"],[role="region"],[role="list"],[role="table"],[role="listbox"]'))){
+ for(const n of prioritize(all.filter(n=>n.matches('main,section,article,fieldset,form,dialog,[role="status"],[role="alert"],[role="dialog"],[role="alertdialog"],[role="region"],[role="list"],[role="table"],[role="listbox"]')))){
   if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
   const heading=n.querySelector('legend,h1,h2,h3,h4,[role="heading"]');
-  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ');
+  const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(n.ownerDocument.getElementById(id))).join(' ');
   const id='r'+regions.length,label=(n.getAttribute('aria-label')||labelled||agentText(heading)||agentPopup(n)?.label||'').trim().slice(0,180);
   if(reading.regionQuery&&!label.toLocaleLowerCase().includes(reading.regionQuery.trim().toLocaleLowerCase()))continue;
   if(matchedRegions++<regionOffset)continue;
@@ -265,22 +295,22 @@ function agentSnapshot(doc, textOffset=0, policy={}){
   const raw=(copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();
   const limit=Math.min(1000,regionBudget),regionStart=Math.min(reading.regionTextOffset||0,raw.length),regionText=raw.slice(regionStart,regionStart+limit);regionBudget-=regionText.length;
   const textRange={start:regionStart,end:regionStart+regionText.length,total:raw.length,nextOffset:regionStart+regionText.length<raw.length?regionStart+regionText.length:null};
-  regions.push({id,key:agentNodeKey(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textRange,textTruncated:regionStart>0||textRange.nextOffset!==null,visible:visible(n)});
+  regions.push({id,key:agentNodeKey(n),frame:frameId(n),tag:n.localName,role:n.getAttribute('role')||n.localName,label,text:visible(n)?regionText:'',textRange,textTruncated:regionStart>0||textRange.nextOffset!==null,visible:visible(n)});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  regionsComplete=!reading.regionQuery&&regionOffset===0&&regions.length===matchedRegions;
  const regionRange={start:Math.min(regionOffset,matchedRegions),end:Math.min(regionOffset,matchedRegions)+regions.length,total:matchedRegions,nextOffset:regionOffset+regions.length<matchedRegions?regionOffset+regions.length:null,query:reading.regionQuery||null};
  elementsComplete=!reading.query&&elementOffset===0&&matchedElements<=120;
  const elementRange={start:Math.min(elementOffset,matchedElements),end:Math.min(elementOffset,matchedElements)+elements.length,total:matchedElements,nextOffset:elementOffset+elements.length<matchedElements?elementOffset+elements.length:null,query:reading.query||null};
- const sensitiveExcluded=!!doc.querySelector(sensitiveSelector);
- const hiddenExcluded=sensitiveExcluded||cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
- return {nodes,sensitiveFields:policy.sensitiveFields===true,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{sensitiveFieldsAuthorized:policy.sensitiveFields===true,sensitiveExcluded,elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
+ const docs=[doc,...[...scan.docs.values()].map(f=>f.doc)],sensitiveExcluded=docs.some(d=>d.querySelector(sensitiveSelector));
+ const hiddenExcluded=sensitiveExcluded||cssHiddenExcluded||docs.some(d=>[...d.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]')));
+ return {nodes,sensitiveFields:policy.sensitiveFields===true,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,frames:scan.frames.length?scan.frames:undefined,coverage:{sensitiveFieldsAuthorized:policy.sensitiveFields===true,sensitiveExcluded,elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded,framesComplete:scan.complete}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
  const n=snap.nodes.get(plan.id)?.node;
- if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))return {verified:false,message:'敏感字段已排除，无法核对'};
- if(!n?.isConnected)return {verified:false,message:'操作后目标被替换，尚未核实结果，需重新读取页面'};
+ if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector)||n&&agentFrame(n.ownerDocument)?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))return {verified:false,message:'敏感字段已排除，无法核对'};
+ if(!agentLive(n))return {verified:false,message:'操作后目标被替换，尚未核实结果，需重新读取页面'};
  const editor=agentEditable(n),actual=plan.action==='check'?n.checked:editor?editor.value:n.value;
  const verified=actual===plan.value;
  return {verified,actual,message:verified?'已核对目标字段状态与本次指定值一致':'实际字段状态与指定值不一致，操作未生效；需重新读取并修正'};
@@ -329,16 +359,17 @@ function agentExecute(p,snap,doc){
  if(p.action==='done')return;
  if(agentTool(p.action)?.route!=='content')throw Object.assign(new Error('该工具不能在网页执行'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
  if(p.action==='scroll'&&p.id===undefined){return agentScroll(p,doc.scrollingElement||doc.documentElement,doc,true);}
- const ref=snap.nodes.get(p.id),n=ref?.node;
- if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))throw Object.assign(new Error('目标已变为敏感字段，未执行'),{code:'STALE',beforeDispatch:true});
- if(!n?.isConnected||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
- const win=doc.defaultView;
- if(agentHidden(n,win))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});
+ const ref=snap.nodes.get(p.id),n=ref?.node,frame=n&&agentFrame(n.ownerDocument);
+ if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector)||frame?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))throw Object.assign(new Error('目标已变为敏感字段，未执行'),{code:'STALE',beforeDispatch:true});
+ if(!agentLive(n)||frame?.closest('[hidden],[aria-hidden="true"],[data-page-agent]')||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
+ // Frame targets act on their own document: its viewport, hit testing, event constructors and value setters.
+ const top=doc;doc=n.ownerDocument;const win=doc.defaultView;
+ if(agentHidden(n,win)||frame&&agentHidden(frame,top.defaultView))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});
  if(p.action==='scroll')return agentScroll(p,n,doc,false);
  if(p.action==='wheel')return agentWheel(p,n,doc,snap);
  if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature,snap);
  // Visual feedback never gates or changes the actual operation.
- try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,doc);}catch{}
+ try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,top,agentVisibleRect(n));}catch{}
  if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover',snap);return;}
  if(p.action==='check'){
   if(n.localName!=='input'||!['checkbox','radio'].includes(n.type))throw new Error('目标不是可勾选选项');
@@ -359,7 +390,7 @@ function agentExecute(p,snap,doc){
  }
  const inputType=n.type;
  const intact=()=>{
-  if(!n.isConnected||n.disabled||n.readOnly||n.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector)||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
+  if(!agentLive(n)||n.disabled||n.readOnly||n.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector)||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
   if(agentHidden(n,win))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});
  };
  n.focus?.({preventScroll:true});intact();
@@ -397,19 +428,31 @@ function agentKey(value){
 // then once more after centring it. Never dispatch to a point the target does not own.
 const agentHitFractions=[[.5,.5],[.25,.5],[.75,.5],[.5,.25],[.5,.75],[.15,.2],[.85,.2],[.15,.8],[.85,.8]];
 function agentHitPoint(n,doc,snap,message){
- const win=doc.defaultView;
+ const win=doc.defaultView,frame=agentFrame(doc);
  const probe=()=>{
-  const r=n.getBoundingClientRect(),left=Math.max(0,r.left),top=Math.max(0,r.top),right=Math.min(win.innerWidth,r.right),bottom=Math.min(win.innerHeight,r.bottom);
+  const r=n.getBoundingClientRect();let left=Math.max(0,r.left),top=Math.max(0,r.top),right=Math.min(win.innerWidth,r.right),bottom=Math.min(win.innerHeight,r.bottom);
+  // In a frame, also stay inside the iframe's visible box and require the top document to hit the iframe there.
+  const o=frame&&agentFrameOffset(frame),outer=frame&&agentVisibleRect(frame);
+  if(frame){if(!outer)return {};left=Math.max(left,outer.left-o.x);top=Math.max(top,outer.top-o.y);right=Math.min(right,outer.right-o.x);bottom=Math.min(bottom,outer.bottom-o.y);}
   if(!(right>left&&bottom>top))return {};
   let first=null;
-  for(const [fx,fy] of agentHitFractions){const x=left+(right-left)*fx,y=top+(bottom-top)*fy,hit=doc.elementFromPoint(x,y);if(hit&&n.contains(hit))return {x,y,hit};first??=hit;}
+  for(const [fx,fy] of agentHitFractions){
+   const x=left+(right-left)*fx,y=top+(bottom-top)*fy,cover=frame&&frame.ownerDocument.elementFromPoint(x+o.x,y+o.y);
+   if(frame&&cover!==frame){if(cover)first??={hit:cover,anchor:frame};continue;}
+   const hit=doc.elementFromPoint(x,y);if(hit&&n.contains(hit))return {x,y,hit};if(hit)first??={hit,anchor:n};
+  }
   return {blocker:first};
  };
  n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
  let found=probe();
  if(!found.hit){n.scrollIntoView?.({block:'center',inline:'center',behavior:'instant'});found=probe();}
  if(found.hit)return found;
- throw Object.assign(new Error(message),{code:'TARGET_BLOCKED',beforeDispatch:true,observed:agentBlocker(found.blocker,n,snap)});
+ throw Object.assign(new Error(message),{code:'TARGET_BLOCKED',beforeDispatch:true,observed:agentBlocker(found.blocker?.hit,found.blocker?.anchor||n,snap)});
+}
+// A point still belongs to the target only if the target (and, in a frame, the iframe in the top document) is hit there.
+function agentOwns(n,doc,x,y){
+ const f=agentFrame(doc);if(f){const o=agentFrameOffset(f);if(f.ownerDocument.elementFromPoint(x+o.x,y+o.y)!==f)return null;}
+ const hit=doc.elementFromPoint(x,y);return hit&&n.contains(hit)?hit:null;
 }
 // Describe the covering layer only through data the snapshot already exposed, keyed by stable node keys.
 function agentBlocker(hit,n,snap){
@@ -429,7 +472,7 @@ function agentInput(p,n,doc,signature,snap){
  const win=doc.defaultView;
  const {x,y,hit}=agentHitPoint(n,doc,snap,'目标被遮挡，请重新观察');
  const guard=()=>{
-  if(!n.isConnected||!hit.isConnected||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled]')||!n.contains(doc.elementFromPoint(x,y)))throw Object.assign(new Error('输入期间目标变化，停止后续事件'),{code:'TARGET_CHANGED'});
+  if(!agentLive(n)||!hit.isConnected||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled]')||!agentOwns(n,doc,x,y))throw Object.assign(new Error('输入期间目标变化，停止后续事件'),{code:'TARGET_CHANGED'});
   if(agentHidden(n,win))throw Object.assign(new Error('输入期间目标隐藏'),{code:'TARGET_CHANGED'});
  };
  if(p.action==='press_key'){
@@ -454,7 +497,7 @@ function agentWheel(p,n,doc,snap){
  const win=doc.defaultView;
  if(!win?.WheelEvent)throw Object.assign(new Error('浏览器不支持滚轮事件'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
  const {x,y,hit}=agentHitPoint(n,doc,snap,'目标被遮挡或不在可操作区域，请重新观察');
- try{root.PageAgentPointer?.show(n,doc);}catch{}
+ try{root.PageAgentPointer?.show(n,agentFrame(doc)?.ownerDocument||doc,agentVisibleRect(n));}catch{}
  const horizontal=['left','right'].includes(p.value),amount=['up','left'].includes(p.value)?-600:600;
  const deltaX=horizontal?amount:0,deltaY=horizontal?0:amount;
  const accepted=hit.dispatchEvent(new win.WheelEvent('wheel',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,deltaX,deltaY,deltaMode:0}));
@@ -478,7 +521,7 @@ function agentClick(n,doc,hover=false,snap){
  if(mouse)n.focus?.({preventScroll:true});
  send('pointerup',true);if(pointer)send('mouseup');
  // Hover/focus handlers can replace a node or open an overlay. Never click through it.
- if(!n.isConnected||!target.isConnected||(r&&doc.elementFromPoint&&!n.contains(doc.elementFromPoint(x,y))))throw Object.assign(new Error('交互期间目标发生变化，尚未派发 click，请重新观察'),{code:'TARGET_CHANGED'});
+ if(!agentLive(n)||!target.isConnected||(r&&doc.elementFromPoint&&!agentOwns(n,doc,x,y)))throw Object.assign(new Error('交互期间目标发生变化，尚未派发 click，请重新观察'),{code:'TARGET_CHANGED'});
  // SVG hit targets have no HTMLElement.click(); keep the actual hit as event target.
  if(typeof target.click==='function')target.click();
  else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
