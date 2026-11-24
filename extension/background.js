@@ -101,7 +101,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:scope-change')return runtime.changeOrigins(m.tabId,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});
       if(m.type==='task:diagnostics')return runtime.diagnostics(m.tabId,m.taskId);
       if(m.type==='task:history'||m.type==='task:history-get'){
-        const origin=new URL((await tools.tab(m.tabId)).url).origin;
+        const tab=await tools.tab(m.tabId,true),url=new URL(tab.url),origin=['http:','https:'].includes(url.protocol)?url.origin:'browser';
         if(m.type==='task:history')return store.history(m.tabId,origin);
         if(typeof m.taskId!=='string'||m.taskId.length>100)throw new Error('对话标识无效');
         return store.historyGet(m.tabId,origin,m.taskId);
@@ -111,7 +111,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:memory')return runtime.getMemory(m.tabId);
       if(m.type==='task:memory-clear')return runtime.clearMemory(m.tabId);
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
-      if(m.type==='task:start'||m.type==='task:submit'){if((await store.owner?.(m.tabId))?.role==='member')throw new Error('该标签页已加入其他任务，请到任务所在标签页操作或先移出');await tools.inject(m.tabId);return runtime.submit(m.tabId,m.goal);}
+      if(m.type==='task:start'||m.type==='task:submit'){if((await store.owner?.(m.tabId))?.role==='member')throw new Error('该标签页已加入其他任务，请到任务所在标签页操作或先移出');return runtime.submit(m.tabId,m.goal);}
       if(m.type==='task:finish')return runtime.finish(m.tabId);
       if(m.type==='task:resume')return runtime.resume(m.tabId);
       if(m.type==='task:stop')return runtime.stop(m.tabId);
@@ -131,11 +131,11 @@ chrome.action.onClicked.addListener(tab=>{
   void (async()=>{
     try{
       if(!await ready)throw new Error('初始化失败');
-      await tools.tab(tab.id);await tools.inject(tab.id);
+      const current=await tools.tab(tab.id,true);if(['http:','https:'].includes(new URL(current.url).protocol))await tools.inject(tab.id);
       await chrome.action.setBadgeText({tabId:tab.id,text:''});
     }catch{
       await chrome.action.setBadgeText({tabId:tab.id,text:'!'});
-      await chrome.action.setTitle({tabId:tab.id,title:'请打开普通网页。配置可从扩展选项进入。'});
+      await chrome.action.setTitle({tabId:tab.id,title:'打开侧栏开始对话；网页操作需要网站授权。'});
     }
   })();
 });

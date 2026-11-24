@@ -75,3 +75,15 @@ test('origin policy prevents destination injection, observation and verification
  const calls=[];const chrome={permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://c.test/unapproved'};},async sendMessage(){calls.push('read');}},scripting:{async executeScript(){calls.push('inject');}}},tools=createBrowserTools(chrome),policy={origin:'https://a.test',allowedOrigins:['https://a.test','https://b.test']};
  for(const run of [()=>tools.observe(1,0,policy),()=>tools.verify(1,{expected:[]},policy),()=>tools.inject(1,policy)])await assert.rejects(run,e=>e.code==='ORIGIN_BOUNDARY');assert.deepEqual(calls,[]);
 });
+
+
+test('browser metadata permits internal tabs but navigation still requires exact task and host grants',async()=>{
+ let updates=0,messages=0,granted=false,url='chrome://newtab/';
+ const chrome={permissions:{async contains(){return granted;}},tabs:{async get(){return {url,status:'complete'};},async sendMessage(){messages++;throw Error('no internal injection');},async update(id,value){updates++;url=value.url;}}};
+ const tools=createBrowserTools(chrome),pending={url,plan:{action:'navigate',value:'https://example.test/'}};
+ assert.equal((await tools.tab(1,true)).url,url);await assert.rejects(()=>tools.tab(1),e=>e.code==='UNSUPPORTED_PAGE');
+ await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:[]}),e=>e.code==='NAVIGATION_DENIED');
+ await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']}),e=>e.code==='PERMISSION_DENIED');
+ granted=true;const outcome=await tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']});assert.equal(outcome.dispatch,'sent');assert.equal(updates,1);assert.equal(messages,0);
+ await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']}),e=>e.code==='STALE');assert.equal(updates,1);
+});

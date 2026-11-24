@@ -4,6 +4,7 @@
   const P = typeof module !== 'undefined' ? require('./prompts.js') : root.PageAgentPrompts;
   const T = typeof module !== 'undefined' ? require('./tool-protocol.js') : root.PageAgentProtocol;
   const G = typeof module !== 'undefined' ? require('./conditions.js') : root.PageAgentConditions;
+  const originOf=tab=>{const url=new URL(tab.url);return ['http:','https:'].includes(url.protocol)?url.origin:'browser';};
   const ACTIVE = new Set(['running', 'waiting_page']);
   function recent(items, count = 12, size = 10000) {
     const next = items.slice(-count);
@@ -150,7 +151,7 @@
       });
     }
     const policyFor=t=>({origin:t.origin,allowedOrigins:t.allowedOrigins||[t.origin],scopeRevision:t.scopeRevision,sensitiveFields:t.sensitiveAccess==='allowed'});
-    const inScope=t=>(t.allowedOrigins||[t.origin]).includes(t.origin);
+    const inScope=t=>t.origin==='browser'||(t.allowedOrigins||[t.origin]).includes(t.origin);
     async function scopePause(task,reason,message=null){
       controllerForTab(task.tabId)?.abort();
       return update(task.tabId,task.token,t=>{t.token=uuid();t.status='paused';t.reason=reason;t.nextObservation=null;t.contextUsage=null;event(t,message||(reason==='permission_denied'?'浏览器网站权限已撤销，任务暂停；已发出的操作不会撤销或重做。':'当前网站已不在任务授权范围，任务暂停。'));});
@@ -255,27 +256,27 @@
     async function reviewPermissions(){
       if(!tools.hasOriginAccess)return;
       for(const task of await store.list()){
-        if(['ended','completed','stopped','failed'].includes(task.status)||await tools.hasOriginAccess(task.origin))continue;
+        if(['ended','completed','stopped','failed'].includes(task.status)||task.origin==='browser'||await tools.hasOriginAccess(task.origin))continue;
         controllers.get(task.taskId)?.abort();await cancelSchedule(task.tabId);await scopePause(task,'permission_denied');
       }
     }
     async function start(tabId, goal) {
       if (typeof goal !== 'string' || !goal.trim() || goal.length > 2000) throw new Error('请输入不超过 2000 字的任务');
-      const page = await tools.tab(tabId), prefs = await preferences();
+      const page = await tools.tab(tabId,true), prefs = await preferences();
       controllerForTab(tabId)?.abort();
-      const task = {version:2, taskId:uuid(), token:uuid(), tabId, origin:new URL(page.url).origin, goal:goal.trim(), status:'running', phase:'observe', steps:0, prefs, results:[], events:[], pending:null, updatedAt:Date.now(), retries:0};
+      const task = {version:2, taskId:uuid(), token:uuid(), tabId, origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)], goal:goal.trim(), status:'running', phase:'observe', steps:0, prefs, results:[], events:[], pending:null, updatedAt:Date.now(), retries:0};
       event(task, '任务已开始');
       await serial(tabId, () => store.set(tabId, task)); schedule(tabId); return task;
     }
     async function submit(tabId, text) {
       if(typeof text!=='string'||!text.trim()||text.length>2000)throw new Error('请输入不超过 2000 字的指令');
-      const page=await tools.tab(tabId),prefs=await preferences();
+      const page=await tools.tab(tabId,true),prefs=await preferences();
       const saved=await serial(tabId,async()=>{
         let task=await store.get(tabId);
-        if(task&&!['completed','ended'].includes(task.status)){
+        if(task&&task.status!=='ended'&&(task.origin==='browser'||task.status!=='completed')){
           if(!inScope(task))throw new Error('当前网站不在任务授权范围，请先添加后继续');
           if(['scope_changed','permission_denied'].includes(task.reason)&&(task.phase==='executing'||task.check))throw new Error('请先点击继续核对未确定操作，再补充指令');
-          if(new URL(page.url).origin!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
+          if(originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllerForTab(tabId)?.abort();
@@ -284,7 +285,7 @@
           event(task,'你（补充指令）：'+text.trim());
         }else{
           controllerForTab(tabId)?.abort();
-          task={version:2,taskId:uuid(),token:uuid(),tabId,origin:new URL(page.url).origin,goal:text.trim(),instructions:[],status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
+          task={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
           event(task,'你：'+text.trim());event(task,'任务已开始');
         }
         task.updatedAt=Date.now();await store.set(tabId,task);return task;
@@ -335,13 +336,13 @@
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
       if(task.sensitiveRequest&&task.reason==='sensitive_access')throw new Error('请先选择是否授权本次对话操作敏感字段');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
-      const page=await tools.tab(tabId);
-      if(new URL(page.url).origin!==task.origin){const moved=await adoptOrigin(task,page);if(!moved)throw new Error('请核对任务范围和原站点未确定操作后再继续');schedule(tabId);return moved;}
+      const page=await tools.tab(tabId,true);
+      if(originOf(page)!==task.origin){const moved=await adoptOrigin(task,page);if(!moved)throw new Error('请核对任务范围和原站点未确定操作后再继续');schedule(tabId);return moved;}
       if(!inScope(task))throw new Error('当前网站不在任务授权范围，请先添加后继续');
-      if(tools.hasOriginAccess&&!await tools.hasOriginAccess(task.origin))throw new Error('请先授权当前网站后继续');
+      if(task.origin!=='browser'&&tools.hasOriginAccess&&!await tools.hasOriginAccess(task.origin))throw new Error('请先授权当前网站后继续');
       if (ACTIVE.has(task.status)) return task;
-      const tab = await tools.tab(tabId);
-      if (new URL(tab.url).origin !== task.origin) throw new Error('请回到任务原站点继续，跨站任务尚未支持');
+      const tab = await tools.tab(tabId,true);
+      if (originOf(tab) !== task.origin) throw new Error('请回到任务原站点继续，跨站任务尚未支持');
       const prefs = await preferences();
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
@@ -372,19 +373,19 @@
       let call=null;
       const controller = new AbortController(); controllers.set(task.taskId,controller);controllerTasks.set(tabId,task.taskId);
       const live = async () => {
-        const permitted=!tools.hasOriginAccess||await tools.hasOriginAccess(task.origin);
+        const permitted=task.origin==='browser'||!tools.hasOriginAccess||await tools.hasOriginAccess(task.origin);
         const current = await store.get(tabId);
         return permitted&&!globalEditing && epoch===globalEpoch && !controller.signal.aborted && current?.token===token && ACTIVE.has(current.status)&&inScope(current);
       };
       try {
-        const tab = await tools.tab(tabId);
-        if(new URL(tab.url).origin!==task.origin){await adoptOrigin(task,tab);return;}
+        const tab = await tools.tab(tabId,true);
+        if(originOf(tab)!==task.origin){await adoptOrigin(task,tab);return;}
         if(!inScope(task)){await scopePause(task,'scope_changed');return;}
-        if(tools.hasOriginAccess&&!await tools.hasOriginAccess(task.origin)){await scopePause(task,'permission_denied');return;}
+        if(task.origin!=='browser'&&tools.hasOriginAccess&&!await tools.hasOriginAccess(task.origin)){await scopePause(task,'permission_denied');return;}
         if (!await live()) return;
         if(task.check?.kind==='delay'){await delayCheck(task);return;}
         let readySnapshot=null;
-        if (tab.status === 'loading') {
+        if (task.origin!=='browser'&&tab.status === 'loading') {
           // A tab may keep loading subresources after its DOM is usable. Probe
           // read-only; never treat an old document or pending navigation as ready.
           try {
@@ -395,7 +396,7 @@
             if(!['NAVIGATION','PAGE_BUSY'].includes(error.code))throw error;
           }
         }
-        if (tab.status === 'loading'&&!readySnapshot) {
+        if (task.origin!=='browser'&&tab.status === 'loading'&&!readySnapshot) {
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面加载超过等待期限，任务暂停；未重复发送操作','timeout');return;}
           await update(tabId, token, t => {t.status='waiting_page';t.waitDeadline=deadline;if(!t.check&&t.phase!=='executing'){t.phase='observe';t.pending=null;}});return;
@@ -417,7 +418,7 @@
         }
         if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
         const readingScope=task.nextObservation;
-        let snap = readingScope?await tools.observe(tabId,readingScope.value,policyFor(task)):readySnapshot||await tools.observe(tabId,undefined,policyFor(task));
+        let snap = task.origin==='browser'?{url:tab.url,snapshotId:null,nodes:new Map(),page:{browser:true,text:'',elements:[],regions:[],coverage:{absenceComplete:false}}}:readingScope?await tools.observe(tabId,readingScope.value,policyFor(task)):readySnapshot||await tools.observe(tabId,undefined,policyFor(task));
         if(!await live())return;
         if(readingScope){
           task=await update(tabId,token,t=>{t.nextObservation=null;});
@@ -425,10 +426,10 @@
           if(snap.url!==readingScope.url||snap.documentId!==readingScope.documentId)snap=await tools.observe(tabId,undefined,policyFor(task));
         }
         if (!await live()) return;
-        const observedTab=await tools.tab(tabId);
-        if(observedTab.url!==snap.url||new URL(snap.url).origin!==task.origin){if(new URL(observedTab.url).origin!==task.origin)await adoptOrigin(task,observedTab);return;}
-        const memories=await store.getMemory(tabId,task.origin);
-        const durable=siteMemory?await siteMemory.read(task.origin):{version:0,notes:[]};
+        const observedTab=await tools.tab(tabId,true);
+        if(observedTab.url!==snap.url||originOf(snap)!==task.origin){if(originOf(observedTab)!==task.origin)await adoptOrigin(task,observedTab);return;}
+        const memories=task.origin==='browser'?[]:await store.getMemory(tabId,task.origin);
+        const durable=siteMemory&&task.origin!=='browser'?await siteMemory.read(task.origin):{version:0,notes:[]};
         if(task.siteMemoryVersion!==undefined&&task.siteMemoryVersion!==durable.version){
           task=await update(tabId,token,t=>{forgetSiteContext(t);t.siteMemoryVersion=durable.version;});
           if(!task||!await live())return;
@@ -496,17 +497,18 @@
           t.contextUsage=result.usage&&Number.isSafeInteger(result.usage.promptTokens)?{...result.usage,estimatedTokens:sentEstimate,modelIdentity:result.modelIdentity||modelIdentity}:null;
         });
         if(!task||!await live())return;
-        const current = await tools.tab(tabId);
+        const current = await tools.tab(tabId,true);
         if (!await live()) return;
         if (current.url!==snap.url) {await update(tabId,token,t=>{t.phase='observe';event(t,'页面已跳转，丢弃旧回复');});return;}
         if((await getGlobalMemoryOrEmpty()).version!==shared.version){
           if(await live())await update(tabId,token,t=>{forgetGlobalContext(t);t.phase='observe';event(t,'全局长期记忆已更新，丢弃旧回复并重新读取');});return;
         }
-        if(siteMemory&&(await siteMemory.read(task.origin)).version!==durable.version){
+        if(task.origin!=='browser'&&siteMemory&&(await siteMemory.read(task.origin)).version!==durable.version){
           if(await live())await update(tabId,token,t=>{forgetSiteContext(t);t.phase='observe';event(t,'网站长期记忆已在其他任务更新，丢弃旧回复并重新读取');});return;
         }
         if(!await live())return;
         const plan = C.agentPlan(result.text, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
+        if(task.origin==='browser'&&!['navigate','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
         if(plan.subgoals!==undefined){
           const updates=plan.subgoals.map(g=>{
             const checks=g.checks?G.bind(g.checks,snap):[],verification=checks.length?G.evaluate(checks,snap):null;
@@ -563,13 +565,14 @@
             task=await update(tabId,token,t=>{t.completionChecks=expected;t.phase='verifying';t.check={operationId:uuid(),expected,deadline:now(),kind:'completion',reply:plan.reply};});
             if(task&&await live())await verifyCheck(task,live);return;
           }
-          await update(tabId,token,t=>{t.status='completed';t.phase='idle';t.completionEvidence='model_reported';event(t,plan.reply);event(t,'模型报告完成；未提供可执行的任务完成条件');});return;
+          await update(tabId,token,t=>{t.status='completed';t.phase='idle';t.completionEvidence='model_reported';if(t.origin==='browser')t.results=t.results.concat({action:'done',result:plan.reply});event(t,plan.reply);event(t,'模型报告完成；未提供可执行的任务完成条件');});return;
         }
         const target = snap.page.elements.find(e=>e.id===plan.id);
         const combined=[...plan.expected||[]];
         for(const c of G.automatic(plan))if(!combined.some(e=>e.kind===c.kind&&e.id===c.id&&e.value===c.value))combined.push(c);
         if(plan.action==='navigate'){
           const destination=new URL(plan.value).origin;
+          if(task.origin==='browser'&&!task.allowedOrigins?.includes(destination)){await update(tabId,token,t=>{t.status='paused';t.reason='browser_target';t.phase='observe';t.browserTarget=plan.value;event(t,plan.reply);});return;}
           if(!(task.allowedOrigins||[task.origin]).includes(destination))throw Object.assign(new Error('导航目标未加入任务授权范围'),{code:'NAVIGATION_DENIED'});
           if(tools.hasOriginAccess&&!await tools.hasOriginAccess(destination))throw Object.assign(new Error('导航目标缺少网站权限'),{code:'PERMISSION_DENIED'});
           if(destination!==task.origin&&combined.some(condition=>!condition.kind.startsWith('url_')))throw Object.assign(new Error('跨站导航只支持 URL 条件核对，不能使用旧站点 DOM 条件'),{code:'NAVIGATION_DENIED'});
@@ -624,7 +627,8 @@
       await update(task.tabId,task.token,t=>{t.metrics={...t.metrics,verifications:(t.metrics?.verifications||0)+1};});
       if(!await live())return;
       let outcome;
-      if(tools.verify)outcome=T.normalize(await tools.verify(task.tabId,check,policyFor(task)));
+      if(task.origin==='browser'){const tab=await tools.tab(task.tabId,true);outcome=T.result({...G.evaluate(check.expected,{url:tab.url,page:{elements:[],regions:[]}}),dispatch:'not_sent',scope:'page'});}
+      else if(tools.verify)outcome=T.normalize(await tools.verify(task.tabId,check,policyFor(task)));
       else{
         const snap=await tools.observe(task.tabId,undefined,policyFor(task));const evaluated=G.evaluate(check.expected,snap);
         outcome=T.result({...evaluated,scope:'page',code:evaluated.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'});
@@ -676,8 +680,8 @@
       });
     }
     async function diagnostics(tabId,taskId){
-      const tab=await tools.tab(tabId),task=await store.get(tabId);
-      if(!task||task.taskId!==taskId||new URL(tab.url).origin!==task.origin)throw new Error('任务或网站已变化，请刷新后再导出');
+      const tab=await tools.tab(tabId,true),task=await store.get(tabId);
+      if(!task||task.taskId!==taskId||originOf(tab)!==task.origin)throw new Error('任务或网站已变化，请刷新后再导出');
       const count=value=>Number.isSafeInteger(value)&&value>=0?value:0;
       const pick=(value,allowed)=>allowed.includes(value)?value:'unknown';
       const timings={};

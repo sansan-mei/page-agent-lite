@@ -40,7 +40,8 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 .step-card pre { font: 11px/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 250px; overflow: auto; padding: 10px; background: var(--surface); border-radius: 6px; }
 #event-log p { padding: 7px 0; border-bottom: 1px solid var(--line); white-space: pre-wrap; }
 #event-log time { display: block; color: #8a929f; font-size: 10px; }
-#confirmation, #sensitive-confirmation { padding: 12px; margin: 15px 0; background: #fffbf2; border: 1px solid #ecd8ad; border-radius: 8px; }
+#confirmation, #sensitive-confirmation, #browser-target { padding: 12px; margin: 15px 0; background: #fffbf2; border: 1px solid #ecd8ad; border-radius: 8px; }
+#browser-target-url { overflow-wrap: anywhere; }
 #confirmation h2, #sensitive-confirmation h2 { font-size: 13px; margin: 0 0 8px; }
 .composer { padding: 0 12px 9px; background: white; flex-shrink: 0; }
 .activity { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 3px; min-height: 32px; }

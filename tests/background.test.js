@@ -94,5 +94,5 @@ test('a tab joined to another task cannot start or receive a task and is never i
  const f=await fixture([],{async owner(id){return id===2?{taskId:'a',taskTabId:1,role:'member'}:null;}});
  for(const type of ['task:start','task:submit']){const reply=await f.send({type,tabId:2,goal:'x'},panel);assert.equal(reply.ok,false);assert.match(reply.error,/其他任务/);}
  assert.equal(f.calls.some(x=>x[0]==='tools.inject'||x[0]==='submit'),false);
- assert.equal((await f.send({type:'task:submit',tabId:1,goal:'x'},panel)).ok,true);assert.ok(f.calls.some(x=>x[0]==='tools.inject'));
+ assert.equal((await f.send({type:'task:submit',tabId:1,goal:'x'},panel)).ok,true);assert.equal(f.calls.some(x=>x[0]==='tools.inject'),false);
 });

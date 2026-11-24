@@ -1,10 +1,10 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const {parseHTML}=require('linkedom');
 const flush=()=>new Promise(r=>setImmediate(r));
-async function fixture(granted,hook=()=>undefined,management=false,contains=async()=>false,extraGlobals={}){
+async function fixture(granted,hook=()=>undefined,management=false,contains=async()=>false,extraGlobals={},activeTab={id:9,url:'https://example.test/task',title:'Homework'}){
  const {document,window}=parseHTML(fs.readFileSync(management?'extension/options.html':'extension/sidepanel.html','utf8'));
- const calls=[];let updated,added,removed,storageChanged;const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/task',title:'Homework'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(fn){storageChanged=fn;}}}};
+ const calls=[];let updated,added,removed,storageChanged,activated;const chrome={tabs:{async query(){return [activeTab];},onRemoved:{addListener(){}},onActivated:{addListener(fn){activated=fn;}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(fn){storageChanged=fn;}}}};
  vm.runInNewContext(fs.readFileSync(management?'extension/management.js':'extension/sidepanel.js','utf8'),{chrome,document,window,URL,Date,...extraGlobals});await flush();
- return {document,window,calls,updated,added,removed,storageChanged};
+ return {document,window,calls,updated,added,removed,storageChanged,async activate(tab){activeTab=tab;activated();await flush();}};
 }
 test('sidepanel requests only current origin directly from gesture, then connects',async()=>{
  const f=await fixture(true);assert.equal(f.document.getElementById('grant').disabled,false);
@@ -325,4 +325,20 @@ test('sensitive confirmation displays model reason as text and sends explicit de
   f.document.getElementById(allow?'sensitive-allow':'sensitive-deny').click();await flush();
   const sent=f.calls.find(c=>c[1]?.type==='task:sensitive-access')[1];assert.equal(sent.allow,allow);assert.equal(sent.taskId,task.taskId);assert.equal(sent.requestId,'request-1');assert.equal(box.hidden,true);
  }
+});
+
+
+test('internal tabs accept conversation and tab switching preserves the executing conversation',async()=>{
+ const task={taskId:'browser-chat',origin:'browser',goal:'Open site',status:'paused',reason:'browser_target',browserTarget:'https://example.test/',scopeRevision:1,allowedOrigins:[],steps:1,prefs:{maxSteps:50},events:[],results:[]};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:submit'?{ok:true,value:task}:undefined,false,async()=>false,{}, {id:9,url:'chrome://newtab/'});
+ const d=f.document;assert.equal(d.getElementById('start').disabled,false);assert.match(d.getElementById('target').textContent,/浏览器助手/);assert.equal(d.getElementById('browser-target').hidden,false);
+ await f.activate({id:10,url:'https://other.test/'});assert.equal(d.getElementById('goal').textContent,'Open site');assert.equal(d.getElementById('use-current').hidden,false);
+ d.getElementById('instruction').value='Continue';d.getElementById('chat').dispatchEvent(new f.window.Event('submit',{cancelable:true}));await flush();assert.equal(f.calls.find(c=>c[1]?.type==='task:submit')[1].tabId,9);
+});
+
+test('proposed browser destination asks exact host permission before adding scope and resuming',async()=>{
+ const task={taskId:'browser-chat',origin:'browser',goal:'Open site',status:'paused',reason:'browser_target',browserTarget:'https://example.test/start',scopeRevision:1,allowedOrigins:[],steps:1,prefs:{maxSteps:50},events:[],results:[]};
+ const f=await fixture(true,m=>['task:get','task:scope-change','task:resume'].includes(m.type)?{ok:true,value:task}:undefined);
+ f.calls.length=0;f.document.getElementById('browser-target-open').click();await flush();await flush();
+ assert.equal(f.calls[0][0],'permission');assert.equal(f.calls[0][1].origins[0],'https://example.test/*');assert.equal(f.calls[1][1].type,'task:scope-change');assert.equal(f.calls[1][1].origin,'https://example.test');assert.equal(f.calls[2][1].type,'task:resume');
 });

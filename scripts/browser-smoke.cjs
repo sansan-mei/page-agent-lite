@@ -288,6 +288,10 @@ async function startServer() {
       }
       if(task==='agent'){
         const data=JSON.parse(input),field=data.page.elements.find(e=>e.tag==='input'),link=data.page.elements.find(e=>e.tag==='a');
+        if(data.goal==='Browser entry smoke'){
+          const plan=data.page.browser?{action:'navigate',value:'http://127.0.0.1:'+server.address().port+'/task-one',reply:'Open authorized site'}:{action:'done',reply:'Opened webpage'};
+          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
+        }
         if(data.goal==='Cross origin smoke'){
           const current=new URL(data.page.url),text=JSON.stringify(data);let plan;
           if(current.pathname==='/cross-a')plan=data.results.some(result=>result.action==='memory_read')?{reply:'Visit B',action:'navigate',value:secondaryOrigin+'/cross-b'}:{reply:'Read A temp note',action:'memory_read'};
@@ -621,6 +625,15 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
   await page.goto(origin+'/task-one');await page.bringToFront();
   const command=(type,extra={})=>panel.evaluate(async ({type,tabId,extra})=>chrome.runtime.sendMessage({type,tabId,...extra}),{type,tabId,extra});
+  await page.goto('about:blank');await page.bringToFront();
+  const browserEntry=await command('task:submit',{goal:'Browser entry smoke'});assert.equal(browserEntry.ok,true,JSON.stringify(browserEntry));
+  await poll(async()=>((await command('task:get')).value?.reason)==='browser_target','browser entry requests destination authorization',10000);
+  const beforeOpen=(await command('task:get')).value;assert.equal(beforeOpen.origin,'browser');assert.deepEqual(beforeOpen.allowedOrigins,[]);assert.equal(page.url(),'about:blank');
+  await panel.locator('#browser-target-open').click();
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','authorized browser entry reaches webpage',20000);
+  const browserOpened=(await command('task:get')).value;assert.equal(browserOpened.taskId,browserEntry.value.taskId);assert.equal(browserOpened.origin,origin);assert.equal(page.url(),origin+'/task-one');
+  pass('internal tab conversation proposes a destination without DOM access, then trusted sidepanel scope authorization continues the same task on a real webpage');
+  await command('task:clear');
   const started=await command('task:start',{goal:'Fill answer 4 then go to the next page'});assert.equal(started.ok,true);
   const rootState=await sw.evaluate(async({tabId,taskId})=>{const all=await chrome.storage.session.get(null);return {binding:all.taskRegistry.bindings[tabId],root:all['taskRoot:'+taskId],legacy:all['task:'+tabId]};},{tabId,taskId:started.value.taskId});
   assert.equal(rootState.legacy,undefined);assert.equal(rootState.root.version,3);assert.equal(rootState.binding.taskId,started.value.taskId);assert.equal(rootState.root.scopeRevision,rootState.binding.revision);assert.deepEqual(rootState.root.allowedOrigins,[origin]);assert.equal(rootState.root.members.length,1);

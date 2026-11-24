@@ -901,3 +901,25 @@ test('sensitive permission waits for explicit trusted decision and is conversati
   await f.runtime.finish(1);await f.runtime.start(1,'New conversation');assert.equal((await f.runtime.get(1)).sensitiveAccess,undefined);
  }
 });
+
+
+test('browser conversation runs without DOM/site permission and keeps answer context',async()=>{
+ let calls=0;
+ const f=fixture({tools:{async tab(){return {url:'chrome://newtab/',status:'complete'};},async observe(){throw Error('must not read internal DOM');},async hasOriginAccess(){throw Error('must not request internal host access');}},model:async text=>{const data=JSON.parse(text);assert.equal(data.page.browser,true);assert.deepEqual(data.taskScope.allowedOrigins,[]);if(calls++)assert.equal(data.results[0].result,'First answer');return {text:JSON.stringify({action:'done',reply:'First answer'})};}});
+ await f.runtime.start(1,'Help');const first=await f.runtime.get(1);await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).status,'completed');
+ await f.runtime.submit(1,'Follow up');assert.equal((await f.runtime.get(1)).taskId,first.taskId);await f.runtime.tick(1);assert.equal(calls,2);assert.equal(f.executed.length,0);
+});
+
+test('browser navigation asks for exact origin authorization then enters normal page execution',async()=>{
+ const f=crossFixture({model:async data=>({text:JSON.stringify(data.page.browser?{action:'navigate',value:'https://b.test/next',reply:'Open requested site'}:{action:'done',reply:'Opened'})})});
+ f.state.url='chrome://newtab/';await f.runtime.start(1,'Open site');await f.runtime.tick(1);
+ let t=await f.store.get(1);assert.equal(t.reason,'browser_target');assert.equal(t.browserTarget,'https://b.test/next');assert.deepEqual(t.allowedOrigins,[]);assert.equal(f.dispatches.length,0);assert.equal(f.reads.length,0);
+ await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);await f.runtime.tick(1);
+ t=await f.store.get(1);assert.equal(t.check.expected[0].value,'https://b.test/next');assert.equal(f.dispatches.length,1);
+ await createRuntime(f.deps).tick(1);t=await f.store.get(1);assert.equal(t.origin,'https://b.test');assert.equal(f.dispatches.length,1);await f.runtime.tick(1);assert.equal((await f.store.get(1)).status,'completed');assert.deepEqual(f.reads,['https://b.test/next']);
+});
+
+test('stopping browser planning drops late model navigation',async()=>{
+ let resolve,signal;const f=fixture({tools:{async tab(){return {url:'edge://settings/',status:'complete'};}},model:async(text,s)=>{signal=s;return new Promise(r=>resolve=r);}});
+ await f.runtime.start(1,'Open site');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));await f.runtime.stop(1);assert.equal(signal.aborted,true);resolve({text:JSON.stringify({action:'navigate',value:'https://example.test/',reply:'Open'})});await job;assert.equal((await f.runtime.get(1)).status,'stopped');assert.equal(f.executed.length,0);
+});

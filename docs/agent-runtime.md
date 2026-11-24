@@ -17,6 +17,10 @@
 
 `phase`：observe、thinking、compacting、confirm、approved、executing、verifying、idle，用于中断恢复。verifying 阶段不调用模型、不重复动作。
 
+## 浏览器对话
+
+内部页以 `origin=browser` 和空 `allowedOrigins` 新建任务，不读取 DOM 或网站记忆，只允许回答、提问和提出 HTTP/HTTPS 导航。目标站点未授权时暂停为 `browser_target`，侧栏用现有范围修改流程授权后继续。导航仍先写 executing 和 URL 核对检查点，按原 deadline 核对，不重发。进入网站后沿用任务身份与预算，并走跨来源隔离。浏览器对话的回答保留为结果，后续发送沿用对话。
+
 ## 一次 tick
 
 1. 读取任务，核对运行代次、当前 URL 来源属于 `allowedOrigins` 且有主机权限、页面就绪。来源变化走 [跨来源切换](#跨来源切换)。

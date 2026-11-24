@@ -7,10 +7,10 @@
     // Trusted side-panel member picker only; tab titles and URLs are never offered to the model.
     async function listTabs(){return (await chrome.tabs.query({})).filter(t=>Number.isInteger(t.id)).map(t=>({id:t.id,url:typeof t.url==='string'?t.url:'',title:typeof t.title==='string'?t.title:''}));}
     async function hasOriginAccess(origin){return chrome.permissions.contains({origins:[origin+'/*']});}
-    async function tab(tabId){
+    async function tab(tabId,allowInternal=false){
       let t;try{t=await chrome.tabs.get(tabId);}catch{throw Object.assign(new Error('目标标签页已关闭，请切换到需要操作的网页'),{code:'TAB_CLOSED'});}
       if(!t.url)throw new Error('无法读取网页地址，请重新加载扩展并确认新增的标签页权限');
-      if(!['http:','https:'].includes(new URL(t.url).protocol))throw Object.assign(new Error('该页面不支持操作，请切换到普通 HTTP/HTTPS 网页'),{code:'UNSUPPORTED_PAGE'});
+      if(!allowInternal&&!['http:','https:'].includes(new URL(t.url).protocol))throw Object.assign(new Error('该页面不支持操作，请切换到普通 HTTP/HTTPS 网页'),{code:'UNSUPPORTED_PAGE'});
       return t;
     }
     async function checkOrigin(tabId,policy){
@@ -50,10 +50,11 @@
       const destination=new URL(pending.plan.value),source=new URL(pending.url);
       if(!['http:','https:'].includes(destination.protocol)||!(policy?.allowedOrigins||[source.origin]).includes(destination.origin)||destination.username||destination.password)throw Object.assign(new Error('导航超出当前任务站点或 URL 不安全'),{code:'NAVIGATION_DENIED'});
       if(!await hasOriginAccess(destination.origin))throw Object.assign(new Error('目标网站权限尚未授权'),{code:'PERMISSION_DENIED'});
-      if(!await chrome.permissions.contains({origins:[source.origin+'/*']}))throw Object.assign(new Error('当前网站权限已撤销'),{code:'PERMISSION_DENIED'});
-      if((await tab(tabId)).url!==pending.url)throw Object.assign(new Error('导航来源页面已变化'),{code:'STALE'});
-      try{await call(tabId,{type:'agent:prepare-navigation',...pending});}catch(error){throw Object.assign(new Error('导航前快照无法核实，请重新观察'),{code:error.code||'STALE'});}
-      if((await tab(tabId)).url!==pending.url)throw Object.assign(new Error('导航来源页面已变化'),{code:'STALE'});
+      const browserStart=policy?.origin==='browser'&&!['http:','https:'].includes(source.protocol);
+      if(!browserStart&&!await chrome.permissions.contains({origins:[source.origin+'/*']}))throw Object.assign(new Error('当前网站权限已撤销'),{code:'PERMISSION_DENIED'});
+      if((await tab(tabId,true)).url!==pending.url)throw Object.assign(new Error('导航来源页面已变化'),{code:'STALE'});
+      try{if(!browserStart)await call(tabId,{type:'agent:prepare-navigation',...pending});}catch(error){throw Object.assign(new Error('导航前快照无法核实，请重新观察'),{code:error.code||'STALE'});}
+      if((await tab(tabId,true)).url!==pending.url)throw Object.assign(new Error('导航来源页面已变化'),{code:'STALE'});
       if(live&&!await live())throw Object.assign(new Error('导航请求已取消'),{code:'CANCELLED'});
       let dispatch='sent',code='NAVIGATION_DISPATCHED';
       try{await chrome.tabs.update(tabId,{url:destination.href});}catch{dispatch='unknown';code='NAVIGATION_UNKNOWN';}

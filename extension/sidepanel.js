@@ -5,7 +5,7 @@
   let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false;
   async function refreshTask(){
     const target=tabId,view=selection,version=++taskRefresh;if(target===null)return;
-    try{const value=await send('task:get');if(target!==tabId||view!==selection||version!==taskRefresh)return;const previousId=task?.taskId;task=value;render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
+    try{const value=await send('task:get');if(target!==tabId||view!==selection||version!==taskRefresh)return;const previousId=task?.taskId;task=value;if(task?.origin&&task.origin!=='browser'){tabOrigin=task.origin;void refreshPermissions();}render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
     catch(error){if(target===tabId&&view===selection&&version===taskRefresh&&!scopePending)$('status').textContent=error.message;}
   }
   function invalidateTask(){if(busy){++taskRefresh;refreshAfterAction=true;}else void refreshTask();}
@@ -75,6 +75,9 @@
     $('conversation').hidden=historyOpen;$('history-view').hidden=!historyOpen;
     $('history').setAttribute('aria-expanded',String(historyOpen));
     $('composer').hidden=historyOpen;
+    $('browser-target').hidden=historyOpen||!current?.browserTarget||current?.reason!=='browser_target';
+    $('browser-target-url').textContent=current?.browserTarget?'打开网站：'+current.browserTarget:'';
+    $('browser-target-open').disabled=busy;
     const sensitiveRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='sensitive_access'?current.sensitiveRequest:null;
     $('sensitive-confirmation').hidden=!sensitiveRequest;
     $('sensitive-reason').textContent=sensitiveRequest?.text||'';
@@ -89,8 +92,8 @@
       for(const origin of current?.allowedOrigins||[]){const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');label.textContent=origin;button.type='button';button.textContent='移出任务';button.dataset.origin=origin;button.disabled=busy||!editableScope;li.append(label,button);$('scope-origins').append(li);}
     }
     const list=$('conversation-list');list.replaceChildren();
-    const items=historyIndex.map(item=>item.taskId===current?.taskId&&current.origin===tabOrigin?current:item);
-    if(current?.taskId&&current.origin===tabOrigin&&!items.some(t=>t.taskId===current.taskId))items.unshift(current);
+    const items=historyIndex.map(item=>item.taskId===current?.taskId&&current.origin===(tabOrigin||'browser')?current:item);
+    if(current?.taskId&&current.origin===(tabOrigin||'browser')&&!items.some(t=>t.taskId===current.taskId))items.unshift(current);
     for(const item of items){
       const button=document.createElement('button');button.type='button';button.className='conversation-item';button.dataset.taskId=item.taskId;
       button.setAttribute('aria-pressed',String(historyTask?.taskId===item.taskId));
@@ -206,7 +209,8 @@
     $('confirmation').hidden=task?.status!=='waiting_confirmation';
     const pending=task?.pending;
     $('operation').textContent=pending?`${pending.plan.action} → ${pending.label}${pending.plan.value!==undefined?'；内容：'+String(pending.plan.value):''}`:'';
-    for(const id of ['start','grant','grant-all'])$(id).disabled=busy||tabId===null||!tabOrigin;
+    $('start').disabled=busy||tabId===null;
+    for(const id of ['grant','grant-all'])$(id).disabled=busy||tabId===null||!tabOrigin;
     const ongoing=task&&!['completed','ended'].includes(task.status);
     $('start').textContent='发送';
     $('start').title=ongoing?'发送并继续当前任务':'发送并开始任务';
@@ -222,21 +226,27 @@
     $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
   }
-  async function selectTab(){
+  async function selectTab(useCurrent=false){
+    if(!useCurrent&&tabId!==null&&task&&task.status!=='ended'){
+      const active=(await chrome.tabs.query({active:true,currentWindow:true}))[0];
+      $('use-current').hidden=active?.id===tabId;
+      if(active?.id!==tabId)return;
+    }
+    $('use-current').hidden=true;
     const version=++selection;++taskRefresh;scopePending=false;refreshAfterAction=false;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;tabId=null;tabOrigin=null;task=null;render();void refreshPermissions();
     $('status').textContent='';
     try{
       const tabs=await chrome.tabs.query({active:true,currentWindow:true});
       if(version!==selection)return;
       const tab=tabs[0];tabId=tab?.id??null;
-      if(tab?.url&&['http:','https:'].includes(new URL(tab.url).protocol))tabOrigin=new URL(tab.url).origin;
+      if(tab?.url)tabOrigin=['http:','https:'].includes(new URL(tab.url).protocol)?new URL(tab.url).origin:null;
       void refreshPermissions();
       $('target').replaceChildren();
-      for(const [text,className] of [[tabOrigin?(tab.title||'当前网页'):'请选择普通 HTTP/HTTPS 网页','site-title'],[tabOrigin||'','site-origin']]){
+      for(const [text,className] of [[tabOrigin?(tab.title||'当前网页'):'浏览器助手','site-title'],[tabOrigin||'','site-origin']]){
         const line=document.createElement('span');line.className=className;line.textContent=text;$('target').append(line);
       }
-      $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'请选择普通 HTTP/HTTPS 网页';
-      if(!tabOrigin)$('status').textContent=tab?.url?'浏览器内部页、扩展页面等不支持操作。':'无法读取网页地址，请重新加载扩展并确认新增权限。';
+      $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'浏览器助手';
+      if(!tabOrigin)$('status').textContent=tab?.url?'可以直接描述任务；需要网页时再授权。':'无法读取当前标签页，请重新打开侧栏。';
       if(tabId===null){render();return;}
       const refreshVersion=++taskRefresh,value=await send('task:get');if(version!==selection||refreshVersion!==taskRefresh)return;task=value;render();
     }catch(e){if(version===selection)$('status').textContent=e.message;}
@@ -254,7 +264,7 @@
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
-  function editScope(action,origin){
+  function editScope(action,origin,continueTask=false){
     if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;
     const target=tabId,taskId=task.taskId,expectedRevision=task.scopeRevision,view=selection,draft=$('scope-origin').value;
     let permission;
@@ -264,12 +274,15 @@
       try{
         if(!await permission)throw new Error('网站授权已取消，任务范围未修改');
         if(view!==selection||target!==tabId||task?.taskId!==taskId||task.scopeRevision!==expectedRevision)throw new Error('任务已变化，授权未加入新任务');
-        const value=await send('task:scope-change',{tabId:target,taskId,expectedRevision,origin,action});
-        if(view===selection&&target===tabId){task=value;$('scope-status').textContent='任务范围已更新，任务已暂停；核对后点击继续。';if(action==='add'&&$('scope-origin').value===draft)$('scope-origin').value='';}
+        let value=await send('task:scope-change',{tabId:target,taskId,expectedRevision,origin,action});
+        if(continueTask)value=await send('task:resume',{tabId:target});
+        if(view===selection&&target===tabId){task=value;$('scope-status').textContent=continueTask?'已授权，任务继续。':'任务范围已更新，任务已暂停；核对后点击继续。';if(action==='add'&&$('scope-origin').value===draft)$('scope-origin').value='';}
       }catch(error){if(view===selection)$('scope-status').textContent=error.message;}
       finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}void refreshPermissions();}
     })();
   }
+  $('use-current').addEventListener('click',()=>void selectTab(true));
+  $('browser-target-open').addEventListener('click',()=>{if(task?.browserTarget)editScope('add',new URL(task.browserTarget).origin,true);});
   $('scope-form').addEventListener('submit',event=>{
     event.preventDefault();const raw=$('scope-origin').value.trim();
     try{const url=new URL(raw);if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.hostname.includes('*')||url.pathname!=='/'||url.search||url.hash||raw.length>300)throw new Error('请输入不带路径、参数或凭据的 HTTP/HTTPS 站点来源');editScope('add',url.origin);}

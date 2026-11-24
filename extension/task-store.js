@@ -37,7 +37,7 @@
     }
     async function originView(id,taskId,origin,current){
       const base=current?.taskId===taskId?current:(await area.get('conversation:'+id+':'+taskId))['conversation:'+id+':'+taskId];
-      if(!base||!(base.allowedOrigins||[base.origin]).includes(origin))return null;
+      if(!base||origin!=='browser'&&!(base.allowedOrigins||[base.origin]).includes(origin))return null;
       const saved=(await area.get(originKey(id,taskId,origin)))[originKey(id,taskId,origin)];
       const parts=(saved?.segments||[]).map(segment=>segment.view);
       if(base.origin===origin)parts.push(base);
@@ -48,7 +48,7 @@
     function rooted(id,task,revision,previous=null){
       if(!Number.isInteger(id)||id<0||task.tabId!==id||typeof task.taskId!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(task.taskId))throw new Error('任务根记录身份无效');
       if(previous&&task.origin!==previous.origin)throw scopeError();
-      return {...task,version:3,scopeRevision:revision,initialTabId:id,initialOrigin:previous?.initialOrigin||task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:previous?.allowedOrigins||[task.origin],members:previous?.members||[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}],memberSeq:previous?.memberSeq??1,membersRevision:previous?.membersRevision??0};
+      return {...task,version:3,scopeRevision:revision,initialTabId:id,initialOrigin:previous?.initialOrigin||task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:previous?.allowedOrigins||(task.origin==='browser'?[]:[task.origin]),members:previous?.members||[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}],memberSeq:previous?.memberSeq??1,membersRevision:previous?.membersRevision??0};
     }
     return {
       get,
