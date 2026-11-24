@@ -13,7 +13,6 @@ function build(out=path.join(root,'dist','extension-dev')){
   for(const file of ['dev-tools.js','background-dev.js'])fs.copyFileSync(path.join(root,'dev',file),path.join(out,file));
   const manifestPath=path.join(out,'manifest.json'),manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
   manifest.name=manifest.name+' (Dev)';
-  manifest.version_name=manifest.version+'-dev';
   manifest.permissions=[...new Set([...(manifest.permissions||[]),'userScripts'])];
   manifest.background={...manifest.background,service_worker:'background-dev.js'};
   fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2)+'\n');
