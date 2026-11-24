@@ -336,7 +336,7 @@ test('sensitive confirmation displays model reason as text and sends explicit de
 
 
 test('script approval shows the full code as text with site and world, hides resume and sends an explicit decision',async()=>{
- for(const allow of [true,false]){
+ for(const [id,allow,scope] of [['script-approve',true,'once'],['script-approve-task',true,'task'],['script-reject',false,'once']]){
   const code='document.body.innerHTML="<img src=x onerror=alert(1)>";\n'+'// line\n'.repeat(300)+'return 1;';
   const task={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'paused',reason:'script_approval',phase:'observe',steps:1,prefs:{},results:[],events:[],scriptRequest:{id:'request-7',code,world:'MAIN',url:'https://example.test/task?q=1',reply:'<b>Need page state</b>'}};
   const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:script-approval'?{ok:true,value:{...task,status:'running',reason:null,scriptRequest:null}}:undefined);
@@ -345,11 +345,24 @@ test('script approval shows the full code as text with site and world, hides res
   assert.equal(f.document.getElementById('script-reason').textContent,'<b>Need page state</b>');assert.equal(box.querySelector('b'),null);
   assert.match(f.document.getElementById('script-target').textContent,/https:\/\/example\.test[\s\S]*MAIN/);
   assert.equal(f.document.getElementById('resume').hidden,true);
-  f.document.getElementById(allow?'script-approve':'script-reject').click();await flush();
+  assert.equal(f.document.getElementById('script-grant').hidden,true);
+  f.document.getElementById(id).click();await flush();
   const sent=f.calls.find(c=>c[1]?.type==='task:script-approval')[1];
-  assert.equal(sent.allow,allow);assert.equal(sent.taskId,'script-task');assert.equal(sent.requestId,'request-7');assert.equal(sent.tabId,9);
+  assert.equal(sent.allow,allow);assert.equal(sent.scope,scope);assert.equal(sent.taskId,'script-task');assert.equal(sent.requestId,'request-7');assert.equal(sent.tabId,9);
   assert.equal(box.hidden,true);assert.equal(pre.textContent,'');
  }
+});
+
+test('task-scoped script approval shows a compact indicator with an always-available revoke',async()=>{
+ const grant={scope:'task',origin:'https://example.test',tabId:9,grantedAt:1};
+ const task={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'paused',reason:'user_takeover',phase:'observe',steps:1,prefs:{},results:[],events:[],scriptApproval:grant};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:script-revoke'?{ok:true,value:{...task,scriptApproval:null}}:undefined);
+ const indicator=f.document.getElementById('script-grant');
+ assert.equal(indicator.hidden,false);assert.match(f.document.getElementById('script-grant-text').textContent,/https:\/\/example\.test/);
+ assert.equal(f.document.getElementById('script-revoke').disabled,false);
+ f.document.getElementById('script-revoke').click();await flush();
+ const sent=f.calls.find(c=>c[1]?.type==='task:script-revoke')[1];assert.equal(sent.taskId,'script-task');assert.equal(sent.tabId,9);
+ assert.equal(indicator.hidden,true);
 });
 
 

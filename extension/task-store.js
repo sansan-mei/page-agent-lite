@@ -166,7 +166,7 @@
         const revision=registry.revision+1,next={taskId,revision},nextOwners={...registry.tabOwners};
         delete nextOwners[toTabId];if(!closed)nextOwners[id]={taskId,revision};
         const fields=['status','reason','phase','pending','check','waitDeadline','nextObservation','results','events','uncertainClicks','lastOutcome','contextUsage','retries'];
-        const record={...task,...Object.fromEntries(Object.entries(patch).filter(([name])=>fields.includes(name))),token,tabId:toTabId,activeTabId:toTabId,scopeRevision:revision,members:closed?members.filter(member=>member.tabId!==id):members,membersRevision:closed?revision:task.membersRevision,updatedAt};
+        const record={...task,...Object.fromEntries(Object.entries(patch).filter(([name])=>fields.includes(name))),token,tabId:toTabId,activeTabId:toTabId,scopeRevision:revision,scriptApproval:null,members:closed?members.filter(member=>member.tabId!==id):members,membersRevision:closed?revision:task.membersRevision,updatedAt};
         const bindings={...registry.bindings};delete bindings[id];bindings[toTabId]=next;
         await area.set({taskRegistry:{...registry,pending:{kind:'tab_switched',tabId:id,toTabId,binding:next,previousTaskId:taskId,nextOwners}}});
         await area.set({[rootKey(taskId)]:record});

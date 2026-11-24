@@ -100,10 +100,19 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; history and notes stay per tab.
-      const taskTab=['task:get','task:sensitive-access','task:script-approval','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
+      const taskTab=['task:get','task:sensitive-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
       if(m.type==='task:get')return runtime.get(taskTab);
       if(m.type==='task:sensitive-access')return runtime.sensitiveAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
-      if(m.type==='task:script-approval')return runtime.scriptApproval(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
+      if(m.type==='task:script-approval'){
+        // Strict shape: allow is boolean; scope is once|task (default once); a task-wide grant must approve.
+        const scope=m.scope===undefined?'once':m.scope;
+        if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean'||!['once','task'].includes(scope)||scope==='task'&&!m.allow)throw new Error('脚本确认无效');
+        return runtime.scriptApproval(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow,scope});
+      }
+      if(m.type==='task:script-revoke'){
+        if(typeof m.taskId!=='string')throw new Error('脚本确认无效');
+        return runtime.revokeScriptApproval(taskTab,{taskId:m.taskId});
+      }
       if(m.type==='task:members')return runtime.members(taskTab,m.taskId);
       if(m.type==='task:member-change')return runtime.changeMembers(taskTab,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
       if(m.type==='task:scope-change')return runtime.changeOrigins(taskTab,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});

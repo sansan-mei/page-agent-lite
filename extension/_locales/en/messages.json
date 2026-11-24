@@ -729,16 +729,25 @@
     "message": "Run this script?"
   },
   "spScriptText": {
-    "message": "The script runs inside this page and can read and change its content; its return value is sent to your configured model service. Approving runs it once. Read the full code first."
+    "message": "The script runs in this page and can read and change its content; its return value is sent to your configured model service. Read the full code first. \"Allow for this task\" lets later scripts in this task run automatically on the same tab and site; you can revoke it anytime."
   },
   "spScriptCodeLabel": {
     "message": "Script code awaiting approval"
   },
   "spScriptApprove": {
-    "message": "Approve and run once"
+    "message": "Allow once"
+  },
+  "spScriptApproveTask": {
+    "message": "Allow for this task"
   },
   "spScriptReject": {
     "message": "Reject"
+  },
+  "spScriptRevoke": {
+    "message": "Revoke"
+  },
+  "spScriptGrant": {
+    "message": "Scripts auto-approved for this task ({1})"
   },
   "spScriptTarget": {
     "message": "Site: {1} · Environment: {2}"

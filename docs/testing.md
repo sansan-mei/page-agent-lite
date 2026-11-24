@@ -55,6 +55,6 @@ git diff --check
 - 真实 React/Vue 等框架、组件库、视频站点、慢加载页面与多种动态网站。
 - IndexedDB 配额耗尽、升级阻塞、隐私模式；扩展卸载/升级后的数据丢失。
 - 原生下载对话框；真实用户数据下诊断导出的脱敏效果。
-- `run_script`：注册与按可用性暴露、参数校验、结果截断/异常/超时、批准/拒绝/过期/作废、仅可信侧栏可批准、开发版 flag 免批准、商店包不含 flag 文件、设置页权限申请与状态只有 Node 模拟（真实 runtime + browser-tools，`userScripts`、`permissions` 为替身）。真实 Chrome 中的 `userScripts.execute`、可选权限弹窗、「允许用户脚本」开关（无头 Chromium 无法打开）、MAIN/USER_SCRIPT 差异、侧栏批准卡片的真实布局，以及真实模型是否在合适场景选用并写出可读脚本均未验证。
+- `run_script`：注册与按可用性暴露、参数校验、结果截断/异常/超时、批准/拒绝/过期/作废、本任务内允许（同来源免暂停、跨来源/撤销/结束/权限移除后恢复暂停）、仅可信侧栏可批准、开发版 flag 免批准、商店包不含 flag 文件、设置页权限申请与状态只有 Node 模拟（真实 runtime + browser-tools，`userScripts`、`permissions` 为替身）。真实 Chrome 中的 `userScripts.execute`、可选权限弹窗、「允许用户脚本」开关（无头 Chromium 无法打开）、MAIN/USER_SCRIPT 差异、侧栏批准卡片的真实布局，以及真实模型是否在合适场景选用并写出可读脚本均未验证。
 - 英文界面只有 Node + linkedom 检查与一次英文侧栏截图；真实 Chrome 中 `__MSG_*__` 名称、`chrome.i18n` 语言切换与设置页英文布局未在浏览器验证。`ui-preview.cjs` 的长对话步骤仍用旧 `task:1` 存储键推送更新，当前会在该步失败。
 - 多成员任务：成员加入/移出/关闭、tab_switch、tab_open/tab_close、执行标签关闭改绑、切换中断对账只有 Node 模拟（真实 store + 假浏览器）与侧栏 stub 测试；真实浏览器中的 `tabs.create`/`tabs.remove`、后台标签加载与注入、原生侧栏在成员标签上的表现、真实模型是否合理选用标签工具均未验证。

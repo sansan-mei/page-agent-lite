@@ -221,11 +221,13 @@
       });
       if(allow)schedule(tabId);return saved;
     }
-    // Trusted side-panel decision on one pending run_script. Approval is per execution: the exact
-    // stored code runs once on the same tab and document; rejection is reported to the model.
-    async function scriptApproval(tabId,{taskId,requestId,allow}){
+    // Trusted side-panel decision on one pending run_script. scope 'once': the exact stored code runs
+    // once on the same tab and document. scope 'task' additionally grants this task automatic approval
+    // for later scripts on the same tab and origin (task.scriptApproval). Rejection is reported to the model.
+    async function scriptApproval(tabId,{taskId,requestId,allow,scope='once'}){
       const saved=await serial(tabId,async()=>{
         const t=await store.get(tabId),request=t?.scriptRequest;
+        if(!['once','task'].includes(scope)||scope==='task'&&allow!==true)throw new Error('脚本确认无效');
         if(!t||t.taskId!==taskId||t.status!=='paused'||t.reason!=='script_approval'||!request?.pending||request.id!==requestId||typeof allow!=='boolean')throw new Error('脚本确认已过期');
         controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
         t.token=uuid();t.scriptRequest=null;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.retries=0;
@@ -237,11 +239,32 @@
           if(request.pending.tabId!==tabId||t.tabId!==tabId||current?.url!==request.pending.url||originOf(current)!==t.origin){
             t.results=t.results.concat(scriptEntry(t,request.pending,'STALE','页面已变化，已批准的脚本未执行；重新观察后再决定','observe',now()));
             event(t,'页面已变化，已批准的脚本未执行；重新观察');
-          }else{t.phase='approved';t.pending=request.pending;event(t,'你已批准脚本，执行一次');}
+          }else{
+            t.phase='approved';t.pending=request.pending;
+            if(scope==='task'){t.scriptApproval={scope:'task',origin:t.origin,tabId,grantedAt:now()};event(t,'你已允许本任务在 '+t.origin+' 自动执行脚本（同一标签页与网站；可随时撤销）；执行这段脚本');}
+            else event(t,'你已批准脚本，执行一次');
+          }
         }
         t.updatedAt=now();await store.set(tabId,t);return t;
       });
       schedule(tabId);return saved;
+    }
+    // Trusted side-panel revoke of the task-scoped script approval; later scripts pause for approval again.
+    async function revokeScriptApproval(tabId,{taskId}){
+      return serial(tabId,async()=>{
+        const t=await store.get(tabId);
+        if(!t||t.taskId!==taskId)throw new Error('任务已变化，请刷新后重试');
+        if(!t.scriptApproval)return t;
+        t.scriptApproval=null;event(t,'已撤销本任务的脚本自动批准；之后的脚本需逐次批准');t.updatedAt=now();await store.set(tabId,t);return t;
+      });
+    }
+    // The userScripts permission was removed: no task keeps an automatic script approval.
+    async function reviewScriptApprovals(){
+      const access=await scriptAccess().catch(()=>null);if(access?.permission===true)return;
+      for(const task of await store.list()){
+        if(!task.scriptApproval)continue;
+        await serial(task.tabId,async()=>{const t=await store.get(task.tabId);if(!t?.scriptApproval)return;t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');t.updatedAt=now();await store.set(task.tabId,t);});
+      }
     }
     async function changeOrigins(tabId,operation){
       return serial(tabId,async()=>{
@@ -292,6 +315,7 @@
       });
     }
     async function reviewPermissions(){
+      await reviewScriptApprovals();
       if(!tools.hasOriginAccess)return;
       for(const task of await store.list()){
         if(['ended','completed','stopped','failed'].includes(task.status)||task.origin==='browser'||await tools.hasOriginAccess(task.origin))continue;
@@ -364,7 +388,7 @@
       await tools.clearPointer?.(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
-        controllerForTab(tabId)?.abort();discardScript(task,'任务已结束，待批准的脚本已作废，未执行',now());task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
+        controllerForTab(tabId)?.abort();discardScript(task,'任务已结束，待批准的脚本已作废，未执行',now());task.scriptApproval=null;task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
       await cancelSchedule(tabId);return saved;
@@ -508,6 +532,7 @@
         const modelIdentity=await identity(),modelProtocol=await protocol();
         const scriptState=task.origin==='browser'?{permission:false,api:false,available:false}:await scriptAccess().catch(()=>({permission:false,api:false,available:false}));
         const capabilities={scripts:scriptState?.available===true};
+        if(task.scriptApproval&&scriptState?.permission!==true){task=await update(tabId,token,t=>{t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');});if(!task)return;}
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
         const memoryIndex=memories.map(m=>({id:m.id,updatedAt:m.updatedAt}));
@@ -657,12 +682,21 @@
         }
         const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,operationId:uuid(),expected,time:call.time};
         if(plan.action==='run_script'&&!autoApproveScripts){
-          // Store build: nothing runs until the user approves this exact code in the side panel.
-          const {code,world}=S.source(plan);
-          await update(tabId,token,t=>{t.status='paused';t.reason='script_approval';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;
+          // Store build: nothing runs until the user approves this exact code in the side panel, or the user
+          // allowed scripts for this task on this same tab and origin. Decided on the stored record so a revoke wins.
+          const {code,world}=S.source(plan);let granted=false;
+          const decided=await update(tabId,token,t=>{
+            const grant=t.scriptApproval;
+            if(grant?.scope==='task'&&grant.tabId===tabId&&t.tabId===tabId&&grant.origin===t.origin&&originOf(snap)===grant.origin){
+              granted=true;t.pending=pending;t.retries=0;event(t,plan.reply);event(t,'本任务已允许脚本自动执行：执行一次，完整代码见对话记录');return;
+            }
+            if(grant)t.scriptApproval=null;
+            t.status='paused';t.reason='script_approval';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;
             t.scriptRequest={id:uuid(),code,world,url:snap.url,origin:t.origin,documentId:snap.documentId||null,snapshotId:snap.snapshotId||null,reply:plan.reply,time:now(),pending};
-            event(t,plan.reply);event(t,'等待你在侧栏批准脚本：批准后执行一次，拒绝则改用其他方法');});
-          return;
+            event(t,plan.reply);event(t,'等待你在侧栏批准脚本：批准后执行，拒绝则改用其他方法');});
+          if(!decided||!granted)return;
+          task=decided;if(!await live())return;
+          await execute(task,pending,live);return;
         }
         task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;event(t,plan.reply);const notice=plan.notice||(/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i.test(pending.label)?'即将执行：'+pending.label:null);if(notice){t.notice=notice;event(t,'重要操作：'+notice);}});
         if (!task || !await live()) return;
@@ -956,7 +990,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
