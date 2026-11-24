@@ -121,6 +121,16 @@ observe 的 value：
 
 `page-pointer.js` 在 isolated world 创建禁止命中的显示层（内部用封闭 shadow root 隔离样式），从抽取和遮挡判断中排除。core 校验目标后触发，动画不阻塞操作；约 900ms 隐藏，pagehide/scroll/resize/visibilitychange 清理，后台停止或任务非活动时发 `agent:clear-pointer`。不新增权限，不保存状态，不增加模型请求。
 
+## 开发版 run_script
+
+仅 `npm run build:dev` 生成的 `dist/extension-dev/`（本地加载，不上架）提供；商店包 `extension/` 没有该动作和 `userScripts` 权限。
+
+- 构建：`scripts/build-dev.cjs` 原样复制 `extension/`，加入 `dev/dev-tools.js`、`dev/background-dev.js`；manifest 名称加「(Dev)」、`version_name` 加 `-dev`、增加 `userScripts` 权限、worker 入口改为 `background-dev.js`（先加载 dev-tools 再加载 background）。
+- 注册：`core.js` 建表时读取已加载的 `PageAgentDevTools.registry`，之后仍冻结；提示词末尾追加开发版说明。内容脚本不加载 dev-tools，网页执行器照旧拒绝该动作。
+- 参数：value 为代码字符串（≤ 20000 字符）或 `{code, world}`，world 为 `USER_SCRIPT`（默认，隔离环境、可访问 DOM、不受网页 CSP 限制）或 `MAIN`（可访问网页 JS 全局）；不接受 id。代码作为 async 函数体在当前标签顶层框架执行，`return` 的值转成字符串返回。
+- 执行：校验来源与主机权限、标签 URL 与快照一致后调用一次 `chrome.userScripts.execute`；USER_SCRIPT 环境设置为允许 eval。结果 `SCRIPT_RESULT`（`observed.result` ≤ 4000 字符，`truncated`、`world`）、`SCRIPT_ERROR`（`observed.error`）、`SCRIPT_TIMEOUT`（30 秒未返回，status=unknown，不重发）。dispatch=sent、recovery=observe，执行后重新观察。
+- 前提：Chrome 135+，并在扩展详情页打开「允许用户脚本」（138 以下为开发者模式）；不可用时 `PERMISSION_DENIED`、not_sent。每次执行不再弹确认。
+
 ## 未支持
 
 快照差异、批量动作、截图/视觉、iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
