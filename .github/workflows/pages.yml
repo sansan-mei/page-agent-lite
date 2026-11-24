@@ -16,21 +16,27 @@ concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Copy shared images into the site
+        run: |
+          mkdir -p site/assets
+          cp extension/icons/icon-48.png extension/icons/icon-128.png extension/icons/welcome-assistant.webp docs/assets/sidepanel-preview.png site/assets/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+  # Separate job so the uploaded artifact is visible before deployment starts.
   deploy:
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Copy shared images into the site
-        run: |
-          mkdir -p site/assets
-          cp extension/icons/icon-48.png extension/icons/icon-128.png extension/icons/welcome-assistant.webp docs/assets/sidepanel-preview.png site/assets/
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
