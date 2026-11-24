@@ -166,3 +166,12 @@ test('runtime never executes several native tool calls and does not retry them a
   assert.equal(f.executed.length,0);assert.equal(f.requests.length,1);assert.equal(task.lastOutcome.code,'MODEL_TOOL_CALL_MULTIPLE');assert.equal(task.lastOutcome.dispatch,'not_sent');assert.notEqual(task.status,'running');
   assert.equal(f.chrome.data.nativeToolsUnsupported,undefined);
 });
+
+test('auto mode reuses a strict JSON text reply for this turn without marking native unsupported',async()=>{
+  const {chrome,requests,s}=service({},[reply({content:JSON.stringify({reply:'Look',action:'observe'})}),reply({tool_calls:[call('observe',{reply:'Again'})]})]);
+  const first=await s.generateAgent('observe');
+  assert.deepEqual(JSON.parse(first.text),{reply:'Look',action:'observe'});
+  assert.deepEqual(chrome.data.nativeToolsUnsupported||[],[]);
+  assert.equal(await s.agentProtocol(),'native');
+  await s.generateAgent('observe');assert.ok(requests[1].tools);
+});

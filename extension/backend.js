@@ -144,7 +144,14 @@ function createService(chrome,fetcher=fetch){
     }
     if(!response.ok){response.body?.cancel().catch(()=>{});const reason={401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常';throw new Error('API '+response.status+'：'+reason);}
     const raw=await bounded(response,65536);
-    let parsed;try{parsed=parseChatResponse(raw,protocol);}catch(error){if(error.code==='MODEL_TOOL_CALL_MISSING'&&mode==='auto')await unsupported();throw error;}
+    let parsed;try{parsed=parseChatResponse(raw,protocol);}catch(error){
+     if(error.code!=='MODEL_TOOL_CALL_MISSING'||mode!=='auto')throw error;
+     // The model answered in text despite tools: if that text is already a strict JSON action, use it
+     // for this turn (agentPlan validates it the same way) instead of wasting a turn on fallback.
+     let fallback=null;try{fallback=parseChatResponse(raw,'json');const value=JSON.parse(fallback.text);if(!value||typeof value!=='object'||typeof value.action!=='string')fallback=null;}catch{fallback=null;}
+     if(!fallback)await unsupported();
+     parsed=fallback;
+    }
     const {text,usage}=parsed;
     return {text,...(internalAgent?{usage,modelIdentity:await identity(config)}:{})};
    })();
