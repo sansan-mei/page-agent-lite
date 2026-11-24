@@ -174,10 +174,7 @@
     "message": "Set up your Page Agent"
   },
   "optIntro": {
-    "message": "Configure the default model and assistant behavior here. After you send a message, the assistant reads the current page and calls the model several times during the task. API permission and website access permission are separate."
-  },
-  "optLoading": {
-    "message": "Loading settings…"
+    "message": "Set up the model connection and assistant defaults. API access and website access are authorized separately."
   },
   "optSections": {
     "message": "Settings sections"
@@ -222,7 +219,7 @@
     "message": "Service default (no reasoning parameter)"
   },
   "optReasoningHint": {
-    "message": "Sends reasoning_effort to request a reasoning level; the effect depends on the model service. If the API does not support it, choose Service default. Reasoning may add time and cost."
+    "message": "Sent as reasoning_effort and may add time and cost; choose Service default if the API rejects it."
   },
   "optToolMode": {
     "message": "Tool calling protocol"
@@ -237,7 +234,7 @@
     "message": "JSON text only"
   },
   "optToolModeHint": {
-    "message": "Auto sends tools first; if the API rejects them or does not call a tool, it remembers this model and switches to strict JSON text. Saving settings again retries native tool calls."
+    "message": "Auto falls back to JSON text when native tool calls fail; saving again retries native calls."
   },
   "optKey": {
     "message": "API key (optional for local services)"
@@ -245,23 +242,20 @@
   "optLanguage": {
     "message": "Default reply language"
   },
-  "optSaveConnection": {
-    "message": "Allow this API URL and save"
-  },
   "optConnectionHint": {
-    "message": "Only HTTPS, or HTTP on localhost / 127.0.0.1 / [::1], is allowed. The key is stored only in this device's chrome.storage.local, is not synced and is never passed to page content scripts; local storage is not an encrypted vault."
+    "message": "HTTPS or local HTTP only. The key stays on this device, is not synced and is never given to pages."
   },
   "optMaxSteps": {
     "message": "Max rounds per task (default 100, 0 = unlimited)"
   },
   "optMaxStepsHint": {
-    "message": "With no limit, a task runs until it completes, pauses, hits an error or you click Stop. You can also enter a custom limit such as 50 or 500. Each round calls the model; the round count carries over across page changes."
+    "message": "Each round is one model call; the count carries over across page changes."
   },
   "optInputChars": {
     "message": "Characters per side panel message (default 2000, range 100–10000)"
   },
   "optInputCharsHint": {
-    "message": "Limits each task or follow-up you send. Follow-ups may total the larger of 12000 or 6× the per-message limit. Longer content uses more context and cost per round."
+    "message": "Follow-ups may total the larger of 12000 or 6× this limit."
   },
   "optContextTokens": {
     "message": "Model context window (tokens)"
@@ -270,13 +264,7 @@
     "message": "Auto-compaction threshold (% of available input budget)"
   },
   "optContextHint": {
-    "message": "Enter the context window your model actually supports (default 100000 tokens). 2000 tokens are reserved for output, and compaction starts at 80% of the remaining budget. Usage is estimated when the API does not report it. Normal runs keep the raw history to help cache reuse; cache hits depend on the provider."
-  },
-  "optAutoHint": {
-    "message": "Filling, checking, selecting and clicking run automatically, with no switches or per-step confirmation. You can stop at any time; page actions already sent are not undone."
-  },
-  "optSaveBehavior": {
-    "message": "Save assistant defaults"
+    "message": "Enter the context window your model actually supports. 2000 tokens are reserved for output and history is compacted at the threshold; usage is estimated when the API does not report it."
   },
   "optManagementTitle": {
     "message": "Sites & memory"
@@ -348,16 +336,13 @@
     "message": "Clear temporary memory"
   },
   "optAppearanceHint": {
-    "message": "Sets the image shown in new conversations. It saves automatically and open side panels update."
+    "message": "Shown in new conversations. A chosen image is saved right away and open side panels update."
   },
   "optImagePreview": {
     "message": "Current side panel image preview"
   },
-  "optImageUpload": {
-    "message": "Upload image"
-  },
   "optImageHint": {
-    "message": "PNG, JPG or WebP, up to 5 MB and 8192 px per side. Transparent backgrounds look best; images are scaled down to 1024 px on the longest side. Stored only on this device and never sent to the model."
+    "message": "PNG, JPG or WebP up to 5 MB; scaled to 1024 px, stored on this device only and never sent to the model."
   },
   "optImageReset": {
     "message": "Restore default image"
@@ -725,15 +710,6 @@
   "optApiDenied": {
     "message": "API permission denied; settings not saved"
   },
-  "optApiSaved": {
-    "message": "API settings saved; no model call has been made yet. Allow website access separately."
-  },
-  "optBehaviorSaved": {
-    "message": "Assistant defaults saved; they apply to new tasks or after you click Continue task."
-  },
-  "optLoaded": {
-    "message": "Settings loaded. The API and websites are authorized separately."
-  },
   "optLoadFailed": {
     "message": "Can't read settings. Restart the extension and try again."
   },
@@ -831,7 +807,7 @@
     "message": "Script execution"
   },
   "optScriptsIntro": {
-    "message": "When enabled, the assistant may write JavaScript and run it in the current page (run_script) when the normal tools cannot do the job. Before every run the side panel shows the full code, target site and environment, and nothing runs until you approve that one run; if you reject it, the assistant tries another way. Return values are sent to your configured model service."
+    "message": "When the normal tools cannot do the job, the assistant may write JavaScript and run it in the current page (run_script). Before every run the side panel shows the full code, target site and environment, and nothing runs until you approve that one run. Return values are sent to your configured model service."
   },
   "optScriptsGrant": {
     "message": "Allow script execution"
@@ -843,7 +819,7 @@
     "message": "Open extension details"
   },
   "optScriptsToggle": {
-    "message": "After allowing, also turn on \"Allow User Scripts\" for this extension under chrome://extensions → Details (Chrome 138 and later); on Chrome 135–137 turn on \"Developer mode\" at the top right of the extensions page instead. Chrome versions below 135 are not supported."
+    "message": "Chrome 138+: \"Allow User Scripts\". Chrome 135–137: \"Developer mode\" at the top right of the extensions page instead. Below 135 is not supported."
   },
   "optScriptsReady": {
     "message": "Enabled: the model can ask to run scripts, and each run needs your approval in the side panel."
@@ -868,5 +844,65 @@
   },
   "optScriptsDevToggle": {
     "message": "Developer build: script permission is built in, but the browser does not allow user scripts yet. Turn on \"Allow User Scripts\" in the extension details."
+  },
+  "optLanguageBrowser": {
+    "message": "Follow browser ({1})"
+  },
+  "optLanguageOther": {
+    "message": "Other…"
+  },
+  "optLanguageCustom": {
+    "message": "Custom reply language"
+  },
+  "optLanguagePlaceholder": {
+    "message": "e.g. Deutsch"
+  },
+  "optAdvanced": {
+    "message": "Advanced"
+  },
+  "optPermissions": {
+    "message": "Website access"
+  },
+  "optPermissionsHint": {
+    "message": "You can also allow just the current site from the side panel. The assistant only acts on pages when you start or continue a task."
+  },
+  "optSave": {
+    "message": "Save settings"
+  },
+  "optSaveHint": {
+    "message": "Saves the model connection and run budget, and allows the API URL."
+  },
+  "optSaved": {
+    "message": "Settings saved; they apply to new tasks or after Continue task. No model call has been made yet."
+  },
+  "optAutoSaved": {
+    "message": "Saves automatically"
+  },
+  "optImageChoose": {
+    "message": "Choose image"
+  },
+  "wiSelected": {
+    "message": "Selected {1}, saving…"
+  },
+  "optScriptsBadgeOff": {
+    "message": "Off"
+  },
+  "optScriptsBadgeToggle": {
+    "message": "Browser toggle off"
+  },
+  "optScriptsBadgeOn": {
+    "message": "On"
+  },
+  "optScriptsBadgeDev": {
+    "message": "Dev build · auto-approve"
+  },
+  "optScriptsStepGrant": {
+    "message": "Grant the optional \"user scripts\" permission"
+  },
+  "optScriptsStepToggle": {
+    "message": "Turn on \"Allow User Scripts\" in extension details"
+  },
+  "optStepDone": {
+    "message": "Done"
   }
 }

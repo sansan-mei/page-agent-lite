@@ -41,7 +41,7 @@ test('all-site button requests HTTP and HTTPS optional hosts explicitly before c
  const f=await fixture(true,()=>undefined,true);f.calls.length=0;
  f.document.getElementById('grant-all').dispatchEvent(new f.window.Event('click'));
  assert.deepEqual(Array.from(f.calls[0][1].origins),['http://*/*','https://*/*']);
- await flush();assert.match(f.document.getElementById('management-status').textContent,/所有普通网站已授权/);
+ await flush();assert.match(f.document.getElementById('grant-all-status').textContent,/所有普通网站已授权/);
 });
 
 

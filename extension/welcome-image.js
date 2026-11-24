@@ -5,12 +5,12 @@
   if (!image) return;
   const fallback = 'icons/welcome-assistant.webp';
   const storage = chrome.storage.local;
-  const file = $('welcome-image-file'), reset = $('welcome-image-reset'), status = $('welcome-image-status');
+  const file = $('welcome-image-file'), pick = $('welcome-image-pick'), reset = $('welcome-image-reset'), status = $('welcome-image-status');
   const limit = 2 * 1024 * 1024;
   let revision = 0, busy = true;
   function valid(value) { return typeof value === 'string' && value.length <= limit && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value); }
   function show(value) { image.src = valid(value) ? value : fallback; }
-  function controls() { if (file) file.disabled = busy; if (reset) reset.disabled = busy; }
+  function controls() { for (const control of [file, pick, reset]) if (control) control.disabled = busy; }
   image.addEventListener('error', () => { if (image.getAttribute('src') !== fallback) image.src = fallback; });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && Object.hasOwn(changes, 'welcomeImage')) { revision++; show(changes.welcomeImage.newValue); }
@@ -52,6 +52,8 @@
       return data;
     } finally { URL.revokeObjectURL(url); }
   }
-  file?.addEventListener('change', () => { const selected = file.files?.[0]; if (selected) void save(() => readFile(selected)); });
+  // The native file input is hidden: its "Choose File" text follows the browser, not the extension locale.
+  pick?.addEventListener('click', () => file?.click());
+  file?.addEventListener('change', () => { const selected = file.files?.[0]; if (!selected) return; if (status) status.textContent = t('wiSelected', selected.name || ''); void save(() => readFile(selected)); });
   reset?.addEventListener('click', () => void save(async () => null));
 })();

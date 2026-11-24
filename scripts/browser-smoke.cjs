@@ -506,18 +506,18 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await optionsPage.waitForTimeout(1000);
   console.log('OPTIONS_DIAGNOSTIC', await optionsPage.locator('#status').textContent(), await sw.evaluate(() => globalThis.__smokeSender));
   await poll(
-    async () => (await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optLoaded')),
+    async () => optionsPage.locator('#save-settings').isEnabled(),
     'options page settings initialized',
   );
 
   await optionsPage.locator('#endpoint').fill(origin + '/v1');
   await optionsPage.locator('#model').fill('ci-deterministic-stub');
   await optionsPage.locator('#key').fill(FAKE_KEY);
-  await optionsPage.locator('#language').fill('简体中文');
-  await optionsPage.locator('#config button[type="submit"]').click();
+  await optionsPage.locator('#language-choice').selectOption('简体中文');
+  await optionsPage.locator('#save-settings').click();
 
   await poll(
-    async () => (await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optApiSaved')),
+    async () => (await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optSaved')),
     'options submitted & API config saved',
   );
 
@@ -601,8 +601,8 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(await page.locator('[data-page-agent="ui"]').count(),0);
   assert.equal(await optionsPage.locator('#article-settings, #article, #auto-click, #auto-fill').count(),0);
   assert.equal(await optionsPage.locator('#context-tokens').inputValue(),'100000');
-  await optionsPage.locator('#agent-config button[type="submit"]').click();
-  await poll(async()=>(await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optBehaviorSaved')),'budget preferences saved without execution toggles');
+  await optionsPage.locator('#status').evaluate(el=>{el.textContent='';});await optionsPage.locator('#save-settings').click();
+  await poll(async()=>(await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optSaved')),'budget preferences saved without execution toggles');
   pass('settings default to 100000 tokens with no automation switches or article tools');
 
   // Recent PA1/PA3 changes through real isolated-world messaging.

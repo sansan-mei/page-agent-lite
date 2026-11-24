@@ -6,12 +6,20 @@
   const $ = id => document.getElementById(id), t = PageAgentI18n.t, S = PageAgentScriptTools;
   const required = (chrome.runtime?.getManifest?.().permissions || []).includes(S.permission);
   let version = 0;
+  // Badge: off / permission granted but browser toggle off / on / developer build auto-approves.
+  function badge(state) {
+    const [name, key] = required && state.available ? ['dev', 'optScriptsBadgeDev'] : state.available ? ['on', 'optScriptsBadgeOn'] : required || state.permission ? ['toggle', 'optScriptsBadgeToggle'] : ['off', 'optScriptsBadgeOff'];
+    $('script-badge').setAttribute('data-state', name); $('script-badge').textContent = t(key);
+  }
   async function refresh() {
     const current = ++version;
     let state = {permission: false, api: false, available: false};
     try { state = await S.status(chrome); } catch { /* treated as unavailable */ }
     if (current !== version) return state;
     $('script-status').textContent = required ? t(state.available ? 'optScriptsDevReady' : 'optScriptsDevToggle') : t(state.available ? 'optScriptsReady' : state.permission ? 'optScriptsNeedToggle' : 'optScriptsOff');
+    badge(state);
+    $('script-step-permission').setAttribute('data-done', String(required || state.permission));
+    $('script-step-toggle').setAttribute('data-done', String(state.available));
     $('script-grant').hidden = required || state.permission;
     $('script-revoke').hidden = required || !state.permission;
     return state;

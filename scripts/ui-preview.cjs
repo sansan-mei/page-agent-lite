@@ -69,7 +69,7 @@ const i18n=page=>page.addInitScript(([data,ui])=>{globalThis.chrome.i18n={getMes
   options.on('pageerror',e=>errors.push(e.message));
   await options.addInitScript(()=>{globalThis.chrome={runtime:{sendMessage:async m=>({ok:true,value:m.type==='settings'?{}:m.type==='agentPreferences'?{maxSteps:100,contextTokens:100000,compressionThreshold:80}:m.type==='task:site-memory'?{origin:'https://example.com',version:0,notes:[]}:[]})},tabs:{query:async()=>[{id:1,url:'https://example.com',title:'示例网页'}],onUpdated:{addListener(){}},onRemoved:{addListener(){}}},storage:{onChanged:{addListener(){}}},permissions:{request:async()=>true}};});
   await i18n(options);
-  await options.goto(pathToFileURL(path.resolve('extension/options.html')).href);await options.locator('#status').filter({hasText:messages.optLoaded.message}).waitFor();await options.locator('#managed-tab option').waitFor({state:'attached'});await options.screenshot({path:shots+'/options-redesign.png',fullPage:true,animations:'disabled'});
+  await options.goto(pathToFileURL(path.resolve('extension/options.html')).href);await options.locator('#save-settings:enabled').waitFor();await options.locator('#managed-tab option').waitFor({state:'attached'});await options.screenshot({path:shots+'/options-redesign.png',fullPage:true,animations:'disabled'});
   if(docs)await options.screenshot({path:'docs/assets/options-preview.png',fullPage:true,animations:'disabled'});
   for(const width of [320,390,760,1080]){
     await options.setViewportSize({width,height:900});
