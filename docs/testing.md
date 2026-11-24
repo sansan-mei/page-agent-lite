@@ -49,6 +49,7 @@ git diff --check
 ## 尚未验证
 
 - 线上真实模型：规划、记忆选择、摘要质量、子目标质量、缓存命中与费用。
+- 原生工具调用：请求体、tool_call 转换、多调用/坏参数拒绝、auto 回退与记忆只有 Node 假 fetch，浏览器 smoke 的假接口按 tool_calls 应答；真实服务商（OpenAI、DeepSeek、通义、Ollama 等）对 `tools`、`tool_choice:"required"`、`parallel_tool_calls` 的接受情况及 400 正文措辞未验证。
 - 原生侧栏位置与工具栏手势、原生主机权限弹窗（授权/拒绝/重试）、权限升级后重新启用。
 - 动作派发瞬间强杀 worker/浏览器进程（目前只验证了等待阶段的真实 worker 终止；派发中与跨来源恢复仅模拟）。
 - 真实 React/Vue 等框架、组件库、视频站点、慢加载页面与多种动态网站。

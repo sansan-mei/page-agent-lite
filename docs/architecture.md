@@ -63,6 +63,6 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 取舍
 
-不引入服务端、Python、向量库、MCP 或子 Agent；保留非流式 OpenAI 兼容接口和严格 JSON 动作协议。后续计划见 [Roadmap](../ROADMAP.md)。
+不引入服务端、Python、向量库、MCP 或子 Agent；保留非流式 OpenAI 兼容接口；动作默认走原生 function calling，不支持时回退严格 JSON，两者共用同一注册表与校验。后续计划见 [Roadmap](../ROADMAP.md)。
 
 参考：[Hermes 架构](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)、[Chrome worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。

@@ -12,7 +12,7 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, protocol=async()=>'json', preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
@@ -459,14 +459,14 @@
         }
         const globalMemoryIndex=shared.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
         const siteMemoryIndex=durable.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
-        const modelIdentity=await identity();
+        const modelIdentity=await identity(),modelProtocol=await protocol();
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
         const memoryIndex=memories.map(m=>({id:m.id,updatedAt:m.updatedAt}));
         const tabsView=(task.members||[]).length>1?await taskTabs(task):null;
         if(!await live())return;
         const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
-        const pressure=P.pressure(task,currentPayload,modelIdentity);
+        const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
         if(afterCompact&&pressure.tokens>=pressure.trigger){
@@ -510,7 +510,7 @@
         task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
         const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
-        const sentEstimate=P.pressure(task,payload).estimatedTokens;
+        const sentEstimate=P.pressure(task,payload,null,modelProtocol).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal),live);
         if (!await live()) return;
         task=await update(tabId,token,t=>{t.compactionGuard=false;t.contextPressure=pressure;
@@ -621,6 +621,9 @@
           if(now()>=deadline){await pause(task,'页面连接或忙碌等待超时，未重复操作','timeout');return;}
           await update(tabId,token,t=>{t.status='waiting_page';t.waitDeadline=deadline;t.pending=null;t.phase=t.check?'verifying':'observe';event(t,'正在等待页面加载或上一操作结束，随后重新读取');});
         } else if (['INPUT_CANCELLED','INVALID_FIELD_VALUE','UNSUPPORTED_EDITABLE'].includes(error.code))await pause(task,error.message,'input');
+        else if (error.code==='MODEL_PROTOCOL_FALLBACK'&&task.retries<2) {
+          await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'接口未使用原生工具调用，改用 JSON 文本协议重试（'+t.retries+'/2）');});
+        }
         else if (/API (?:网络|请求超时|429|5\d\d)/.test(error.message)&&task.retries<2) {
           await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'模型暂时不可用，稍后重试（'+t.retries+'/2）');});
         } else if(error.code==='ORIGIN_BOUNDARY')await scopePause(task,'origin','页面来源已改变，未读取新来源内容；请核对范围后继续');

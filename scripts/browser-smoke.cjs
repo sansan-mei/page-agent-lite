@@ -288,6 +288,13 @@ async function startServer() {
         res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({operations:[op]})}}]}));
         return;
       }
+      if(task==='agent'&&body.tools){
+        // Default auto protocol: answer the same plan as one native tool call.
+        assert.equal(body.tool_choice,'required');assert.ok(body.tools.some(t=>t.function.name==='click'));
+        const end=res.end.bind(res);
+        res.end=text=>{let plan;try{plan=JSON.parse(JSON.parse(text).choices[0].message.content);}catch{return end(text);}const {action,...args}=plan;
+          return end(JSON.stringify({choices:[{finish_reason:'tool_calls',message:{role:'assistant',content:null,tool_calls:[{id:'call_smoke',type:'function',function:{name:action,arguments:JSON.stringify(args)}}]}}]}));};
+      }
       if(task==='agent'){
         const data=JSON.parse(input),field=data.page.elements.find(e=>e.tag==='input'),link=data.page.elements.find(e=>e.tag==='a');
         if(data.goal==='Browser entry smoke'){

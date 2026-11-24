@@ -224,6 +224,21 @@
   "optReasoningHint": {
     "message": "Sends reasoning_effort to request a reasoning level; the effect depends on the model service. If the API does not support it, choose Service default. Reasoning may add time and cost."
   },
+  "optToolMode": {
+    "message": "Tool calling protocol"
+  },
+  "optToolModeAuto": {
+    "message": "Auto (default): native tool calls, JSON when unsupported"
+  },
+  "optToolModeNative": {
+    "message": "Native tool calls only"
+  },
+  "optToolModeJson": {
+    "message": "JSON text only"
+  },
+  "optToolModeHint": {
+    "message": "Auto sends tools first; if the API rejects them or does not call a tool, it remembers this model and switches to strict JSON text. Saving settings again retries native tool calls."
+  },
   "optKey": {
     "message": "API key (optional for local services)"
   },

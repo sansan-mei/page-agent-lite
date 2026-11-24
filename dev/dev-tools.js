@@ -43,6 +43,8 @@
     return T.result({...base,status:'success',code:'SCRIPT_RESULT',observed:{result,truncated:result.length<text.length,world},message:'脚本已执行，返回值见 observed.result；页面可能已变化，下一轮重新观察'});
   }
   const prompt=` DEVELOPER BUILD OVERRIDE: this local build adds action run_script and lifts the "no scripts" rule for it only. run_script value is JavaScript source (string, max ${MAX_CODE} chars) or {code, world}; it runs as an async function body in the current tab's top frame, so use return to send back a value (stringified, max ${MAX_RESULT} chars, in outcome.observed.result; exceptions in outcome.observed.error). world defaults to USER_SCRIPT (isolated, DOM access, exempt from page CSP); use world "MAIN" only when page JavaScript globals are needed. Do not pass id. Prefer the normal tools when they work; use run_script for reading or operating what they cannot reach (cross-origin or nested iframes, shadow roots, framework state, bulk extraction). Scripts may have side effects: never rerun a script whose outcome is unknown, and observe again afterwards because element IDs become stale.`;
-  root.PageAgentDevTools=Object.freeze({registry,validate,execute,prompt,handles:name=>Object.prototype.hasOwnProperty.call(registry,name)});
+  // Native tool schema for run_script, in the [description, parameters, required] shape of prompts.js.
+  const tools=Object.freeze({run_script:['Developer build: run JavaScript in the current tab and return a value.',{value:{anyOf:[{type:'string'},{type:'object',properties:{code:{type:'string'},world:{type:'string',enum:['USER_SCRIPT','MAIN']}},required:['code']}],description:'Async function body, or {code, world}'}},['value']]});
+  root.PageAgentDevTools=Object.freeze({registry,validate,execute,prompt,tools,handles:name=>Object.prototype.hasOwnProperty.call(registry,name)});
   if(typeof module!=='undefined')module.exports=root.PageAgentDevTools;
 })(globalThis);

@@ -20,7 +20,7 @@
     event.preventDefault();
     // run invokes the callback synchronously up to the permission request, preserving user activation.
     void run(async () => {
-      const config = {endpoint: C.endpoint($('endpoint').value.trim()), model: $('model').value.trim(), key: $('key').value.trim(), language: $('language').value.trim(), reasoningEffort: $('reasoningEffort').value};
+      const config = {endpoint: C.endpoint($('endpoint').value.trim()), model: $('model').value.trim(), key: $('key').value.trim(), language: $('language').value.trim(), reasoningEffort: $('reasoningEffort').value, toolMode: $('toolMode').value};
       if (!config.model || config.model.length > 120 || !config.language || config.language.length > 60 || config.key.length > 4096 || /[\r\n]/.test(config.key)) throw new Error(t('optInvalidConfig'));
       const granted = await chrome.permissions.request({origins: [new URL(config.endpoint).origin + '/*']});
       if (!granted) throw new Error(t('optApiDenied'));
@@ -46,7 +46,7 @@
   controls();
   (async () => {
     const config = await send({type: 'settings'});
-    for (const id of ['endpoint', 'model', 'key', 'language', 'reasoningEffort']) if (typeof config[id] === 'string') $(id).value = config[id];
+    for (const id of ['endpoint', 'model', 'key', 'language', 'reasoningEffort', 'toolMode']) if (typeof config[id] === 'string') $(id).value = config[id];
     const preferences=await send({type:'agentPreferences'});
     $('max-steps').value=preferences.maxSteps;
     $('context-tokens').value=preferences.contextTokens??100000;$('compression-threshold').value=preferences.compressionThreshold??80;$('input-chars').value=preferences.inputChars??2000;

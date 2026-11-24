@@ -54,7 +54,8 @@ const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemor
   preferences:()=>service.preferences(),
   model:(text,signal)=>service.generateAgent(text,signal),
   summarize:(text,signal)=>service.summarizeAgent(text,signal),
-  identity:()=>service.identity()
+  identity:()=>service.identity(),
+  protocol:()=>service.agentProtocol()
 });
 const ready=(async()=>{
   await service.init();await store.migrate();

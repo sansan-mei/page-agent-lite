@@ -4,7 +4,7 @@
 
 ## 动作
 
-模型每轮返回一个严格 JSON 动作，如 `{"action":"click","id":"t2","reply":"保存","expected":[...]}`。
+模型每轮给出一个动作：原生工具调用（工具名即 action，参数为其余字段）或严格 JSON，如 `{"action":"click","id":"t2","reply":"保存","expected":[...]}`；两者都转成同一 plan 由 `agentPlan` 校验，见 [模型响应](context-and-skills.md#模型响应)。
 
 | action | 参数 | 路由 | 说明 |
 |---|---|---|---|

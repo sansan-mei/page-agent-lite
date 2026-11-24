@@ -224,6 +224,21 @@
   "optReasoningHint": {
     "message": "通过 reasoning_effort 请求模型思考强度；效果由模型服务决定。若接口不支持，请选择服务默认。思考可能增加耗时和费用。"
   },
+  "optToolMode": {
+    "message": "工具调用协议"
+  },
+  "optToolModeAuto": {
+    "message": "自动（默认）：原生工具调用，不支持时改用 JSON"
+  },
+  "optToolModeNative": {
+    "message": "仅原生工具调用"
+  },
+  "optToolModeJson": {
+    "message": "仅 JSON 文本"
+  },
+  "optToolModeHint": {
+    "message": "自动模式先发送 tools；接口拒绝或不调用工具时，记住该模型并改用严格 JSON 文本，重新保存设置会再次尝试原生工具调用。"
+  },
   "optKey": {
     "message": "API 密钥（本机服务可留空）"
   },
