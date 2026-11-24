@@ -5,7 +5,7 @@
 | 位置 | 内容 | 生命周期 |
 |---|---|---|
 | local `config` | API 地址、模型、密钥、语言、思考强度 | 本机保留，不同步 |
-| local `agentPreferences` | maxSteps / contextTokens / compressionThreshold，默认 50 / 100000 / 80 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
+| local `agentPreferences` | maxSteps / contextTokens / compressionThreshold / inputChars，默认 50 / 100000 / 80 / 2000 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
 | local `welcomeImage` | 侧栏主图 PNG data URL；null 或缺省为内置图 | 本机保留 |
 | local `sites`、`savedPages` | 已退役文章工具的站点与记录（origin+pathname+search） | 保留，无界面入口 |
 | session `taskRoot:<taskId>` | 任务主记录（version 3） | 浏览器会话 |
@@ -32,7 +32,7 @@
 | origin=browser | 未进入网页的浏览器对话；allowedOrigins 初始为空，browserTarget 保存待授权的 HTTP/HTTPS 目标 |
 | allowedOrigins、scopeRevision | 已记录的任务来源及版本；切换来源自动加入，不作为导航白名单。旧侧栏范围修改接口保留兼容 |
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的执行标签页，其余为 kind=user_joined；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
-| goal、instructions | 原目标；带时间的补充指令（≤ 12000 字符） |
+| goal、instructions | 原目标与每条补充指令 ≤ inputChars；带时间的补充指令总长 ≤ max(12000, inputChars × 6) |
 | status、reason、phase、steps、prefs、retries | 运行状态与累计轮数 |
 | pending | 待执行计划与快照标识，不含 DOM 引用；navigate 时 value 为受限绝对 URL |
 | check、waitDeadline | 等待/核对检查点（含 dispatch、原来源/标签/范围版本、deadline） |

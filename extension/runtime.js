@@ -259,17 +259,22 @@
         controllers.get(task.taskId)?.abort();await cancelSchedule(task.tabId);await scopePause(task,'permission_denied');
       }
     }
+    const inputLimit=prefs=>prefs?.inputChars??2000;
+    // Total instructions scale with the single-input limit so one maximal input still leaves room for corrections.
+    const instructionLimit=prefs=>Math.max(12000,inputLimit(prefs)*6);
     async function start(tabId, goal) {
-      if (typeof goal !== 'string' || !goal.trim() || goal.length > 2000) throw new Error('请输入不超过 2000 字的任务');
-      const page = await tools.tab(tabId,true), prefs = await preferences();
+      const prefs = await preferences(), limit = inputLimit(prefs);
+      if (typeof goal !== 'string' || !goal.trim() || goal.length > limit) throw new Error(`请输入不超过 ${limit} 字的任务`);
+      const page = await tools.tab(tabId,true);
       controllerForTab(tabId)?.abort();
       const task = {version:2, taskId:uuid(), token:uuid(), tabId, origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)], goal:goal.trim(), status:'running', phase:'observe', steps:0, prefs, results:[], events:[], pending:null, updatedAt:Date.now(), retries:0};
       event(task, '任务已开始');
       await serial(tabId, () => store.set(tabId, task)); schedule(tabId); return task;
     }
     async function submit(tabId, text) {
-      if(typeof text!=='string'||!text.trim()||text.length>2000)throw new Error('请输入不超过 2000 字的指令');
-      const page=await tools.tab(tabId,true),prefs=await preferences();
+      const prefs=await preferences(),limit=inputLimit(prefs);
+      if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
+      const page=await tools.tab(tabId,true);
       const saved=await serial(tabId,async()=>{
         let task=await store.get(tabId);
         if(task&&task.status!=='ended'&&(task.origin==='browser'||task.status!=='completed')){
@@ -277,7 +282,7 @@
           if(['scope_changed','permission_denied'].includes(task.reason)&&(task.phase==='executing'||task.check))throw new Error('请先点击继续核对未确定操作，再补充指令');
           if(originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
-          if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
+          if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllerForTab(tabId)?.abort();
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
           task.question=null;task.helpAttempts=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
@@ -299,7 +304,7 @@
         if(!Array.isArray(indices)||!indices.length||indices.length>q.options.length||new Set(indices).size!==indices.length||indices.some(i=>!Number.isInteger(i)||i<0||i>=q.options.length))throw new Error('请选择有效选项');
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
-        if(JSON.stringify(instructions).length>12000)throw new Error('补充指令已达上下文上限');
+        if(JSON.stringify(instructions).length>instructionLimit(t.prefs))throw new Error('补充指令已达上下文上限');
         controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }

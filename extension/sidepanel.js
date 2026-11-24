@@ -379,7 +379,11 @@
   chrome.tabs.onUpdated.addListener((id,change)=>{
     if(id===tabId&&(change.url||change.status==='complete'))void selectTab();
   });
+  async function loadInputLimit(){
+    try{const value=await send('agentPreferences');if(Number.isInteger(value?.inputChars)&&value.inputChars>0)$('instruction').setAttribute('maxlength',String(value.inputChars));}catch{}
+  }
   chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==='local'&&changes.agentPreferences){void loadInputLimit();return;}
     if(area!=='session'||tabId===null)return;
     const registry=changes.taskRegistry;
     if(registry){
@@ -389,5 +393,6 @@
     }
     if(!scopePending&&task?.taskId&&changes['taskRoot:'+task.taskId])invalidateTask();
   });
+  void loadInputLimit();
   void selectTab();
 })();

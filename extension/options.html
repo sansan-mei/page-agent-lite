@@ -18,6 +18,8 @@
 <form id="agent-config">
 <label for="max-steps">每次任务的执行轮数上限（默认 50，0 表示不限）</label><input id="max-steps" type="number" min="0" step="1" value="50" required>
 <p>不限轮数时，持续执行直到任务完成、任务暂停、发生错误或你点击停止。也可以填写 100、500 等自定义上限。每轮会调用模型，翻页后累计轮数继续保留。</p>
+<label for="input-chars">侧栏输入框单次字符上限（默认 2000，范围 100–10000）</label><input id="input-chars" type="number" min="100" max="10000" step="1" value="2000" required>
+<p>限制每次发送的任务或补充指令长度。补充指令总长上限为 12000 与单次上限 6 倍中的较大值。内容越长，每轮请求越耗上下文和费用。</p>
 <label for="context-tokens">模型上下文窗口（token）</label><input id="context-tokens" type="number" min="8192" max="262144" step="1" value="100000" required>
 <label for="compression-threshold">自动压缩阈值（可用输入预算的百分比）</label><input id="compression-threshold" type="number" min="50" max="95" step="1" value="80" required>
 <p>请填写模型实际支持的上下文窗口，默认 100000 token；预留 2000 token 输出空间，在剩余预算的 80% 才压缩。接口未提供用量时采用估算。正常执行保留原始历史以利于缓存复用，缓存是否命中由服务商决定。</p>

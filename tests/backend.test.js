@@ -52,20 +52,33 @@ test('trusted options opened in a real tab can read settings, but child frames a
  await assert.rejects(()=>s.handle({type:'settings'},{...options,frameId:1,tab:{id:4}}));
  await assert.rejects(()=>s.handle({type:'settings'},page));
 });
+test('input character limit defaults to 2000, validates range, persists and is readable by the side panel only among extension pages',async()=>{
+ const c=fake(),s=backend.createService(c);await s.init();
+ const panel={id:'test',url:'chrome-extension://test/sidepanel.html'};
+ assert.equal((await s.handle({type:'agentPreferences'},panel)).inputChars,2000);
+ for(const inputChars of [99,10001,1.5,'5000'])await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,inputChars}},options),/字符上限|设置无效/);
+ assert.equal(c.data.agentPreferences,undefined);
+ await s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,inputChars:8000}},options);
+ await s.handle({type:'setAgentPreferences',preferences:{maxSteps:60}},options);
+ assert.equal((await s.handle({type:'agentPreferences'},panel)).inputChars,8000);
+ await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:50,inputChars:3000}},panel));
+ await assert.rejects(()=>s.handle({type:'agentPreferences'},{id:'test',url:'chrome-extension://test/other.html'}));
+ await assert.rejects(()=>s.handle({type:'agentPreferences'},{...panel,frameId:1}));
+});
 module.exports={fake,page,options};
 
 test('legacy execution switches are ignored and removed when preferences are saved',async()=>{
  const c=fake(),s=backend.createService(c);c.data.agentPreferences={maxSteps:12,contextTokens:64000,autoFill:false,autoClick:false};
- assert.deepEqual(await s.preferences(),{maxSteps:12,contextTokens:64000,compressionThreshold:80});
+ assert.deepEqual(await s.preferences(),{maxSteps:12,contextTokens:64000,compressionThreshold:80,inputChars:2000});
  await s.handle({type:'setAgentPreferences',preferences:{maxSteps:20}},options);
- assert.deepEqual(c.data.agentPreferences,{maxSteps:20,contextTokens:64000,compressionThreshold:80});
+ assert.deepEqual(c.data.agentPreferences,{maxSteps:20,contextTokens:64000,compressionThreshold:80,inputChars:2000});
  await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:20,autoClick:false}},options));
 });
 
 test('agent preferences are bounded, page-readable and writable only by options; agent uses configured model',async()=>{
  const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'chosen',language:'中文'};
  let body;const s=backend.createService(c,async(url,opts)=>{body=JSON.parse(opts.body);return new Response(JSON.stringify({choices:[{message:{content:'{"reply":"完成","action":"done"}'}}]}));});
- assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:50,contextTokens:100000,compressionThreshold:80});
+ assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:50,contextTokens:100000,compressionThreshold:80,inputChars:2000});
  await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:2}},page));
  for(const maxSteps of [-1,1.5,Number.MAX_SAFE_INTEGER+1])await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps}},options));
  for(const maxSteps of [0,100,500]){
@@ -73,7 +86,7 @@ test('agent preferences are bounded, page-readable and writable only by options;
   assert.equal((await s.handle({type:'agentPreferences'},page)).maxSteps,maxSteps);
  }
  await s.handle({type:'setAgentPreferences',preferences:{maxSteps:2}},options);
- assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:2,contextTokens:100000,compressionThreshold:80});
+ assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:2,contextTokens:100000,compressionThreshold:80,inputChars:2000});
  await s.handle({type:'model',task:'agent',text:JSON.stringify({goal:'读页面',page:{text:'x'.repeat(15000)}})},page);
  assert.equal(body.model,'chosen');assert.match(body.messages[0].content,/ONE action/);assert.match(body.messages[0].content,/untrusted/);
 });

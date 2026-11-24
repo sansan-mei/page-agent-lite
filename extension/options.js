@@ -31,7 +31,7 @@
   $('agent-config').addEventListener('submit', event => {
     event.preventDefault();
     void run(async () => {
-      const preferences={maxSteps:Number($('max-steps').value),contextTokens:Number($('context-tokens').value),compressionThreshold:Number($('compression-threshold').value)};
+      const preferences={maxSteps:Number($('max-steps').value),contextTokens:Number($('context-tokens').value),compressionThreshold:Number($('compression-threshold').value),inputChars:Number($('input-chars').value)};
       await send({type:'setAgentPreferences',preferences});
       status.textContent='助手默认设置已保存，新任务或点击「继续任务」后生效。';
     });
@@ -48,7 +48,7 @@
     for (const id of ['endpoint', 'model', 'key', 'language', 'reasoningEffort']) if (typeof config[id] === 'string') $(id).value = config[id];
     const preferences=await send({type:'agentPreferences'});
     $('max-steps').value=preferences.maxSteps;
-    $('context-tokens').value=preferences.contextTokens??100000;$('compression-threshold').value=preferences.compressionThreshold??80;
+    $('context-tokens').value=preferences.contextTokens??100000;$('compression-threshold').value=preferences.compressionThreshold??80;$('input-chars').value=preferences.inputChars??2000;
     status.textContent = '设置已读取。API 与站点需分别授权。';
   })().catch(() => {status.textContent = '无法读取设置，请重启扩展后重试。';})
     .finally(() => {busy = false; controls();});

@@ -24,6 +24,13 @@ test('successful send clears submitted text but preserves new edits and failed d
  input.value='第二条';form.dispatchEvent(new f.window.Event('submit'));input.value='正在写第三条';resolve({ok:true,value:task});await flush();assert.equal(input.value,'正在写第三条');
  form.dispatchEvent(new f.window.Event('submit'));resolve({ok:false,error:'连接失败'});await flush();assert.equal(input.value,'正在写第三条');
 });
+test('composer uses the configured input character limit and follows later changes',async()=>{
+ let limit=6000;const f=await fixture(true,m=>m.type==='agentPreferences'?{ok:true,value:{maxSteps:50,inputChars:limit}}:undefined);await flush();
+ const input=f.document.getElementById('instruction');assert.equal(input.getAttribute('maxlength'),'6000');
+ limit=300;f.storageChanged({agentPreferences:{newValue:{inputChars:300}}},'local');await flush();assert.equal(input.getAttribute('maxlength'),'300');
+ const fallback=await fixture(true,m=>m.type==='agentPreferences'?{ok:false,error:'x'}:undefined);await flush();
+ assert.equal(fallback.document.getElementById('instruction').getAttribute('maxlength'),'2000');
+});
 test('denied website grant never injects or starts a task',async()=>{
  const f=await fixture(false);f.calls.length=0;
  f.document.getElementById('grant').dispatchEvent(new f.window.Event('click'));await flush();

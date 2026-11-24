@@ -245,6 +245,17 @@ test('stopping or adding instructions cancels late compaction without overwritin
  }
 });
 
+test('configured input character limit bounds new tasks and supplements; default stays 2000',async()=>{
+ const d=fixture();await assert.rejects(()=>d.runtime.start(1,'长'.repeat(2001)),/2000/);await assert.rejects(()=>d.runtime.submit(1,'长'.repeat(2001)),/2000/);
+ await d.runtime.submit(1,'长'.repeat(2000));assert.equal((await d.runtime.get(1)).goal.length,2000);
+ const f=fixture({preferences:async()=>({maxSteps:50,contextTokens:32768,inputChars:10000})});
+ await assert.rejects(()=>f.runtime.submit(1,'长'.repeat(10001)),/10000/);assert.equal(await f.runtime.get(1),null);
+ await f.runtime.submit(1,'长'.repeat(10000));assert.equal((await f.runtime.get(1)).goal.length,10000);
+ for(let i=0;i<5;i++)await f.runtime.submit(1,'补'.repeat(10000));
+ const t=await f.runtime.get(1);assert.equal(t.instructions.length,5);
+ await assert.rejects(()=>f.runtime.submit(1,'补'.repeat(10000)),/上限/);assert.deepEqual((await f.runtime.get(1)).instructions,t.instructions);
+});
+
 test('supplemental instructions are retained or rejected explicitly rather than silently trimmed',async()=>{
  const f=fixture();await f.runtime.start(1,'任务');for(let i=0;i<15;i++)await f.runtime.submit(1,'纠正'+i);
  let t=await f.runtime.get(1);assert.equal(t.instructions.length,15);

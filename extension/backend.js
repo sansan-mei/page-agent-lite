@@ -36,20 +36,21 @@ function createService(chrome,fetcher=fetch){
  async function write(value){try{await store.set(value);}catch{throw new Error('存储空间不足或写入失败；未保存，请清理已保存修改');}}
  async function preferences(){
    const p=await get('agentPreferences')||{};
-   return {maxSteps:p.maxSteps??50,contextTokens:p.contextTokens??100000,compressionThreshold:p.compressionThreshold??80};
+   return {maxSteps:p.maxSteps??50,contextTokens:p.contextTokens??100000,compressionThreshold:p.compressionThreshold??80,inputChars:p.inputChars??2000};
  }
  async function handle(m,sender,options={}){
   if(!m||typeof m!=='object'||JSON.stringify(m).length>(options.internalAgent?6100000:160000)||typeof m.type!=='string')throw new Error('消息格式或大小无效');
   const opts=sender?trusted(sender,'options.html'):false;
   if(m.type==='agentPreferences'){
-   if(!opts)page(sender);
+   if(!opts&&!trusted(sender,'sidepanel.html'))page(sender);
    return preferences();
   }
   if(m.type==='setAgentPreferences'){
    if(!opts)throw new Error('拒绝修改设置');
    const p=m.preferences;
-   if(!p||Object.keys(p).some(k=>!['maxSteps','contextTokens','compressionThreshold'].includes(k))||!Number.isSafeInteger(p.maxSteps)||p.maxSteps<0)throw new Error('助手设置无效');
+   if(!p||Object.keys(p).some(k=>!['maxSteps','contextTokens','compressionThreshold','inputChars'].includes(k))||!Number.isSafeInteger(p.maxSteps)||p.maxSteps<0)throw new Error('助手设置无效');
    if((p.contextTokens!==undefined&&(!Number.isInteger(p.contextTokens)||p.contextTokens<8192||p.contextTokens>262144))||(p.compressionThreshold!==undefined&&(!Number.isInteger(p.compressionThreshold)||p.compressionThreshold<50||p.compressionThreshold>95)))throw new Error('上下文预算或压缩阈值无效');
+   if(p.inputChars!==undefined&&(!Number.isInteger(p.inputChars)||p.inputChars<100||p.inputChars>10000))throw new Error('输入框字符上限无效（100–10000）');
    const previous=await preferences();
    await write({agentPreferences:{...previous,...p}});return {ok:true};
   }
