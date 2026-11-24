@@ -11,7 +11,7 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json')));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.version, '1.0.0');
-  assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'alarms', 'scripting', 'sidePanel', 'storage', 'tabs']);
+  assert.deepEqual(manifest.permissions.sort(), ['alarms', 'scripting', 'sidePanel', 'storage', 'tabs']);
   assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.content_scripts, undefined);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
@@ -54,6 +54,6 @@ test('production manifest has no host_permissions and minimal declared permissio
   const m = JSON.parse(require('node:fs').readFileSync(path.join(extDir, 'manifest.json'), 'utf8'));
   assert.equal(m.host_permissions, undefined, 'No pre-granted hosts');
   const ps = new Set(m.permissions);
-  assert.ok(ps.has('activeTab')); assert.ok(ps.has('scripting')); assert.ok(ps.has('storage'));
+  assert.equal(ps.has('activeTab'), false, 'Host access comes only from optional host permissions'); assert.ok(ps.has('scripting')); assert.ok(ps.has('storage'));
   assert.ok(ps.has('tabs'), 'Read target metadata to request only its optional origin');
 });

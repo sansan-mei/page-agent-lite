@@ -5,7 +5,6 @@
   "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事务",
   "minimum_chrome_version": "120",
   "permissions": [
-    "activeTab",
     "tabs",
     "scripting",
     "storage",
