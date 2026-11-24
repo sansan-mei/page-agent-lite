@@ -1,7 +1,7 @@
 (function(root){
   'use strict';
   const kinds=['field_equals','checked_equals','selected_equals','expanded_equals','element_visible','element_absent','text_present','url_changed','url_equals'];
-  const descriptorKeys=['category','tag','role','label','name','type','group','key'];
+  const descriptorKeys=['category','tag','role','label','name','type','group','frame','key'];
   function validate(list){
     if(!Array.isArray(list)||list.length<1||list.length>5)throw new Error('验证条件必须为 1–5 项');
     for(const c of list){
@@ -22,7 +22,7 @@
     return list;
   }
   function descriptor(item,page){
-    const d={category:item.id.startsWith('r')?'region':'element',tag:item.tag||'',role:item.role||'',label:item.label||'',name:item.name||'',type:item.type||'',group:page.groups?.find(g=>g.id===item.group)?.label||''};
+    const d={category:item.id.startsWith('r')?'region':'element',tag:item.tag||'',role:item.role||'',label:item.label||'',name:item.name||'',type:item.type||'',group:page.groups?.find(g=>g.id===item.group)?.label||'',frame:page.frames?.find(f=>f.id===item.frame)?.key||''};
     if(!d.label&&!d.name)d.key=item.key||'';
     return d;
   }
@@ -56,7 +56,8 @@
       // read-only and must be unique, including within the original document.
       if(c.target&&Object.values(c.target).some(Boolean))matches=all.filter(item=>{
         const d=descriptor(item,snapshot.page);
-        return Object.entries(c.target).every(([k,v])=>k!=='group'&&!v||d[k]===v);
+        // group and frame (iframe key, '' = top document) are compared even when empty.
+        return Object.entries(c.target).every(([k,v])=>k!=='group'&&k!=='frame'&&!v||d[k]===v);
       });
       else if(c.documentId&&snapshot.documentId===c.documentId)matches=all.filter(e=>e.id===c.id);
       if(matches.length>1)return answer(null,'AMBIGUOUS_TARGET');

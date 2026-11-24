@@ -22,6 +22,7 @@
 ### 网页读取与操作
 
 - [x] 顶层 DOM 读取：弹窗优先、视口排序、分组/语义上下文、ARIA combobox/listbox/tab 状态
+- [x] 同源 iframe（单层）读取、操作与核对；跨源/嵌套 iframe 标注未读
 - [x] 长页面：正文、控件、区域、单区域文字的分段读取与名称查找；按需省略整页正文
 - [x] 动作：fill、check、select、click、hover、scroll、wheel、press_key、double_click、right_click、navigate
 - [x] 点击遮挡检查、SVG 命中点击、目标变化中断
@@ -59,7 +60,7 @@
 - [ ] 内容过滤配置与预览（PA11 剩余）、原生 function calling（PA12 剩余）
 - [ ] 统一执行事件、脱敏轨迹导出、历史检索与跨重启续接（PA13 剩余）
 - [ ] 技能复用；跨会话任务恢复
-- [ ] 截图与视觉模型；iframe；Shadow DOM；复杂富文本编辑器；手动选取元素作为上下文
+- [ ] 截图与视觉模型；跨源/嵌套 iframe；Shadow DOM；复杂富文本编辑器；手动选取元素作为上下文
 - [ ] 可选外部集成：SDK、扩展任务 API、MCP（PA14–PA16，后期评估）
 
 ## 已退役

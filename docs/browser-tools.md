@@ -45,8 +45,18 @@
 - 排序：弹窗（open dialog、role=dialog/alertdialog、aria-modal）优先，其次与视口相交（考虑 overflow 祖先裁剪）。`inViewport` 只是几何相交。
 - 识别的交互元素：原生控件、role=link/menuitem/switch/combobox/option/tab、onclick、非负 tabindex、pointer 样式边界。可点击行内的子元素若自带交互线索（a、label、summary、aria-haspopup/expanded/pressed、data-testid）单独列出，如悬浮才显形的「添加/更多」。onclick 只用于识别，不读取执行。标签来自 label、aria-labelledby、title。
 - 元素可带 `scroll {x,y,maxX,maxY}`、expanded/selected/haspopup、`controlledLabels`、`editable`（plain_text / unsupported_structure）、`context {path, description}`。
-- `coverage` 分别标注元素、区域、正文是否完整；`page.viewport` 给出窗口尺寸与滚动范围。没读到不等于不存在。
+- `coverage` 分别标注元素、区域、正文、框架是否完整；`page.viewport` 给出窗口尺寸与滚动范围。没读到不等于不存在。
 - 默认排除：密码/文件/隐藏字段、`autocomplete` 含 current-password/new-password/one-time-code/cc-number/cc-csc 的元素及子树（不区分大小写，支持 section-/billing 前缀）、hidden/aria-hidden、自身或祖先 display:none、自身计算样式 visibility:hidden/collapse（子元素可用 visible 覆盖祖先）、扩展自身 UI。opacity:0 不排除。存在敏感排除时 `coverage.sensitiveExcluded=true`。这不是全面脱敏。可信后台传入本对话的敏感字段授权时，允许密码及上述 autocomplete 字段；文件、隐藏字段始终排除。授权绑定快照，执行消息的授权不一致则拒绝旧快照。模型只能用 `request_sensitive_access` 请求侧栏确认，不能自行授权；交互见 [使用指南](usage.md#敏感字段授权)。
+
+### iframe
+
+内容脚本只注入顶层框架，从 isolated world 经 `contentDocument` 读取同源 iframe，只读一层。
+
+- 同源且已加载的 iframe（最多 10 个）节点紧跟在其 iframe 元素之后参与排序，与顶层共用控件、区域、正文和上下文上限；正文段以 `[f0 标题]` 前缀接在顶层正文后。
+- `page.frames`（≤ 20 项，无 iframe 时省略）：`{id, key, label, read, reason}`，label 取 title/aria-label/name；未读 reason 为 `cross_origin`、`nested`、`loading`（含 src 未加载完的初始 about:blank）、`limit`。隐藏 iframe 跳过；不可读且面积 < 4px² 的 iframe 忽略。存在未读框架时 `coverage.framesComplete=false`；element_absent 的完整性不覆盖未读框架。
+- 框架内元素、区域带 `frame`（`page.frames` 的 id）；节点 key 全局唯一。可见性、inViewport 按 iframe 内容框偏移并受 iframe 可见框裁剪。敏感字段与隐藏规则在框架内同样生效，iframe 本身处于敏感/隐藏子树时整框不读。
+- 执行：所有 content 动作都可用于框架内目标，在框架自身文档内完成——视口、`elementFromPoint`、事件构造器和原生 value setter 都取自该框架窗口；命中探测点还要求顶层在对应坐标命中该 iframe，否则以顶层遮挡层回报 `TARGET_BLOCKED`。iframe 被移除、隐藏或换了文档 → `STALE`。虚拟指针画在顶层。
+- 条件：语义目标的 `frame` 为 iframe key（顶层为空串），绑定后与 group 一样始终比较，顶层与框架内同名控件不会互相匹配。
 
 ### 分段读取
 
@@ -133,4 +143,4 @@ observe 的 value：
 
 ## 未支持
 
-快照差异、批量动作、截图/视觉、iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
+快照差异、批量动作、截图/视觉、跨源/嵌套 iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
