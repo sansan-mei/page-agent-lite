@@ -75,6 +75,7 @@
     $('conversation').hidden=historyOpen;$('history-view').hidden=!historyOpen;
     $('history').setAttribute('aria-expanded',String(historyOpen));
     $('composer').hidden=historyOpen;
+    $('target').parentElement.hidden=!tabOrigin;
     $('browser-target').hidden=historyOpen||!current?.browserTarget||current?.reason!=='browser_target';
     $('browser-target-url').textContent=current?.browserTarget?'打开网站：'+current.browserTarget:'';
     $('browser-target-open').disabled=busy;
@@ -242,11 +243,11 @@
       if(tab?.url)tabOrigin=['http:','https:'].includes(new URL(tab.url).protocol)?new URL(tab.url).origin:null;
       void refreshPermissions();
       $('target').replaceChildren();
-      for(const [text,className] of [[tabOrigin?(tab.title||'当前网页'):'浏览器助手','site-title'],[tabOrigin||'','site-origin']]){
+      for(const [text,className] of (tabOrigin?[[tab.title||'当前网页','site-title'],[tabOrigin,'site-origin']]:[])){
         const line=document.createElement('span');line.className=className;line.textContent=text;$('target').append(line);
       }
-      $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'浏览器助手';
-      if(!tabOrigin)$('status').textContent=tab?.url?'可以直接描述任务；需要网页时再授权。':'无法读取当前标签页，请重新打开侧栏。';
+      $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'';
+      if(!tab?.url)$('status').textContent='无法读取当前标签页，请重新打开侧栏。';
       if(tabId===null){render();return;}
       const refreshVersion=++taskRefresh,value=await send('task:get');if(version!==selection||refreshVersion!==taskRefresh)return;task=value;render();
     }catch(e){if(version===selection)$('status').textContent=e.message;}

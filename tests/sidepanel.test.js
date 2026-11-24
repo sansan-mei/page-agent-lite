@@ -331,7 +331,7 @@ test('sensitive confirmation displays model reason as text and sends explicit de
 test('internal tabs accept conversation and tab switching preserves the executing conversation',async()=>{
  const task={taskId:'browser-chat',origin:'browser',goal:'Open site',status:'paused',reason:'browser_target',browserTarget:'https://example.test/',scopeRevision:1,allowedOrigins:[],steps:1,prefs:{maxSteps:50},events:[],results:[]};
  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:submit'?{ok:true,value:task}:undefined,false,async()=>false,{}, {id:9,url:'chrome://newtab/'});
- const d=f.document;assert.equal(d.getElementById('start').disabled,false);assert.match(d.getElementById('target').textContent,/浏览器助手/);assert.equal(d.getElementById('browser-target').hidden,false);
+ const d=f.document;assert.equal(d.getElementById('start').disabled,false);assert.equal(d.getElementById('target').parentElement.hidden,true);assert.equal(d.getElementById('status').textContent,'');assert.equal(d.getElementById('browser-target').hidden,false);
  await f.activate({id:10,url:'https://other.test/'});assert.equal(d.getElementById('goal').textContent,'Open site');assert.equal(d.getElementById('use-current').hidden,false);
  d.getElementById('instruction').value='Continue';d.getElementById('chat').dispatchEvent(new f.window.Event('submit',{cancelable:true}));await flush();assert.equal(f.calls.find(c=>c[1]?.type==='task:submit')[1].tabId,9);
 });
