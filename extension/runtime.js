@@ -7,12 +7,26 @@
   const originOf=tab=>{const url=new URL(tab.url);return ['http:','https:'].includes(url.protocol)?url.origin:'browser';};
   const ACTIVE = new Set(['running', 'waiting_page']);
   const refOf=t=>(t.members||[]).find(member=>member.tabId===t.tabId)?.tabRef||'tab0';
+  const S = typeof module !== 'undefined' ? require('./script-tools.js') : root.PageAgentScriptTools;
+  // A run_script that never reached the page: rejected, stale or discarded before dispatch.
+  function scriptEntry(t,pending,code,message,recovery='observe',time=Date.now()){
+    return {request:pending.plan,time,action:'run_script',label:'run_script',origin:t.origin,tabRef:refOf(t),result:message,
+      outcome:T.result({operationId:pending.operationId,documentId:pending.documentId,status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery,message})};
+  }
+  // Drops a pending approval (or an approved run not yet dispatched); it is recorded as not run, never replayed.
+  function discardScript(t,message,time=Date.now()){
+    const pending=t.scriptRequest?.pending||(t.phase==='approved'&&t.pending?.plan?.action==='run_script'?t.pending:null);
+    if(!pending)return false;
+    t.results=(t.results||[]).concat(scriptEntry(t,pending,'SCRIPT_DISCARDED',message,'observe',time));
+    t.scriptRequest=null;if(t.phase==='approved'){t.phase='observe';t.pending=null;}
+    t.events=recent((t.events||[]).concat({time,text:message}),40,16000);return true;
+  }
   function recent(items, count = 12, size = 10000) {
     const next = items.slice(-count);
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, protocol=async()=>'json', preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), autoApproveScripts=false, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
@@ -183,8 +197,10 @@
     async function navigationChanged(tabId,url){
       controllerForTab(tabId)?.abort();
       const saved=await serial(tabId,async()=>{
-        const t=await store.get(tabId);if(!t||!ACTIVE.has(t.status))return null;
-        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;
+        const t=await store.get(tabId);
+        if(t?.scriptRequest&&!ACTIVE.has(t.status)){t.token=uuid();discardScript(t,'页面已变化，待批准的脚本已作废，未执行；点击继续重新观察',now());t.reason='script_stale';t.updatedAt=now();await store.set(tabId,t);return null;}
+        if(!t||!ACTIVE.has(t.status))return null;
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;discardScript(t,'页面已变化，已批准的脚本未执行；重新观察',now());
         if(!t.check&&t.phase==='executing'&&t.pending&&url&&new URL(url).origin===t.origin&&url!==t.pending.url){
           const pending=t.pending;t.uncertainClicks=(t.uncertainClicks||[]).concat({url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}).slice(-2);
           t.results=(t.results||[]).concat({action:pending.plan.action,request:pending.plan,origin:t.origin,tabRef:refOf(t),outcome:T.result({status:'unknown',dispatch:'unknown',scope:'dispatch',code:'DOCUMENT_CHANGED',recovery:'observe',operationId:pending.operationId,message:'页面已导航，旧操作未重放；重新观察核对'})});t.phase='observe';t.pending=null;
@@ -204,6 +220,28 @@
         event(t,allow?'已授权本次对话读取和操作敏感字段；重新观察':'未授权，本次对话继续屏蔽敏感字段');await store.set(tabId,t);return t;
       });
       if(allow)schedule(tabId);return saved;
+    }
+    // Trusted side-panel decision on one pending run_script. Approval is per execution: the exact
+    // stored code runs once on the same tab and document; rejection is reported to the model.
+    async function scriptApproval(tabId,{taskId,requestId,allow}){
+      const saved=await serial(tabId,async()=>{
+        const t=await store.get(tabId),request=t?.scriptRequest;
+        if(!t||t.taskId!==taskId||t.status!=='paused'||t.reason!=='script_approval'||!request?.pending||request.id!==requestId||typeof allow!=='boolean')throw new Error('脚本确认已过期');
+        controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
+        t.token=uuid();t.scriptRequest=null;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.retries=0;
+        if(!allow){
+          t.results=t.results.concat(scriptEntry(t,request.pending,'SCRIPT_REJECTED','用户拒绝执行该脚本，脚本未运行；不要重复提交同一脚本，改用其他方法或询问用户','replan',now()));
+          event(t,'你拒绝了脚本，未执行；助手将改用其他方法');
+        }else{
+          let current=null;try{current=await tools.tab(tabId);}catch{current=null;}
+          if(request.pending.tabId!==tabId||t.tabId!==tabId||current?.url!==request.pending.url||originOf(current)!==t.origin){
+            t.results=t.results.concat(scriptEntry(t,request.pending,'STALE','页面已变化，已批准的脚本未执行；重新观察后再决定','observe',now()));
+            event(t,'页面已变化，已批准的脚本未执行；重新观察');
+          }else{t.phase='approved';t.pending=request.pending;event(t,'你已批准脚本，执行一次');}
+        }
+        t.updatedAt=now();await store.set(tabId,t);return t;
+      });
+      schedule(tabId);return saved;
     }
     async function changeOrigins(tabId,operation){
       return serial(tabId,async()=>{
@@ -297,7 +335,7 @@
           if(originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
-          controllerForTab(tabId)?.abort();
+          controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
           task.question=null;task.helpAttempts=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           event(task,'你（补充指令）：'+text.trim());
@@ -326,7 +364,7 @@
       await tools.clearPointer?.(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
-        controllerForTab(tabId)?.abort();task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
+        controllerForTab(tabId)?.abort();discardScript(task,'任务已结束，待批准的脚本已作废，未执行',now());task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
       await cancelSchedule(tabId);return saved;
@@ -335,13 +373,14 @@
       await tools.clearPointer?.(tabId);
       controllerForTab(tabId)?.abort();
       const task = await store.get(tabId); if (!task) return null;
-      const saved = await update(tabId, task.token, t => {t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
+      const saved = await update(tabId, task.token, t => {discardScript(t,'已停止，待批准的脚本已作废，未执行',now());t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
       await cancelSchedule(tabId); return saved;
     }
     async function takeover(tabId){
       controllerForTab(tabId)?.abort();
       const saved=await serial(tabId,async()=>{
         const t=await store.get(tabId);if(!t||['completed','ended'].includes(t.status))throw new Error('没有可接管的进行中任务');
+        discardScript(t,'用户接管网页，待批准的脚本已作废，未执行',now());
         const uncertain=t.phase==='executing'?t.pending:null;
         const check=t.check?.kind==='action'?t.check:null;
         if(uncertain||check){const source=uncertain||check;t.uncertainClicks=(t.uncertainClicks||[]).concat({url:source.url,documentId:source.documentId,key:source.targetKey||source.key,target:source.targetDescriptor||source.target}).slice(-2);}
@@ -353,6 +392,7 @@
     async function resume(tabId) {
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
       if(task.sensitiveRequest&&task.reason==='sensitive_access')throw new Error('请先选择是否授权本次对话操作敏感字段');
+      if(task.scriptRequest&&task.reason==='script_approval')throw new Error('请先在侧栏批准或拒绝待执行的脚本');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
       const page=await tools.tab(tabId,true);
       if(originOf(page)!==task.origin){const moved=await adoptOrigin(task,page);if(!moved)throw new Error('请核对任务范围和原站点未确定操作后再继续');schedule(tabId);return moved;}
@@ -417,7 +457,7 @@
         if (task.origin!=='browser'&&tab.status === 'loading'&&!readySnapshot) {
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面加载超过等待期限，任务暂停；未重复发送操作','timeout');return;}
-          await update(tabId, token, t => {t.status='waiting_page';t.waitDeadline=deadline;if(!t.check&&t.phase!=='executing'){t.phase='observe';t.pending=null;}});return;
+          await update(tabId, token, t => {t.status='waiting_page';t.waitDeadline=deadline;if(!t.check&&t.phase!=='executing'){discardScript(t,'页面正在加载，已批准的脚本未执行；加载后重新观察',now());t.phase='observe';t.pending=null;}});return;
         }
         if (task.phase === 'executing') {
           if(task.check?.expected?.length){
@@ -429,6 +469,12 @@
         if(task.check){await verifyCheck(task,live);return;}
         if (task.phase === 'approved') {
           const pending = task.pending;
+          if(pending?.plan?.action==='run_script'){
+            // Exactly the approved code, once, only on the tab and URL it was approved for (document checked before dispatch).
+            call={request:pending.plan,time:pending.time||now()};
+            if(pending.tabId!==tabId||pending.url!==tab.url)throw Object.assign(new Error('页面已变化，已批准的脚本未执行；重新观察后再决定'),{code:'STALE'});
+            await execute(task,pending,live);return;
+          }
           if (!pending || pending.url!==tab.url) {
             await update(tabId,token,t=>{t.phase='observe';t.pending=null;event(t,'页面已变化，旧确认失效，重新规划');});return;
           }
@@ -460,13 +506,15 @@
         const globalMemoryIndex=shared.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
         const siteMemoryIndex=durable.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
         const modelIdentity=await identity(),modelProtocol=await protocol();
+        const scriptState=task.origin==='browser'?{permission:false,api:false,available:false}:await scriptAccess().catch(()=>({permission:false,api:false,available:false}));
+        const capabilities={scripts:scriptState?.available===true};
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
         const memoryIndex=memories.map(m=>({id:m.id,updatedAt:m.updatedAt}));
         const tabsView=(task.members||[]).length>1?await taskTabs(task):null;
         if(!await live())return;
         const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
-        const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol);
+        const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
         if(afterCompact&&pressure.tokens>=pressure.trigger){
@@ -510,8 +558,8 @@
         task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
         const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
-        const sentEstimate=P.pressure(task,payload,null,modelProtocol).estimatedTokens;
-        const result = await measured(task,'model',()=>model(payload,controller.signal),live);
+        const sentEstimate=P.pressure(task,payload,null,modelProtocol,capabilities).estimatedTokens;
+        const result = await measured(task,'model',()=>model(payload,controller.signal,capabilities),live);
         if (!await live()) return;
         task=await update(tabId,token,t=>{t.compactionGuard=false;t.contextPressure=pressure;
           t.contextUsage=result.usage&&Number.isSafeInteger(result.usage.promptTokens)?{...result.usage,estimatedTokens:sentEstimate,modelIdentity:result.modelIdentity||modelIdentity}:null;
@@ -539,6 +587,8 @@
           task=await update(tabId,token,t=>{t.taskPlan=merged;});if(!task||!await live())return;
         }
         if(!['done','pause'].includes(plan.action))call={request:plan,time:Date.now()};
+        // run_script was not offered this turn (no optional permission, old Chrome or toggle off): nothing runs.
+        if(plan.action==='run_script'&&!capabilities.scripts){await pause(task,S.unavailableMessage(scriptState),'access');return;}
         if(plan.action==='request_sensitive_access'){
           await update(tabId,token,t=>{t.status='paused';t.reason='sensitive_access';t.phase='observe';t.pending=null;t.check=null;t.nextObservation=null;
             if(t.sensitiveAccess!=='allowed'&&t.sensitiveAccess!=='denied')t.sensitiveRequest={id:uuid(),text:plan.reply};
@@ -606,6 +656,14 @@
           }
         }
         const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,operationId:uuid(),expected,time:call.time};
+        if(plan.action==='run_script'&&!autoApproveScripts){
+          // Store build: nothing runs until the user approves this exact code in the side panel.
+          const {code,world}=S.source(plan);
+          await update(tabId,token,t=>{t.status='paused';t.reason='script_approval';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;
+            t.scriptRequest={id:uuid(),code,world,url:snap.url,origin:t.origin,documentId:snap.documentId||null,snapshotId:snap.snapshotId||null,reply:plan.reply,time:now(),pending};
+            event(t,plan.reply);event(t,'等待你在侧栏批准脚本：批准后执行一次，拒绝则改用其他方法');});
+          return;
+        }
         task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;event(t,plan.reply);const notice=plan.notice||(/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i.test(pending.label)?'即将执行：'+pending.label:null);if(notice){t.notice=notice;event(t,'重要操作：'+notice);}});
         if (!task || !await live()) return;
         await execute(task,pending,live);
@@ -854,6 +912,8 @@
     function closedPatch(t,next){
       const results=[...(t.results||[])],uncertainClicks=[...(t.uncertainClicks||[])];
       const source=t.check?.kind==='action'?t.check:t.phase==='executing'?t.pending:null;
+      const script=t.scriptRequest?.pending||(t.phase==='approved'&&t.pending?.plan?.action==='run_script'?t.pending:null);
+      if(script)results.push(scriptEntry(t,script,'SCRIPT_DISCARDED','执行标签页已关闭，待执行的脚本已作废，未执行','observe',now()));
       if(source){
         const request=source.request||source.plan;
         results.push({action:request?.action||source.action,request,time:now(),origin:t.origin,tabRef:refOf(t),outcome:T.result({status:'unknown',dispatch:t.check?.dispatch||'unknown',scope:'dispatch',code:'TAB_CLOSED',recovery:'observe',operationId:source.operationId,message:'执行标签页已关闭，原操作结果未知，不会重放'})});
@@ -861,7 +921,7 @@
       }
       const terminal=['completed','stopped','failed'].includes(t.status);
       const events=recent((t.events||[]).concat({time:now(),text:'执行标签页 '+refOf(t)+' 已关闭；任务暂停在 '+next.tabRef+'，点击继续将重新观察'}),40,16000);
-      return {results,uncertainClicks:uncertainClicks.slice(-2),events,pending:null,check:null,waitDeadline:null,phase:'observe',nextObservation:null,contextUsage:null,status:terminal?t.status:'paused',reason:terminal?t.reason:'active_tab_closed'};
+      return {results,uncertainClicks:uncertainClicks.slice(-2),events,scriptRequest:null,pending:null,check:null,waitDeadline:null,phase:'observe',nextObservation:null,contextUsage:null,status:terminal?t.status:'paused',reason:terminal?t.reason:'active_tab_closed'};
     }
     async function memberClosed(tabId){
       // Abort synchronously before waiting for storage or a running update.
@@ -896,7 +956,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

@@ -335,6 +335,24 @@ test('sensitive confirmation displays model reason as text and sends explicit de
 });
 
 
+test('script approval shows the full code as text with site and world, hides resume and sends an explicit decision',async()=>{
+ for(const allow of [true,false]){
+  const code='document.body.innerHTML="<img src=x onerror=alert(1)>";\n'+'// line\n'.repeat(300)+'return 1;';
+  const task={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'paused',reason:'script_approval',phase:'observe',steps:1,prefs:{},results:[],events:[],scriptRequest:{id:'request-7',code,world:'MAIN',url:'https://example.test/task?q=1',reply:'<b>Need page state</b>'}};
+  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:script-approval'?{ok:true,value:{...task,status:'running',reason:null,scriptRequest:null}}:undefined);
+  const box=f.document.getElementById('script-approval');assert.equal(box.hidden,false);
+  const pre=f.document.getElementById('script-code');assert.equal(pre.tagName,'PRE');assert.equal(pre.textContent,code);assert.equal(box.querySelector('img'),null);
+  assert.equal(f.document.getElementById('script-reason').textContent,'<b>Need page state</b>');assert.equal(box.querySelector('b'),null);
+  assert.match(f.document.getElementById('script-target').textContent,/https:\/\/example\.test[\s\S]*MAIN/);
+  assert.equal(f.document.getElementById('resume').hidden,true);
+  f.document.getElementById(allow?'script-approve':'script-reject').click();await flush();
+  const sent=f.calls.find(c=>c[1]?.type==='task:script-approval')[1];
+  assert.equal(sent.allow,allow);assert.equal(sent.taskId,'script-task');assert.equal(sent.requestId,'request-7');assert.equal(sent.tabId,9);
+  assert.equal(box.hidden,true);assert.equal(pre.textContent,'');
+ }
+});
+
+
 test('internal tabs accept conversation and tab switching preserves the executing conversation',async()=>{
  const task={taskId:'browser-chat',origin:'browser',goal:'Open site',status:'paused',reason:'browser_target',browserTarget:'https://example.test/',scopeRevision:1,allowedOrigins:[],steps:1,prefs:{maxSteps:50},events:[],results:[]};
  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:submit'?{ok:true,value:task}:undefined,false,async()=>false,{}, {id:9,url:'chrome://newtab/'});

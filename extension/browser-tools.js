@@ -1,6 +1,7 @@
 (function(root){
   'use strict';
   const T=typeof module!=='undefined'?require('./tool-protocol.js'):root.PageAgentProtocol;
+  const scripts=()=>typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools;
   function createBrowserTools(chrome) {
     // Trusted startup inventory contains IDs only and is never offered to the model.
     async function existingTabIds(){return (await chrome.tabs.query({})).map(t=>t.id).filter(Number.isInteger);}
@@ -32,6 +33,8 @@
       const response=await chrome.tabs.sendMessage(tabId,message,{frameId:0});
       if(!response?.ok){const e=new Error(response?.error||'页面工具通信失败');e.code=response?.code||(response?.ok===false?'TOOL_ERROR':undefined);e.result=response?.result;throw e;}return response.value;
     }
+    // Read-only probe of the content script's per-document id; a new document answers with a different id.
+    async function documentId(tabId,policy=null){return (await call(tabId,{type:'agent:document',...(policy?.origin?{expectedOrigin:policy.origin}:{})}))?.documentId||null;}
     async function observe(tabId,textOffset=0,policy=null){
       const message={type:'agent:observe',textOffset,...(policy?.sensitiveFields===true?{sensitiveFields:true}:{}),...(policy?.origin?{expectedOrigin:policy.origin}:{})};
       await checkOrigin(tabId,policy);
@@ -62,8 +65,8 @@
     }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
-      // Developer build only (dev-tools.js is not in the store package).
-      const dev=root.PageAgentDevTools;if(dev?.handles?.(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return dev.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab});}
+      // run_script runs through userScripts after the runtime's approval step (auto-approved only in the developer build).
+      const S=scripts();if(S?.handles(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return S.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab,live,documentId});}
       try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect

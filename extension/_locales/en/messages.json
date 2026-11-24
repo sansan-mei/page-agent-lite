@@ -802,5 +802,71 @@
   },
   "spActiveMember": {
     "message": "Active"
+  },
+  "spScriptTitle": {
+    "message": "Run this script?"
+  },
+  "spScriptText": {
+    "message": "The script runs inside this page and can read and change its content; its return value is sent to your configured model service. Approving runs it once. Read the full code first."
+  },
+  "spScriptCodeLabel": {
+    "message": "Script code awaiting approval"
+  },
+  "spScriptApprove": {
+    "message": "Approve and run once"
+  },
+  "spScriptReject": {
+    "message": "Reject"
+  },
+  "spScriptTarget": {
+    "message": "Site: {1} · Environment: {2}"
+  },
+  "spScriptWorldUser": {
+    "message": "isolated (USER_SCRIPT, can use the page DOM)"
+  },
+  "spScriptWorldMain": {
+    "message": "page main world (MAIN, can access the page's own JavaScript variables)"
+  },
+  "optNavScripts": {
+    "message": "Script execution"
+  },
+  "optScriptsIntro": {
+    "message": "When enabled, the assistant may write JavaScript and run it in the current page (run_script) when the normal tools cannot do the job. Before every run the side panel shows the full code, target site and environment, and nothing runs until you approve that one run; if you reject it, the assistant tries another way. Return values are sent to your configured model service."
+  },
+  "optScriptsGrant": {
+    "message": "Allow script execution"
+  },
+  "optScriptsRevoke": {
+    "message": "Revoke script execution"
+  },
+  "optScriptsDetails": {
+    "message": "Open extension details"
+  },
+  "optScriptsToggle": {
+    "message": "After allowing, also turn on \"Allow User Scripts\" for this extension under chrome://extensions → Details (Chrome 138 and later); on Chrome 135–137 turn on \"Developer mode\" at the top right of the extensions page instead. Chrome versions below 135 are not supported."
+  },
+  "optScriptsReady": {
+    "message": "Enabled: the model can ask to run scripts, and each run needs your approval in the side panel."
+  },
+  "optScriptsNeedToggle": {
+    "message": "Permission granted, but the browser does not allow user scripts yet: turn on \"Allow User Scripts\" in the extension details (\"Developer mode\" on Chrome 135–137) and make sure Chrome is version 135 or later."
+  },
+  "optScriptsOff": {
+    "message": "Off: the model does not see the script tool."
+  },
+  "optScriptsDenied": {
+    "message": "Script execution permission was not granted."
+  },
+  "optScriptsRevokeFailed": {
+    "message": "Could not revoke. Remove the permission on the extension details page."
+  },
+  "optScriptsDetailsFailed": {
+    "message": "Could not open the extension details page. Visit chrome://extensions manually."
+  },
+  "optScriptsDevReady": {
+    "message": "Developer build: script permission is built in and scripts run without confirmation."
+  },
+  "optScriptsDevToggle": {
+    "message": "Developer build: script permission is built in, but the browser does not allow user scripts yet. Turn on \"Allow User Scripts\" in the extension details."
   }
 }

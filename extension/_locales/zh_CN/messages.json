@@ -802,5 +802,71 @@
   },
   "spActiveMember": {
     "message": "执行中"
+  },
+  "spScriptTitle": {
+    "message": "批准运行这段脚本？"
+  },
+  "spScriptText": {
+    "message": "脚本会在该网页中运行，可读取和修改页面内容；返回值会发送至你配置的模型服务。批准只执行这一次，请先阅读完整代码。"
+  },
+  "spScriptCodeLabel": {
+    "message": "待批准的脚本代码"
+  },
+  "spScriptApprove": {
+    "message": "批准并执行一次"
+  },
+  "spScriptReject": {
+    "message": "拒绝"
+  },
+  "spScriptTarget": {
+    "message": "目标网站：{1} · 运行环境：{2}"
+  },
+  "spScriptWorldUser": {
+    "message": "隔离环境（USER_SCRIPT，可操作网页 DOM）"
+  },
+  "spScriptWorldMain": {
+    "message": "网页主环境（MAIN，可访问网页自身的 JavaScript 变量）"
+  },
+  "optNavScripts": {
+    "message": "脚本执行"
+  },
+  "optScriptsIntro": {
+    "message": "开启后，普通工具无法完成时，助手可以编写 JavaScript 在当前网页运行（run_script）。每次运行前侧栏会显示完整代码、目标网站和运行环境，须你批准才执行一次；拒绝后助手改用其他方法。返回值会发送至你配置的模型服务。"
+  },
+  "optScriptsGrant": {
+    "message": "授权脚本执行"
+  },
+  "optScriptsRevoke": {
+    "message": "撤销脚本执行授权"
+  },
+  "optScriptsDetails": {
+    "message": "打开扩展详情页"
+  },
+  "optScriptsToggle": {
+    "message": "授权后还需在 chrome://extensions 本扩展「详情」中打开「允许用户脚本」（Chrome 138 及以上）；Chrome 135–137 改为打开扩展管理页右上角的「开发者模式」。低于 Chrome 135 无法使用。"
+  },
+  "optScriptsReady": {
+    "message": "已开启：模型可以请求运行脚本，每次须你在侧栏批准。"
+  },
+  "optScriptsNeedToggle": {
+    "message": "已授权，但浏览器尚未允许用户脚本：请打开扩展详情页的「允许用户脚本」（Chrome 135–137 为「开发者模式」），并确认 Chrome 版本不低于 135。"
+  },
+  "optScriptsOff": {
+    "message": "未开启：模型看不到脚本工具。"
+  },
+  "optScriptsDenied": {
+    "message": "未获得脚本执行授权。"
+  },
+  "optScriptsRevokeFailed": {
+    "message": "撤销失败，请在扩展详情页中移除权限。"
+  },
+  "optScriptsDetailsFailed": {
+    "message": "无法打开扩展详情页，请手动访问 chrome://extensions。"
+  },
+  "optScriptsDevReady": {
+    "message": "开发版：已内置脚本权限，脚本不经确认直接执行。"
+  },
+  "optScriptsDevToggle": {
+    "message": "开发版：已内置脚本权限，但浏览器尚未允许用户脚本，请打开扩展详情页的「允许用户脚本」。"
   }
 }

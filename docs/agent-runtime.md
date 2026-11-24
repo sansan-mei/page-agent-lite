@@ -1,6 +1,6 @@
 # 任务运行器
 
-`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler，不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
+`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler、scriptAccess（每轮 run_script 是否可用）和 autoApproveScripts（仅开发版为 true），不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
 
 ## 状态
 
@@ -9,7 +9,7 @@
 | running | 可继续推进 |
 | waiting_page | 等待页面就绪，由事件或 alarm 重试 |
 | waiting_confirmation | 旧版兼容；继续时丢弃待确认动作并重新规划 |
-| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input` |
+| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`script_stale`（待批准脚本因页面变化作废） |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
 | completed | 模型返回 done（有完成条件时已核实） |
@@ -24,8 +24,8 @@
 ## 一次 tick
 
 1. 读取任务，核对运行代次、当前 URL 来源属于 `allowedOrigins` 且有主机权限、页面就绪。来源变化走 [跨来源切换](#跨来源切换)。
-2. `executing` 恢复：有条件则只读核对，无条件则暂停；`approved` 页面已变则重新规划。
-3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。
+2. `executing` 恢复：有条件则只读核对，无条件则暂停；`approved` 页面已变则重新规划（已批准的 run_script 记 `STALE`，不执行）。
+3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 的结果作为 `capabilities` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
 6. 网页动作前保存 `executing` 检查点，执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
@@ -59,6 +59,7 @@
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停 |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
+| run_script | 本轮不可用则暂停为 access；商店包暂停为 script_approval，见 [脚本批准](#脚本批准)；开发版直接执行 |
 | request_sensitive_access | 暂停为 sensitive_access，等待可信侧栏确认；确认后轮换代次，重新观察；拒绝保留屏蔽并暂停，不占自主恢复次数 |
 | 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
@@ -70,6 +71,17 @@
 - **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
 - **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
 - **结束/清空**：结束后不能用继续复活；清空删除当前任务及其临时记忆和来源分区。
+- **脚本批准**（`task:script-approval`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
+
+## 脚本批准
+
+商店包中模型返回 run_script 时不执行，任务暂停为 `script_approval` 并保存 `scriptRequest`：`{id, code, world, url, origin, documentId, snapshotId, reply, time, pending}`（pending 为执行所需的完整待执行记录）。
+
+- 校验与 `task:sensitive-access` 相同：taskId、requestId 匹配，任务仍为 paused/script_approval，allow 为布尔值，否则「脚本确认已过期」。通过后取消旧请求、轮换 token、清除 `scriptRequest`。
+- 拒绝：结果记 `SCRIPT_REJECTED`（dispatch=not_sent、recovery=replan），任务回到 running 并重新观察，模型改用其他方法。
+- 批准：当前标签、URL 与来源须与请求一致，否则记 `STALE` 不执行；一致则 phase=approved。下一 tick 再核对标签和 URL，写 executing 检查点后执行该代码一次（执行前另核对文档 ID）。worker 在 approved 阶段重启会执行这一次；进入 executing 后中断按结果不确定暂停，不重放。
+- 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准执行，结果记 `SCRIPT_DISCARDED`（not_sent）。
+- 每次执行单独批准；开发版（`PageAgentDevFlags.autoApproveScripts`）跳过本节，直接走普通执行路径。
 
 ## 子目标
 

@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id), t = PageAgentI18n.t;
   const status = $('status');
   let busy = true;
-  function controls() {for (const button of document.querySelectorAll('section:not(#management):not(#appearance) button')) button.disabled = busy;}
+  function controls() {for (const button of document.querySelectorAll('section:not(#management):not(#appearance):not(#scripts) button')) button.disabled = busy;}
   async function send(message) {
     const result = await chrome.runtime.sendMessage(message);
     if (!result?.ok) throw new Error(result?.error || t('commonMessagingFailed'));

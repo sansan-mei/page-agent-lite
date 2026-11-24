@@ -83,6 +83,14 @@
     $('sensitive-confirmation').hidden=!sensitiveRequest;
     $('sensitive-reason').textContent=sensitiveRequest?.text||'';
     $('sensitive-allow').disabled=busy||!sensitiveRequest;$('sensitive-deny').disabled=busy||!sensitiveRequest;
+    // Pending run_script: the full code is shown as text only (never parsed as HTML) before the user decides.
+    const scriptRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='script_approval'?current.scriptRequest:null;
+    let scriptOrigin='';try{scriptOrigin=scriptRequest?new URL(scriptRequest.url).origin:'';}catch{scriptOrigin='';}
+    $('script-approval').hidden=!scriptRequest;
+    $('script-reason').textContent=scriptRequest?.reply||'';
+    $('script-target').textContent=scriptRequest?t('spScriptTarget',scriptOrigin,t(scriptRequest.world==='MAIN'?'spScriptWorldMain':'spScriptWorldUser')):'';
+    if($('script-code').textContent!==(scriptRequest?.code||''))$('script-code').textContent=scriptRequest?.code||'';
+    $('script-approve').disabled=busy||!scriptRequest;$('script-reject').disabled=busy||!scriptRequest;
     const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
     if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
@@ -220,7 +228,7 @@
     $('takeover').disabled=busy;
     $('resume').textContent=task?.reason==='user_takeover'?t('spTakeoverDone'):t('spResume');
     $('stop').hidden=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
-    $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status);
+    $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status)||task.reason==='script_approval'&&!!task.scriptRequest;
     $('stop').disabled=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
     $('resume').disabled=busy||!task||['running','waiting_page','ended'].includes(task.status);
     $('finish').disabled=busy||!current||current.status==='ended';
@@ -262,6 +270,7 @@
     catch(e){$('status').textContent=e.message;}
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
+  for(const [id,allow] of [['script-approve',true],['script-reject',false]])$(id).addEventListener('click',()=>{if(task?.scriptRequest)void action('task:script-approval',{taskId:task.taskId,requestId:task.scriptRequest.id,allow});});
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
   function editScope(action,origin,continueTask=false){
     if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;

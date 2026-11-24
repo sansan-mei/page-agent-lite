@@ -1,10 +1,10 @@
 'use strict';
 let startupFailure=null;
 try {
-  importScripts('tool-protocol.js','conditions.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','browser-tools.js','runtime.js');
+  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','browser-tools.js','runtime.js');
 } catch(error) {
   const match=String(error?.message||'').match(/\/([a-z-]+\.js)(?:['"\s]|$)/);
-  const file=match&&['tool-protocol.js','conditions.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
+  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
   startupFailure=`扩展无法加载 ${file}。请在扩展管理页重新加载，并刷新网页、重新打开侧边栏；仍失败时检查扩展目录文件是否齐全。`;
 }
 if(startupFailure){
@@ -52,10 +52,14 @@ async function cancelSchedule(tabId){
 }
 const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemory,schedule,cancelSchedule,
   preferences:()=>service.preferences(),
-  model:(text,signal)=>service.generateAgent(text,signal),
+  model:(text,signal,capabilities)=>service.generateAgent(text,signal,capabilities),
   summarize:(text,signal)=>service.summarizeAgent(text,signal),
   identity:()=>service.identity(),
-  protocol:()=>service.agentProtocol()
+  protocol:()=>service.agentProtocol(),
+  // run_script is offered to the model only on turns where the optional permission and API are usable.
+  scriptAccess:()=>PageAgentScriptTools.status(chrome),
+  // Set only by dev/dev-flags.js in the local developer build; the store package never contains it.
+  autoApproveScripts:globalThis.PageAgentDevFlags?.autoApproveScripts===true
 });
 const ready=(async()=>{
   await service.init();await store.migrate();
@@ -96,9 +100,10 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; history and notes stay per tab.
-      const taskTab=['task:get','task:sensitive-access','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
+      const taskTab=['task:get','task:sensitive-access','task:script-approval','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
       if(m.type==='task:get')return runtime.get(taskTab);
       if(m.type==='task:sensitive-access')return runtime.sensitiveAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
+      if(m.type==='task:script-approval')return runtime.scriptApproval(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
       if(m.type==='task:members')return runtime.members(taskTab,m.taskId);
       if(m.type==='task:member-change')return runtime.changeMembers(taskTab,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
       if(m.type==='task:scope-change')return runtime.changeOrigins(taskTab,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});

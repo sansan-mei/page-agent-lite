@@ -21,7 +21,8 @@ test('auto mode sends one native tool per registry action with forced single too
   assert.equal(await s.agentProtocol(),'native');
   const result=await s.generateAgent('observe');
   const body=requests[0];
-  assert.deepEqual(body.tools.map(t=>t.function.name),C.agentToolNames());
+  // run_script is offered only when the runtime passes capabilities.scripts (permission + API available).
+  assert.deepEqual(body.tools.map(t=>t.function.name),C.agentToolNames().filter(name=>name!=='run_script'));
   assert.equal(body.tool_choice,'required');assert.equal(body.parallel_tool_calls,false);
   for(const tool of body.tools){assert.equal(tool.type,'function');assert.equal(tool.function.parameters.additionalProperties,false);assert.ok(tool.function.parameters.required.includes('reply'));}
   assert.match(body.messages[0].content,/Call exactly one of the provided tools per turn/);assert.doesNotMatch(body.messages[0].content,/Return ONLY strict JSON/);
@@ -45,7 +46,7 @@ test('a native tool call yields the same validated plan as the strict JSON text'
     assert.deepEqual(C.agentPlan(native.text,snap),C.agentPlan(JSON.stringify(plan),snap));
   }
   // Same whitelist and checks: unknown tools, stale targets and bad values fail exactly like JSON.
-  for(const [name,args] of [['run_script',{reply:'x',value:'1'}],['click',{reply:'x',id:'e9'}],['check',{reply:'x',id:'e1',value:'yes'}],['click',{id:'e1'}]]){
+  for(const [name,args] of [['execute_javascript',{reply:'x',value:'1'}],['run_script',{reply:'x',value:''}],['click',{reply:'x',id:'e9'}],['check',{reply:'x',id:'e1',value:'yes'}],['click',{id:'e1'}]]){
     const text=backend.parseChatResponse(JSON.stringify({choices:[{message:{tool_calls:[call(name,args)]}}]}),'native').text;
     assert.throws(()=>C.agentPlan(text,snap));
   }
@@ -120,17 +121,20 @@ test('token pressure includes the native tools schema',()=>{
   assert.ok(native>json);
 });
 
-test('developer build adds run_script to native tools; store tools do not include it',()=>{
-  const load=files=>{const context=vm.createContext({console,URL,setTimeout,clearTimeout,structuredClone});context.globalThis=context;for(const file of files)vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});return context;};
-  const base=['extension/tool-protocol.js','extension/conditions.js','extension/core.js','extension/prompts.js'];
-  const store=load(base),dev=load(['dev/dev-tools.js',...base]);
-  const names=ctx=>JSON.parse(JSON.stringify(ctx.PageAgentPrompts.agentTools().map(t=>t.function.name)));
-  const registry=ctx=>JSON.parse(JSON.stringify(ctx.PageAgentCore.agentToolNames()));
-  assert.deepEqual(names(store),registry(store));assert.ok(!names(store).includes('run_script'));
-  assert.deepEqual(names(dev),registry(dev));assert.ok(names(dev).includes('run_script'));
-  const tool=dev.PageAgentPrompts.agentTools().find(t=>t.function.name==='run_script');
-  assert.deepEqual(JSON.parse(JSON.stringify(tool.function.parameters.required)),['reply','value']);
-  assert.match(dev.PageAgentPrompts.agentSystem('English','native'),/DEVELOPER BUILD OVERRIDE/);
+test('run_script joins native tools and the prompt only when script capabilities are passed',async()=>{
+  const names=caps=>P.agentTools(caps).map(t=>t.function.name);
+  assert.ok(!names().includes('run_script'));assert.ok(!names({scripts:false}).includes('run_script'));
+  assert.deepEqual(names({scripts:true}),C.agentToolNames());
+  const tool=P.agentTools({scripts:true}).find(t=>t.function.name==='run_script');
+  assert.deepEqual(tool.function.parameters.required,['reply','value']);
+  assert.doesNotMatch(P.agentSystem('English','native'),/run_script/);assert.match(P.agentSystem('English','native',{scripts:true}),/OPTIONAL TOOL run_script[\s\S]*SCRIPT_REJECTED/);
+  assert.match(P.agentSystem('English','json',{scripts:true}),/\|run_script\)/);
+  assert.ok(P.pressure({prefs:{}},'{}',null,'native',{scripts:true}).estimatedTokens>P.pressure({prefs:{}},'{}',null,'native').estimatedTokens);
+  // The backend forwards the runtime's per-turn flag into both the system prompt and the tools list.
+  const {requests,s}=service({},[reply({tool_calls:[call('observe',{reply:'Look'})]}),reply({tool_calls:[call('observe',{reply:'Look'})]})]);
+  await s.generateAgent('x',undefined,{scripts:true});await s.generateAgent('x');
+  assert.ok(requests[0].tools.some(t=>t.function.name==='run_script'));assert.match(requests[0].messages[0].content,/OPTIONAL TOOL run_script/);
+  assert.ok(!requests[1].tools.some(t=>t.function.name==='run_script'));assert.doesNotMatch(requests[1].messages[0].content,/run_script/);
 });
 
 function fixture(fetcher,config={}){
