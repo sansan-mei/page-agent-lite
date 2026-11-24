@@ -91,14 +91,21 @@ function options(locale,uiLanguage,config){
 
 test('settings page is English for English UI; reply language defaults to the UI language but keeps saved values',async()=>{
  let document=options('en','en-US',{});for(let i=0;i<4;i++)await flush();
- assert.deepEqual(visibleCjk(document).filter(text=>text!=='value=简体中文'),[]);
+ // Reply-language presets are shown in their own language on purpose.
+ assert.deepEqual(visibleCjk(document).filter(text=>!['value=简体中文','简体中文','繁體中文','日本語'].includes(text)),[]);
  assert.equal(document.title,'Page Agent Lite · Settings');
- assert.equal(document.getElementById('language').value,'English');
- assert.equal(document.getElementById('status').textContent,'Settings loaded. The API and websites are authorized separately.');
+ const choice=document.getElementById('language-choice');
+ assert.equal(document.getElementById('language').value,'English');assert.equal(choice.value,'browser');assert.equal(document.getElementById('language').hidden,true);
+ assert.equal(choice.querySelector('option[value="browser"]').textContent,'Follow browser (English)');
+ // The status bar only appears for save results and errors.
+ assert.equal(document.getElementById('status').hidden,true);assert.equal(document.getElementById('status').textContent,'');
+ assert.equal(document.getElementById('save-settings').disabled,false);
  assert.equal(document.getElementById('site-memory-status').textContent,'No long-term memory for this site');
  assert.equal(document.getElementById('global-memory-status').textContent,'No global long-term memory');
  document=options('en','en-US',{language:'简体中文'});for(let i=0;i<4;i++)await flush();
- assert.equal(document.getElementById('language').value,'简体中文','saved language must not be replaced');
+ assert.equal(document.getElementById('language').value,'简体中文','saved language must not be replaced');assert.equal(document.getElementById('language-choice').value,'简体中文');
+ document=options('en','en-US',{language:'Deutsch'});for(let i=0;i<4;i++)await flush();
+ assert.equal(document.getElementById('language-choice').value,'other');assert.equal(document.getElementById('language').hidden,false);assert.equal(document.getElementById('language').value,'Deutsch');
  document=options('zh_CN','zh-CN',{});for(let i=0;i<4;i++)await flush();
  assert.equal(document.getElementById('language').value,'简体中文');assert.equal(document.title,'Page Agent Lite · 设置');
 });

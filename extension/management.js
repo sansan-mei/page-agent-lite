@@ -84,7 +84,7 @@
   $('managed-tab').addEventListener('change',choose);$('tabs-refresh').addEventListener('click',()=>void tabs());
   $('grant-all').addEventListener('click',()=>{
     const granted=chrome.permissions.request({origins:['http://*/*','https://*/*']});
-    void granted.then(ok=>{$('management-status').textContent=ok?t('mgGrantedAll'):t('mgGrantCanceled');}).catch(e=>{$('management-status').textContent=e.message;});
+    const status=$('grant-all-status')||$('management-status');void granted.then(ok=>{status.textContent=ok?t('mgGrantedAll'):t('mgGrantCanceled');}).catch(e=>{status.textContent=e.message;});
   });
   chrome.tabs.onUpdated.addListener((id,change)=>{if(id===tabId&&change.url)void tabs();});
   chrome.tabs.onRemoved.addListener(id=>{if(id===tabId)void tabs();});

@@ -36,8 +36,13 @@ test('options requests API permission from submit gesture and refuses unsafe end
   input('endpoint', 'http://evil.test/v1'); input('model', 'm'); input('key', 'secret'); input('language', '中文');
   const submit = () => document.getElementById('config').dispatchEvent(new window.Event('submit', {cancelable: true}));
   submit(); await flush(); assert.equal(grants.length, 0);
-  input('endpoint', 'https://api.test/v1'); submit(); await flush(); await flush();
+  input('endpoint', 'https://api.test/v1'); submit();
+  // Save stores connection and run budget together; the host permission is requested before any await.
+  assert.equal(grants.length, 1);
+  await flush(); await flush(); await flush();
   assert.equal(grants[0].origins[0], 'https://api.test/*');
+  assert.deepEqual({...sent.find(m => m.type === 'setAgentPreferences').preferences}, {maxSteps: 100, contextTokens: 100000, compressionThreshold: 80, inputChars: 2000});
+  assert.equal(document.getElementById('status').hidden, false);
   assert.equal(sent.find(m => m.type === 'configure').config.endpoint, 'https://api.test/v1');
   assert.equal(sent.some(m => m.type === 'enableSite'), false);
 });
@@ -51,17 +56,45 @@ test('options script section requests the optional userScripts permission from t
  Object.defineProperty(chrome,'userScripts',{get(){return granted&&api?{getScripts:async()=>[],execute:async()=>[]}:undefined;}});
  runUi('extension/script-settings.js',{document,window,chrome,PageAgentScriptTools:require('../extension/script-tools.js')});
  await flush();await flush();
- const status=()=>document.getElementById('script-status').textContent;
- assert.match(status(),/未开启/);assert.equal(document.getElementById('script-grant').hidden,false);assert.equal(document.getElementById('script-revoke').hidden,true);
+ const status=()=>document.getElementById('script-status').textContent,hidden=id=>document.getElementById(id).hidden;
+ const badge=()=>document.getElementById('script-badge').getAttribute('data-state');
+ // One action at a time: Allow -> Open extension details -> On (+ Turn off link).
+ assert.equal(status(),'');assert.equal(badge(),'off');assert.deepEqual(['script-grant','script-details','script-revoke'].map(hidden),[false,true,true]);
  document.getElementById('script-grant').click();
  // The request happens synchronously inside the click handler (user gesture).
  assert.deepEqual(JSON.parse(JSON.stringify(requests)),[{permissions:['userScripts']}]);
  await flush();await flush();
- assert.match(status(),/允许用户脚本/);assert.equal(document.getElementById('script-grant').hidden,true);assert.equal(document.getElementById('script-revoke').hidden,false);
- api=true;document.dispatchEvent(new window.Event('visibilitychange'));await flush();await flush();
- assert.match(status(),/每次须你在侧栏批准/);
+ assert.match(status(),/允许用户脚本/);assert.equal(badge(),'toggle');assert.deepEqual(['script-grant','script-details','script-revoke'].map(hidden),[true,false,false]);
  document.getElementById('script-details').click();await flush();assert.deepEqual(opened,['chrome://extensions/?id=ext']);
- document.getElementById('script-revoke').click();await flush();await flush();await flush();assert.match(status(),/未开启/);
+ api=true;document.dispatchEvent(new window.Event('visibilitychange'));await flush();await flush();
+ assert.equal(status(),'');assert.equal(badge(),'on');assert.deepEqual(['script-grant','script-details','script-revoke'].map(hidden),[true,true,false]);
+ document.getElementById('script-revoke').click();await flush();await flush();await flush();assert.equal(badge(),'off');assert.equal(hidden('script-grant'),false);
+});
+
+test('lite options hide power tools by default and both saves use the same form',()=>{
+ const {document}=parseHTML(fs.readFileSync(path.join(dir,'options.html'),'utf8'));
+ assert.equal(document.querySelector('.settings-nav'),null);
+ assert.equal(document.getElementById('more').hasAttribute('open'),false);
+ assert.equal(document.getElementById('management').hasAttribute('open'),false);
+ for(const id of ['save-settings','save-more'])assert.equal(document.getElementById(id).closest('form').id,'config');
+ for(const id of ['language-choice','max-steps','reasoningEffort','grant-all','welcome-image-pick'])assert.equal(document.getElementById(id).closest('details').id,'more');
+ assert.equal(document.querySelectorAll('form form').length,0);
+});
+
+test('developer script row shows auto-approval without store permission actions',async()=>{
+ const {document,window}=parseHTML(fs.readFileSync(path.join(dir,'options.html'),'utf8'));
+ let api=true;
+ const chrome={runtime:{getManifest:()=>({permissions:['userScripts']})},permissions:{async contains(){return true;},onAdded:{addListener(){}},onRemoved:{addListener(){}}}};
+ Object.defineProperty(chrome,'userScripts',{get(){return api?{getScripts:async()=>[],execute:async()=>[]}:undefined;}});
+ runUi('extension/script-settings.js',{document,window,chrome,PageAgentScriptTools:require('../extension/script-tools.js')});
+ await flush();await flush();
+ assert.equal(document.getElementById('script-badge').getAttribute('data-state'),'dev');
+ assert.match(document.getElementById('script-badge').textContent,/开发版/);
+ for(const id of ['script-grant','script-details','script-revoke'])assert.equal(document.getElementById(id).hidden,true);
+ api=false;document.dispatchEvent(new window.Event('visibilitychange'));await flush();await flush();
+ assert.equal(document.getElementById('script-details').hidden,false);
+ assert.equal(document.getElementById('script-grant').hidden,true);
+ assert.match(document.getElementById('script-status').textContent,/允许用户脚本/);
 });
 
 // ── Sender semantics under realistic MV3 conditions ──────────────────────
