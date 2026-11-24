@@ -62,6 +62,8 @@
     }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
+      // Developer build only (dev-tools.js is not in the store package).
+      const dev=root.PageAgentDevTools;if(dev?.handles?.(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return dev.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab});}
       try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect

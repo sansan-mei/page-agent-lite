@@ -36,6 +36,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `options.*`、`management.js`、`global-management.js` | 设置页；网站/临时记忆管理；全局记忆管理 | [使用指南](usage.md) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
 | `article-tools.js` | 已退役文章面板的兼容源码，无入口、不自动注入 | — |
+| `dev/`（不在 `extension/`） | 本地开发版专用 `run_script`，由 `npm run build:dev` 叠加到 `dist/extension-dev/` | [网页工具](browser-tools.md#开发版-run_script) |
 
 ## 消息入口
 
@@ -47,7 +48,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。本地开发版额外有 `userScripts`。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。
@@ -55,7 +56,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 生命周期
 
-- 原生 JS，无构建。worker 会被浏览器终止：短定时器驱动连续 tick，30 秒周期 alarm 兜底唤醒，必要状态都写 session。
+- 原生 JS，商店包无构建（开发版只做复制叠加）。worker 会被浏览器终止：短定时器驱动连续 tick，30 秒周期 alarm 兜底唤醒，必要状态都写 session。
 - 任务不属于某个 DOM 文档：翻页只替换内容脚本，后台按检查点重新观察。
 - 侧栏关闭后任务继续；浏览器关闭后不运行，session 可能被清空。
 

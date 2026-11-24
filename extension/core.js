@@ -95,6 +95,9 @@ const agentToolRegistry=(()=>{
  for(const prefix of ['memory','site_memory','global_memory']){
   add([prefix+'_read'],{});add([prefix+'_write',prefix+'_delete',prefix+'_clear'],{effect:'storage'});
  }
+ // Developer build only: dev-tools.js (absent from the store package) is loaded before core.js and
+ // declares its tools at startup; the registry is still frozen afterwards.
+ const dev=root.PageAgentDevTools;if(dev?.registry)for(const name of Object.keys(dev.registry))if(!records[name])add([name],dev.registry[name]);
  return Object.freeze(records);
 })();
 function agentTool(name){return typeof name==='string'&&Object.prototype.hasOwnProperty.call(agentToolRegistry,name)?agentToolRegistry[name]:null;}
@@ -315,6 +318,7 @@ function agentPlan(raw,snap){
   if(p.id!==undefined&&!snap.nodes.has(p.id))throw new Error('滚动目标无效');
  }
  if(p.action==='press_key')agentKey(p.value);
+ if(root.PageAgentDevTools?.handles?.(p.action))root.PageAgentDevTools.validate(p);
  return p;
 }
 function agentExecute(p,snap,doc){
