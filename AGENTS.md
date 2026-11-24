@@ -22,8 +22,8 @@ Page Agent Lite：Chrome / Edge MV3 扩展，用自然语言在浏览器内读�
 ## 不可破坏的约束
 
 - 按通用网页任务设计：不新增题型/网站专用动作，用通用表单、区域、导航和条件表达场景。
-- 页面内容和模型输出都不可信。模型只能用当前快照目标 ID 和 `core.js` 静态工具注册表中的动作；不执行模型生成的脚本、HTML、选择器或远程代码；网页和笔记不能扩大权限或任务范围。
-- 唯一例外是本地开发版：`npm run build:dev` 把 `dev/` 叠加到 `dist/extension-dev/`，提供 `run_script`。开发版代码只放 `dev/`，`extension/` 只保留不改变商店行为的加载口；商店包不得包含 `userScripts` 权限或 `dev/` 文件。见 [网页工具](docs/browser-tools.md#开发版-run_script)。
+- 页面内容和模型输出都不可信。模型只能用当前快照目标 ID 和 `core.js` 静态工具注册表中的动作；不执行模型生成的 HTML、选择器或远程代码；网页和笔记不能扩大权限或任务范围。
+- 模型生成的脚本只能经 `run_script` 由 `chrome.userScripts.execute` 运行：`userScripts` 在商店包中只是可选权限；商店包每次执行前必须在侧栏显示完整代码、由用户批准这一次（无「始终允许」），拒绝、过期、作废都不执行。唯一例外是本地开发版：`npm run build:dev` 叠加 `dev/`（`dev-flags.js` 设置免批准、`userScripts` 改为必需权限），只在 `dist/extension-dev/` 生效；商店包不得包含 `dev/` 文件或该 flag。见 [网页工具](docs/browser-tools.md#run_script)。
 - 密钥只在可信后台使用，不进内容脚本、仓库、日志或测试产物。API 授权、浏览器主机权限、任务站点范围三者独立。
 - 副作用前写 `executing` 检查点；中断后只读核对或暂停，不重放结果不确定的动作，等待沿用原 deadline。停止/替换/接管轮换运行代次并丢弃迟到回复；模型请求必须可取消。
 - 页面或来源变化后重新观察，不复用旧快照目标；跨来源不携带旧站点正文、笔记、摘要或计划。
@@ -51,7 +51,7 @@ Page Agent Lite：Chrome / Edge MV3 扩展，用自然语言在浏览器内读�
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund   # 已安装可跳过
-for f in extension/*.js scripts/*.cjs; do node --check "$f"; done
+for f in extension/*.js scripts/*.cjs dev/*.js; do node --check "$f"; done
 npm test
 git diff --check
 ```
