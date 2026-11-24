@@ -1,0 +1,872 @@
+{
+  "extName": {
+    "message": "Page Agent Lite · Browser Assistant"
+  },
+  "extDescription": {
+    "message": "A lightweight AI browser assistant that reads, fills and checks web pages for you, using the model you choose."
+  },
+  "actionTitle": {
+    "message": "Open Page Agent Lite"
+  },
+  "htmlLang": {
+    "message": "en"
+  },
+  "spHistory": {
+    "message": "History"
+  },
+  "spNewChatTitle": {
+    "message": "End the current task and enter a new goal"
+  },
+  "spNewChat": {
+    "message": "New chat"
+  },
+  "spSettingsTitle": {
+    "message": "Settings and memory"
+  },
+  "spSettings": {
+    "message": "Settings"
+  },
+  "spConnecting": {
+    "message": "Connecting to the current tab…"
+  },
+  "spGrantSite": {
+    "message": "Allow this site"
+  },
+  "spGrantAll": {
+    "message": "Allow all sites"
+  },
+  "spUseCurrentTab": {
+    "message": "Use current tab"
+  },
+  "spConversationLabel": {
+    "message": "Current task conversation"
+  },
+  "spWelcomeTitle": {
+    "message": "Leave the browser work to me"
+  },
+  "spWelcomeText": {
+    "message": "Find pages, read content, fill in forms — start with one sentence."
+  },
+  "spGoalLabel": {
+    "message": "Your goal"
+  },
+  "spTaskTabs": {
+    "message": "Task tabs"
+  },
+  "spScopeHint": {
+    "message": "The assistant opens websites as the task needs and asks only when browser site permission is missing."
+  },
+  "spScopeOriginLabel": {
+    "message": "Add a full site origin"
+  },
+  "spScopeAdd": {
+    "message": "Allow and add to task"
+  },
+  "spMembersHint": {
+    "message": "Added tabs belong to this task and other tasks cannot use them; the assistant still reads and acts only in the working tab. Removing a tab does not close it."
+  },
+  "spMembersRefresh": {
+    "message": "View and add tabs"
+  },
+  "spOpenPages": {
+    "message": "Open pages"
+  },
+  "spMemberAdd": {
+    "message": "Add to task"
+  },
+  "spSensitiveTitle": {
+    "message": "Allow sensitive fields in this conversation?"
+  },
+  "spSensitiveText": {
+    "message": "If allowed, passwords, verification codes, card numbers and security codes may be sent to your configured model service and kept with the task record for this browser session. This applies to this conversation only and does not authorize subscriptions or payments."
+  },
+  "spSensitiveAllow": {
+    "message": "Allow for this conversation"
+  },
+  "spSensitiveDeny": {
+    "message": "Don't allow"
+  },
+  "spBrowserTargetText": {
+    "message": "Task unfinished: the target site is not open yet and needs browser site permission."
+  },
+  "spBrowserTargetOpen": {
+    "message": "Allow site and continue"
+  },
+  "spTimelineLabel": {
+    "message": "Task messages"
+  },
+  "spPlanSummary": {
+    "message": "Task plan (past progress)"
+  },
+  "spPlanHint": {
+    "message": "\"Verified\" reflects the page when it was recorded; final results need fresh verification."
+  },
+  "spChoiceSubmit": {
+    "message": "Submit choices and continue"
+  },
+  "spConfirmTitle": {
+    "message": "Please confirm"
+  },
+  "spApprove": {
+    "message": "Confirm and continue"
+  },
+  "spHistoryBack": {
+    "message": "Back to chat"
+  },
+  "spHistoryNote": {
+    "message": "Conversations for this tab and site; kept only for this browser session"
+  },
+  "spHistoryEmpty": {
+    "message": "No history yet"
+  },
+  "spRunDetails": {
+    "message": "Run details"
+  },
+  "spExportDiagnostics": {
+    "message": "Export task stats (no content)"
+  },
+  "spVerification": {
+    "message": "Verification"
+  },
+  "spContextSummary": {
+    "message": "Task summary"
+  },
+  "spEventLog": {
+    "message": "Full status log"
+  },
+  "spClear": {
+    "message": "Clear this conversation"
+  },
+  "spResume": {
+    "message": "Continue task"
+  },
+  "spInstructionLabel": {
+    "message": "Enter a task or follow-up"
+  },
+  "spPlaceholderNew": {
+    "message": "Tell me what you want to do…"
+  },
+  "spTakeover": {
+    "message": "I'll take over"
+  },
+  "spStop": {
+    "message": "Stop"
+  },
+  "spSendTitle": {
+    "message": "Send task"
+  },
+  "spSend": {
+    "message": "Send"
+  },
+  "spComposerHint": {
+    "message": "Enter to send, Shift + Enter for a new line"
+  },
+  "spComposerNote": {
+    "message": "Content goes to your chosen model · Tasks keep running after you close the panel"
+  },
+  "optTitle": {
+    "message": "Page Agent Lite · Settings"
+  },
+  "optKicker": {
+    "message": "Preferences"
+  },
+  "optHeading": {
+    "message": "Set up your Page Agent"
+  },
+  "optIntro": {
+    "message": "Configure the default model and assistant behavior here. After you send a message, the assistant reads the current page and calls the model several times during the task. API permission and website access permission are separate."
+  },
+  "optLoading": {
+    "message": "Loading settings…"
+  },
+  "optSections": {
+    "message": "Settings sections"
+  },
+  "optNavConnection": {
+    "message": "Model connection"
+  },
+  "optNavBehavior": {
+    "message": "Run budget"
+  },
+  "optNavManagement": {
+    "message": "Sites & memory"
+  },
+  "optNavAppearance": {
+    "message": "Side panel image"
+  },
+  "optConnectionTitle": {
+    "message": "Connect your model"
+  },
+  "optEndpoint": {
+    "message": "API base URL (include /v1, not /chat/completions)"
+  },
+  "optModel": {
+    "message": "Model name"
+  },
+  "optModelPlaceholder": {
+    "message": "Model ID from your provider"
+  },
+  "optReasoning": {
+    "message": "Reasoning effort"
+  },
+  "optReasoningLow": {
+    "message": "Low"
+  },
+  "optReasoningMedium": {
+    "message": "Medium (default)"
+  },
+  "optReasoningHigh": {
+    "message": "High"
+  },
+  "optReasoningDefault": {
+    "message": "Service default (no reasoning parameter)"
+  },
+  "optReasoningHint": {
+    "message": "Sends reasoning_effort to request a reasoning level; the effect depends on the model service. If the API does not support it, choose Service default. Reasoning may add time and cost."
+  },
+  "optToolMode": {
+    "message": "Tool calling protocol"
+  },
+  "optToolModeAuto": {
+    "message": "Auto (default): native tool calls, JSON when unsupported"
+  },
+  "optToolModeNative": {
+    "message": "Native tool calls only"
+  },
+  "optToolModeJson": {
+    "message": "JSON text only"
+  },
+  "optToolModeHint": {
+    "message": "Auto sends tools first; if the API rejects them or does not call a tool, it remembers this model and switches to strict JSON text. Saving settings again retries native tool calls."
+  },
+  "optKey": {
+    "message": "API key (optional for local services)"
+  },
+  "optLanguage": {
+    "message": "Default reply language"
+  },
+  "optSaveConnection": {
+    "message": "Allow this API URL and save"
+  },
+  "optConnectionHint": {
+    "message": "Only HTTPS, or HTTP on localhost / 127.0.0.1 / [::1], is allowed. The key is stored only in this device's chrome.storage.local, is not synced and is never passed to page content scripts; local storage is not an encrypted vault."
+  },
+  "optMaxSteps": {
+    "message": "Max rounds per task (default 100, 0 = unlimited)"
+  },
+  "optMaxStepsHint": {
+    "message": "With no limit, a task runs until it completes, pauses, hits an error or you click Stop. You can also enter a custom limit such as 50 or 500. Each round calls the model; the round count carries over across page changes."
+  },
+  "optInputChars": {
+    "message": "Characters per side panel message (default 2000, range 100–10000)"
+  },
+  "optInputCharsHint": {
+    "message": "Limits each task or follow-up you send. Follow-ups may total the larger of 12000 or 6× the per-message limit. Longer content uses more context and cost per round."
+  },
+  "optContextTokens": {
+    "message": "Model context window (tokens)"
+  },
+  "optCompression": {
+    "message": "Auto-compaction threshold (% of available input budget)"
+  },
+  "optContextHint": {
+    "message": "Enter the context window your model actually supports (default 100000 tokens). 2000 tokens are reserved for output, and compaction starts at 80% of the remaining budget. Usage is estimated when the API does not report it. Normal runs keep the raw history to help cache reuse; cache hits depend on the provider."
+  },
+  "optAutoHint": {
+    "message": "Filling, checking, selecting and clicking run automatically, with no switches or per-step confirmation. You can stop at any time; page actions already sent are not undone."
+  },
+  "optSaveBehavior": {
+    "message": "Save assistant defaults"
+  },
+  "optManagementTitle": {
+    "message": "Sites & memory"
+  },
+  "optManagementHint": {
+    "message": "Choose an open page. Editing or clearing memory cancels related pending requests and pauses related tasks; continue them from the side panel."
+  },
+  "optManagedTab": {
+    "message": "Target page"
+  },
+  "optTabsRefresh": {
+    "message": "Refresh page list"
+  },
+  "optGrantAll": {
+    "message": "Allow all sites"
+  },
+  "optSiteMemory": {
+    "message": "Site long-term memory"
+  },
+  "optSiteMemoryHint": {
+    "message": "Stored only on this device and available for the same site across tabs and browser restarts. The model maintains it as needed and never saves whole conversations automatically. Check that notes still apply when you switch accounts."
+  },
+  "optNoteName": {
+    "message": "Note name"
+  },
+  "optSiteNotePlaceholder": {
+    "message": "e.g. preferred_workflow"
+  },
+  "optNoteText": {
+    "message": "Content"
+  },
+  "optSaveNote": {
+    "message": "Save note"
+  },
+  "optRefreshLongMemory": {
+    "message": "Refresh long-term memory"
+  },
+  "optSiteMemoryClear": {
+    "message": "Clear this site's memory"
+  },
+  "optSiteMemoryExport": {
+    "message": "Export this site's memory"
+  },
+  "optGlobalMemory": {
+    "message": "Global long-term memory"
+  },
+  "optGlobalMemoryHint": {
+    "message": "Stores preferences and general lessons that apply across sites, on this device only, across tabs and browser restarts. You can view, edit or add notes; changes pause related tasks on every site. Keep site-specific procedures in site memory."
+  },
+  "optGlobalNotePlaceholder": {
+    "message": "e.g. output_preference"
+  },
+  "optGlobalMemoryClear": {
+    "message": "Clear global memory"
+  },
+  "optGlobalMemoryExport": {
+    "message": "Export global memory"
+  },
+  "optTempMemory": {
+    "message": "Temporary memory"
+  },
+  "optTempMemoryHint": {
+    "message": "The model decides what to save, read and clean up. Memory is limited to the current tab and site and is cleared when the tab closes; you can also clear it at any time."
+  },
+  "optMemoryRefresh": {
+    "message": "Refresh memory"
+  },
+  "optMemoryClear": {
+    "message": "Clear temporary memory"
+  },
+  "optAppearanceHint": {
+    "message": "Sets the image shown in new conversations. It saves automatically and open side panels update."
+  },
+  "optImagePreview": {
+    "message": "Current side panel image preview"
+  },
+  "optImageUpload": {
+    "message": "Upload image"
+  },
+  "optImageHint": {
+    "message": "PNG, JPG or WebP, up to 5 MB and 8192 px per side. Transparent backgrounds look best; images are scaled down to 1024 px on the longest side. Stored only on this device and never sent to the model."
+  },
+  "optImageReset": {
+    "message": "Restore default image"
+  },
+  "optFooter": {
+    "message": "Your model · Local memory · Your control"
+  },
+  "commonMessagingFailed": {
+    "message": "Extension messaging failed"
+  },
+  "commonLabelValue": {
+    "message": "{1}: {2}"
+  },
+  "commonEdit": {
+    "message": "Edit"
+  },
+  "commonDelete": {
+    "message": "Delete"
+  },
+  "commonMemoryReadFailed": {
+    "message": "Could not read long-term memory"
+  },
+  "statusRunning": {
+    "message": "Running"
+  },
+  "statusWaitingPage": {
+    "message": "Waiting for page"
+  },
+  "statusWaitingConfirmation": {
+    "message": "Awaiting confirmation"
+  },
+  "statusPaused": {
+    "message": "Paused"
+  },
+  "statusStopped": {
+    "message": "Stopped"
+  },
+  "statusFailed": {
+    "message": "Failed"
+  },
+  "statusCompleted": {
+    "message": "Completed"
+  },
+  "statusEnded": {
+    "message": "Ended"
+  },
+  "outcomeSuccess": {
+    "message": "Verified"
+  },
+  "outcomePending": {
+    "message": "Awaiting check"
+  },
+  "outcomeUnknown": {
+    "message": "Result unknown"
+  },
+  "outcomeNotSatisfied": {
+    "message": "Expectation not met"
+  },
+  "outcomeReturned": {
+    "message": "Returned"
+  },
+  "activityObserve": {
+    "message": "Reading page"
+  },
+  "activityThinking": {
+    "message": "Thinking"
+  },
+  "activityExecuting": {
+    "message": "Acting"
+  },
+  "activityVerifying": {
+    "message": "Verifying"
+  },
+  "activityCompacting": {
+    "message": "Compacting context"
+  },
+  "phaseThinking": {
+    "message": "Requesting model"
+  },
+  "phaseExecuting": {
+    "message": "Running action"
+  },
+  "phaseVerifying": {
+    "message": "Checking result"
+  },
+  "phaseIdle": {
+    "message": "Idle"
+  },
+  "summaryCompleted": {
+    "message": "Completed, with evidence"
+  },
+  "summaryRemaining": {
+    "message": "Remaining"
+  },
+  "summaryFacts": {
+    "message": "Key facts and corrections"
+  },
+  "summaryFailed": {
+    "message": "Failed approaches"
+  },
+  "summaryUncertain": {
+    "message": "Uncertain actions"
+  },
+  "timingModel": {
+    "message": "Model requests"
+  },
+  "timingSummary": {
+    "message": "Summary requests"
+  },
+  "timingTool": {
+    "message": "Tool dispatches"
+  },
+  "planPending": {
+    "message": "Pending"
+  },
+  "planActive": {
+    "message": "In progress"
+  },
+  "planCompleted": {
+    "message": "Verified earlier"
+  },
+  "planBlocked": {
+    "message": "Blocked"
+  },
+  "commonUnknown": {
+    "message": "Unknown"
+  },
+  "memberInitial": {
+    "message": "Working tab"
+  },
+  "memberUserJoined": {
+    "message": "Added by you"
+  },
+  "memberTaskCreated": {
+    "message": "Opened by task"
+  },
+  "spSwitchTab": {
+    "message": "Switch tab"
+  },
+  "outcomeStale": {
+    "message": "Target stale, not run"
+  },
+  "outcomeBlocked": {
+    "message": "Target covered, not run"
+  },
+  "outcomeScrolled": {
+    "message": "Scrolled"
+  },
+  "outcomeAtEdge": {
+    "message": "Reached the edge"
+  },
+  "outcomeNoScroll": {
+    "message": "No scroll observed"
+  },
+  "outcomeSent": {
+    "message": "Sent, awaiting check"
+  },
+  "spToolCall": {
+    "message": "Tool call"
+  },
+  "spUntitledChat": {
+    "message": "Untitled conversation"
+  },
+  "spResultDetails": {
+    "message": "Result details"
+  },
+  "spWaitingReadonly": {
+    "message": "Waiting for read-only check"
+  },
+  "spCurrentCheck": {
+    "message": "Current check"
+  },
+  "spTabUnreadable": {
+    "message": "Can't read the current tab. Reopen the side panel."
+  },
+  "spScopeCanceled": {
+    "message": "Site permission canceled; task scope unchanged"
+  },
+  "spScopeTaskChanged": {
+    "message": "The task changed; the permission was not added to the new task"
+  },
+  "spScopeInvalid": {
+    "message": "Enter an HTTP/HTTPS site origin without a path, query or credentials"
+  },
+  "spMemberJoined": {
+    "message": "Tab added to the task."
+  },
+  "spMemberRemoved": {
+    "message": "Tab removed from the task; the page stays open."
+  },
+  "spChooseOne": {
+    "message": "Select at least one option"
+  },
+  "spDiagnosticsExported": {
+    "message": "Exported task stats without the goal, page or form content"
+  },
+  "spDiagnosticsFailed": {
+    "message": "Diagnostics export failed"
+  },
+  "spGrantCanceled": {
+    "message": "You canceled site permission; the page is not connected"
+  },
+  "outcomeNotSent": {
+    "message": "Not run"
+  },
+  "spRequest": {
+    "message": "Request"
+  },
+  "spNote": {
+    "message": "note"
+  },
+  "spLegacyRequest": {
+    "message": "Older record did not save full parameters"
+  },
+  "spResult": {
+    "message": "Result"
+  },
+  "spPendingResult": {
+    "message": "Action prepared or sent; waiting for the tool result"
+  },
+  "spOpenSite": {
+    "message": "Open site: {1}"
+  },
+  "spRemoveFromTask": {
+    "message": "Remove from task"
+  },
+  "spContextUsage": {
+    "message": "Last request input {1} tokens · cached {2} tokens"
+  },
+  "spNotReported": {
+    "message": "not reported"
+  },
+  "spContextEstimate": {
+    "message": "Context about {1} tokens (estimate)"
+  },
+  "spContextMeta": {
+    "message": "Summarized {1} earlier results · {2}"
+  },
+  "spProgress": {
+    "message": "{1} · {2} / {3} rounds"
+  },
+  "spDelayWait": {
+    "message": "Delay wait"
+  },
+  "spUnlimited": {
+    "message": "unlimited"
+  },
+  "spReady": {
+    "message": "Ready"
+  },
+  "spWaitingDelay": {
+    "message": "Waiting; due {1}"
+  },
+  "spWaitingCheck": {
+    "message": "Checking {1} expectations; deadline {2}"
+  },
+  "spLastOutcome": {
+    "message": "{1} · {2} (this tool result only)"
+  },
+  "spEvidence": {
+    "message": "{1} · {2} · {3} · target {4} · expected {5} · actual {6}"
+  },
+  "spMatched": {
+    "message": "match"
+  },
+  "spMismatched": {
+    "message": "mismatch"
+  },
+  "spTaskMeta": {
+    "message": "Task {1} · updated {2}"
+  },
+  "spMetrics": {
+    "message": "Phase: {1} · observations {2} · actions {3} · checks {4}"
+  },
+  "spReasonCode": {
+    "message": " · pause/failure code: {1}"
+  },
+  "spTiming": {
+    "message": " · {1} {2}×, reported total {3}, last {4}, failed {5}"
+  },
+  "spSeconds": {
+    "message": "{1} s"
+  },
+  "spUnreported": {
+    "message": ", unreported {1}"
+  },
+  "spRecordCount": {
+    "message": "· {1} kept results"
+  },
+  "spRecordHeading": {
+    "message": "Record #{1} · {2}"
+  },
+  "spTarget": {
+    "message": "Target"
+  },
+  "spResultLabel": {
+    "message": "Result"
+  },
+  "spStatusLabel": {
+    "message": "Status"
+  },
+  "spNoResults": {
+    "message": "No tool results yet; status messages are below."
+  },
+  "spResultsHint": {
+    "message": "Actions and checks appear here once a task starts."
+  },
+  "spPlanCheck": {
+    "message": " (check: {1})"
+  },
+  "spNotice": {
+    "message": "Important action: {1}"
+  },
+  "spOperationValue": {
+    "message": "; value: {1}"
+  },
+  "spSendContinue": {
+    "message": "Send and continue the task"
+  },
+  "spSendStart": {
+    "message": "Send and start a task"
+  },
+  "spPlaceholderOngoing": {
+    "message": "Add details or tell me the next step…"
+  },
+  "spTakeoverDone": {
+    "message": "Done — observe again"
+  },
+  "spCurrentPage": {
+    "message": "Current page"
+  },
+  "spScopeContinued": {
+    "message": "Allowed; the task continues."
+  },
+  "spScopeUpdated": {
+    "message": "Task scope updated and the task paused; review it, then click Continue."
+  },
+  "spUntitled": {
+    "message": "Untitled"
+  },
+  "spNotWebpage": {
+    "message": "not a webpage"
+  },
+  "spClosed": {
+    "message": "Closed"
+  },
+  "spSiteNotAllowed": {
+    "message": "site not allowed"
+  },
+  "spRemove": {
+    "message": "Remove"
+  },
+  "spOccupied": {
+    "message": "in use by another task"
+  },
+  "spGrantedAll": {
+    "message": "All regular sites allowed; the current page is connected."
+  },
+  "spGrantedSite": {
+    "message": "Site allowed and connected; you can start or continue a task."
+  },
+  "optInvalidConfig": {
+    "message": "Enter a valid model, key and language"
+  },
+  "optApiDenied": {
+    "message": "API permission denied; settings not saved"
+  },
+  "optApiSaved": {
+    "message": "API settings saved; no model call has been made yet. Allow website access separately."
+  },
+  "optBehaviorSaved": {
+    "message": "Assistant defaults saved; they apply to new tasks or after you click Continue task."
+  },
+  "optLoaded": {
+    "message": "Settings loaded. The API and websites are authorized separately."
+  },
+  "optLoadFailed": {
+    "message": "Can't read settings. Restart the extension and try again."
+  },
+  "optFailed": {
+    "message": "Operation failed"
+  },
+  "mgSiteUpdated": {
+    "message": "Site memory updated; related running tasks are paused — click Continue to resume."
+  },
+  "mgTempEmpty": {
+    "message": "No temporary memory"
+  },
+  "mgTempCleared": {
+    "message": "Temporary memory cleared; related tasks are paused."
+  },
+  "mgNoTabs": {
+    "message": "Open a regular HTTP/HTTPS page first, then refresh the list."
+  },
+  "mgSiteCount": {
+    "message": "{1} · {2}/32 notes"
+  },
+  "mgSiteEmpty": {
+    "message": "No long-term memory for this site"
+  },
+  "mgGrantedAll": {
+    "message": "All regular sites allowed."
+  },
+  "mgGrantCanceled": {
+    "message": "All-sites permission canceled."
+  },
+  "gmUpdated": {
+    "message": "Global memory updated; related running tasks are paused — click Continue to resume."
+  },
+  "gmCount": {
+    "message": "Global · {1}/32 notes"
+  },
+  "gmEmpty": {
+    "message": "No global long-term memory"
+  },
+  "wiReadFailed": {
+    "message": "Can't read the image setting; showing the default image for now."
+  },
+  "wiType": {
+    "message": "Choose a PNG, JPG or WebP image."
+  },
+  "wiSize": {
+    "message": "The image must be 5 MB or smaller."
+  },
+  "wiDecode": {
+    "message": "Can't read this image; choose another one."
+  },
+  "wiDimensions": {
+    "message": "Each side of the image must be 8192 px or less."
+  },
+  "wiTooLarge": {
+    "message": "The saved image exceeds 2 MB; choose a smaller or simpler image."
+  },
+  "wiSaved": {
+    "message": "Image saved and applied to the side panel. It is stored only on this device."
+  },
+  "wiReset": {
+    "message": "Default image restored."
+  },
+  "wiSaveFailed": {
+    "message": "Couldn't save the image; please try again."
+  },
+  "spActiveMember": {
+    "message": "Active"
+  },
+  "spScriptTitle": {
+    "message": "Run this script?"
+  },
+  "spScriptText": {
+    "message": "The script runs inside this page and can read and change its content; its return value is sent to your configured model service. Approving runs it once. Read the full code first."
+  },
+  "spScriptCodeLabel": {
+    "message": "Script code awaiting approval"
+  },
+  "spScriptApprove": {
+    "message": "Approve and run once"
+  },
+  "spScriptReject": {
+    "message": "Reject"
+  },
+  "spScriptTarget": {
+    "message": "Site: {1} · Environment: {2}"
+  },
+  "spScriptWorldUser": {
+    "message": "isolated (USER_SCRIPT, can use the page DOM)"
+  },
+  "spScriptWorldMain": {
+    "message": "page main world (MAIN, can access the page's own JavaScript variables)"
+  },
+  "optNavScripts": {
+    "message": "Script execution"
+  },
+  "optScriptsIntro": {
+    "message": "When enabled, the assistant may write JavaScript and run it in the current page (run_script) when the normal tools cannot do the job. Before every run the side panel shows the full code, target site and environment, and nothing runs until you approve that one run; if you reject it, the assistant tries another way. Return values are sent to your configured model service."
+  },
+  "optScriptsGrant": {
+    "message": "Allow script execution"
+  },
+  "optScriptsRevoke": {
+    "message": "Revoke script execution"
+  },
+  "optScriptsDetails": {
+    "message": "Open extension details"
+  },
+  "optScriptsToggle": {
+    "message": "After allowing, also turn on \"Allow User Scripts\" for this extension under chrome://extensions → Details (Chrome 138 and later); on Chrome 135–137 turn on \"Developer mode\" at the top right of the extensions page instead. Chrome versions below 135 are not supported."
+  },
+  "optScriptsReady": {
+    "message": "Enabled: the model can ask to run scripts, and each run needs your approval in the side panel."
+  },
+  "optScriptsNeedToggle": {
+    "message": "Permission granted, but the browser does not allow user scripts yet: turn on \"Allow User Scripts\" in the extension details (\"Developer mode\" on Chrome 135–137) and make sure Chrome is version 135 or later."
+  },
+  "optScriptsOff": {
+    "message": "Off: the model does not see the script tool."
+  },
+  "optScriptsDenied": {
+    "message": "Script execution permission was not granted."
+  },
+  "optScriptsRevokeFailed": {
+    "message": "Could not revoke. Remove the permission on the extension details page."
+  },
+  "optScriptsDetailsFailed": {
+    "message": "Could not open the extension details page. Visit chrome://extensions manually."
+  },
+  "optScriptsDevReady": {
+    "message": "Developer build: script permission is built in and scripts run without confirmation."
+  },
+  "optScriptsDevToggle": {
+    "message": "Developer build: script permission is built in, but the browser does not allow user scripts yet. Turn on \"Allow User Scripts\" in the extension details."
+  }
+}

@@ -1,6 +1,6 @@
 'use strict';
 (() => {
-  const $ = id => document.getElementById(id);
+  const $ = id => document.getElementById(id), t = PageAgentI18n.t;
   const image = $('welcome-image-preview') || document.querySelector('.welcome-art');
   if (!image) return;
   const fallback = 'icons/welcome-assistant.webp';
@@ -21,7 +21,7 @@
     try {
       const saved = await storage.get('welcomeImage');
       if (revision === initialRevision) show(saved.welcomeImage);
-    } catch { if (status) status.textContent = '无法读取主图设置，暂时显示默认图片。'; }
+    } catch { if (status) status.textContent = t('wiReadFailed'); }
     finally { busy = false; controls(); }
   })();
   async function save(makeImage) {
@@ -32,23 +32,23 @@
       const savingRevision = revision;
       await storage.set({welcomeImage: value});
       if (revision === savingRevision) { revision++; show(value); }
-      status.textContent = value ? '主图已保存，侧栏同步生效。图片仅保存在本机。' : '已恢复默认主图。';
-    } catch (error) { status.textContent = error.message || '主图保存失败，请重试。'; }
+      status.textContent = value ? t('wiSaved') : t('wiReset');
+    } catch (error) { status.textContent = error.message || t('wiSaveFailed'); }
     finally { busy = false; controls(); if (file) file.value = ''; }
   }
   async function readFile(selected) {
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(selected.type)) throw new Error('请选择 PNG、JPG 或 WebP 图片。');
-    if (selected.size > 5 * 1024 * 1024) throw new Error('图片不能超过 5 MB。');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(selected.type)) throw new Error(t('wiType'));
+    if (selected.size > 5 * 1024 * 1024) throw new Error(t('wiSize'));
     const url = URL.createObjectURL(selected), decoded = new Image();
     try {
-      await new Promise((resolve, reject) => { decoded.onload = resolve; decoded.onerror = () => reject(new Error('无法读取这张图片，请换一张。')); decoded.src = url; });
-      if (!decoded.naturalWidth || !decoded.naturalHeight || decoded.naturalWidth > 8192 || decoded.naturalHeight > 8192) throw new Error('图片边长不能超过 8192 像素。');
+      await new Promise((resolve, reject) => { decoded.onload = resolve; decoded.onerror = () => reject(new Error(t('wiDecode'))); decoded.src = url; });
+      if (!decoded.naturalWidth || !decoded.naturalHeight || decoded.naturalWidth > 8192 || decoded.naturalHeight > 8192) throw new Error(t('wiDimensions'));
       const scale = Math.min(1, 1024 / Math.max(decoded.naturalWidth, decoded.naturalHeight));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(decoded.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(decoded.naturalHeight * scale));
       canvas.getContext('2d').drawImage(decoded, 0, 0, canvas.width, canvas.height);
       const data = canvas.toDataURL('image/png');
-      if (!valid(data)) throw new Error('图片保存后超过 2 MB，请选择更小或更简洁的图片。');
+      if (!valid(data)) throw new Error(t('wiTooLarge'));
       return data;
     } finally { URL.revokeObjectURL(url); }
   }

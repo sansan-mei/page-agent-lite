@@ -1,9 +1,9 @@
-const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const {parseHTML}=require('linkedom');
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const {parseHTML}=require('linkedom');const {runUi}=require('./i18n-helper.js');
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(granted,hook=()=>undefined,management=false,contains=async()=>false,extraGlobals={},activeTab={id:9,url:'https://example.test/task',title:'Homework'}){
  const {document,window}=parseHTML(fs.readFileSync(management?'extension/options.html':'extension/sidepanel.html','utf8'));
  const calls=[];let updated,added,removed,storageChanged,activated;const chrome={tabs:{async query(){return [activeTab];},onRemoved:{addListener(){}},onActivated:{addListener(fn){activated=fn;}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(fn){storageChanged=fn;}}}};
- vm.runInNewContext(fs.readFileSync(management?'extension/management.js':'extension/sidepanel.js','utf8'),{chrome,document,window,URL,Date,...extraGlobals});await flush();
+ runUi(management?'extension/management.js':'extension/sidepanel.js',{chrome,document,window,URL,Date,...extraGlobals});await flush();
  return {document,window,calls,updated,added,removed,storageChanged,async activate(tab){activeTab=tab;activated();await flush();}};
 }
 test('sidepanel requests only current origin directly from gesture, then connects',async()=>{
@@ -331,6 +331,24 @@ test('sensitive confirmation displays model reason as text and sends explicit de
   assert.equal(f.document.getElementById('sensitive-reason').textContent,'<b>Need card</b>');assert.equal(box.querySelector('b'),null);
   f.document.getElementById(allow?'sensitive-allow':'sensitive-deny').click();await flush();
   const sent=f.calls.find(c=>c[1]?.type==='task:sensitive-access')[1];assert.equal(sent.allow,allow);assert.equal(sent.taskId,task.taskId);assert.equal(sent.requestId,'request-1');assert.equal(box.hidden,true);
+ }
+});
+
+
+test('script approval shows the full code as text with site and world, hides resume and sends an explicit decision',async()=>{
+ for(const allow of [true,false]){
+  const code='document.body.innerHTML="<img src=x onerror=alert(1)>";\n'+'// line\n'.repeat(300)+'return 1;';
+  const task={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'paused',reason:'script_approval',phase:'observe',steps:1,prefs:{},results:[],events:[],scriptRequest:{id:'request-7',code,world:'MAIN',url:'https://example.test/task?q=1',reply:'<b>Need page state</b>'}};
+  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:script-approval'?{ok:true,value:{...task,status:'running',reason:null,scriptRequest:null}}:undefined);
+  const box=f.document.getElementById('script-approval');assert.equal(box.hidden,false);
+  const pre=f.document.getElementById('script-code');assert.equal(pre.tagName,'PRE');assert.equal(pre.textContent,code);assert.equal(box.querySelector('img'),null);
+  assert.equal(f.document.getElementById('script-reason').textContent,'<b>Need page state</b>');assert.equal(box.querySelector('b'),null);
+  assert.match(f.document.getElementById('script-target').textContent,/https:\/\/example\.test[\s\S]*MAIN/);
+  assert.equal(f.document.getElementById('resume').hidden,true);
+  f.document.getElementById(allow?'script-approve':'script-reject').click();await flush();
+  const sent=f.calls.find(c=>c[1]?.type==='task:script-approval')[1];
+  assert.equal(sent.allow,allow);assert.equal(sent.taskId,'script-task');assert.equal(sent.requestId,'request-7');assert.equal(sent.tabId,9);
+  assert.equal(box.hidden,true);assert.equal(pre.textContent,'');
  }
 });
 

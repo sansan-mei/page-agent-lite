@@ -8,7 +8,7 @@
     const originKey=(id,taskId,origin)=>'conversation-origin:'+id+':'+taskId+':'+encodeURIComponent(origin);
     const serial=fn=>{const operation=(taskStoreWrites.get(area)||Promise.resolve()).catch(()=>{}).then(fn);taskStoreWrites.set(area,operation);return operation;};
     const readRegistry=async()=>{const value=(await area.get('taskRegistry')).taskRegistry;return value?{...value,tabOwners:value.tabOwners||{}}:{version:1,revision:0,bindings:{},tabOwners:{}};};
-    // tabOwners maps user-joined member tabs to their task; bindings keep the executing tab.
+    // tabOwners maps non-executing member tabs to their task; bindings keep the executing tab.
     const registryOf=(revision,bindings,tabOwners)=>({version:1,revision,bindings,tabOwners:tabOwners||{}});
     const releaseOwners=(owners,taskId)=>Object.fromEntries(Object.entries(owners||{}).filter(([,owner])=>owner.taskId!==taskId));
     const ownerError=()=>Object.assign(new Error('该标签页已属于其他任务，请到任务所在标签页操作或先移出'),{code:'TAB_OWNED'});
@@ -48,7 +48,7 @@
     function rooted(id,task,revision,previous=null){
       if(!Number.isInteger(id)||id<0||task.tabId!==id||typeof task.taskId!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(task.taskId))throw new Error('任务根记录身份无效');
       if(previous&&task.origin!==previous.origin)throw scopeError();
-      return {...task,version:3,scopeRevision:revision,initialTabId:id,initialOrigin:previous?.initialOrigin||task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:previous?.allowedOrigins||(task.origin==='browser'?[]:[task.origin]),members:previous?.members||[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}],memberSeq:previous?.memberSeq??1,membersRevision:previous?.membersRevision??0};
+      return {...task,version:3,scopeRevision:revision,initialTabId:previous?.initialTabId??id,initialOrigin:previous?.initialOrigin||task.origin,activeTabId:id,activeOrigin:task.origin,allowedOrigins:previous?.allowedOrigins||(task.origin==='browser'?[]:[task.origin]),members:previous?.members||[{tabId:id,tabRef:'tab0',kind:'initial',joinRevision:revision}],memberSeq:previous?.memberSeq??1,membersRevision:previous?.membersRevision??0};
     }
     return {
       get,
@@ -96,7 +96,7 @@
         const url=new URL(origin);if(url.origin!==origin||!['http:','https:'].includes(url.protocol)||url.username||url.password||origin===task.origin)throw scopeError();
         const name=originKey(id,taskId,task.origin),saved=(await area.get(name))[name]||{version:1,taskId,tabId:id,origin:task.origin,segments:[]};
         const {token:oldToken,pending,check,...view}=task;
-        if(proof)view.results=(view.results||[]).concat({action:check?.action||'navigate',request:check?.request,time:updatedAt,origin:task.origin,tabRef:'tab0',outcome:proof});
+        if(proof)view.results=(view.results||[]).concat({action:check?.action||'navigate',request:check?.request,time:updatedAt,origin:task.origin,tabRef:(task.members||[]).find(member=>member.tabId===id)?.tabRef||'tab0',outcome:proof});
         if(!saved.segments.some(segment=>segment.id===task.scopeRevision))saved.segments.push({id:task.scopeRevision,view:{...view,archived:true}});
         if(JSON.stringify(saved).length>1000000)throw new Error('本站历史超过 100 万字符，未切换任务；原记录已保留');
         const destination=(await area.get(originKey(id,taskId,origin)))[originKey(id,taskId,origin)];
@@ -131,19 +131,50 @@
           if(members.length>=8)throw new Error('每个任务最多 8 个标签页');
           const ref='tab'+memberSeq;memberSeq+=1;
           nextMembers=[...members,{tabId:memberTabId,tabRef:ref,kind:'user_joined',joinRevision:membersRevision}];nextOwners[memberTabId]={taskId,revision:membersRevision};
-          text='已加入标签页 '+ref+'；当前仍只在执行标签页操作';
-        }else if(action==='remove'||action==='closed'){
+          text='已加入标签页 '+ref+'；执行目标不变';
+        }else if(action==='created'){
+          // Browser-returned tabId of a tab this task just opened; never claimed by URL or title.
+          if(['ended','completed'].includes(task.status))throw scopeError();
+          if(!Number.isInteger(memberTabId)||memberTabId<0||memberTabId===id||registry.bindings[memberTabId]||owners[memberTabId]||members.some(member=>member.tabId===memberTabId))throw ownerError();
+          if(members.length>=8)throw new Error('每个任务最多 8 个标签页');
+          const ref='tab'+memberSeq;memberSeq+=1;
+          nextMembers=[...members,{tabId:memberTabId,tabRef:ref,kind:'task_created',joinRevision:membersRevision}];nextOwners[memberTabId]={taskId,revision:membersRevision};
+          text='已打开并登记任务标签页 '+ref;
+        }else if(action==='remove'||action==='closed'||action==='release'){
           const member=members.find(item=>action==='remove'?item.tabRef===tabRef:item.tabId===memberTabId);
-          if(!member){if(action==='closed')return null;throw Object.assign(new Error('任务标签页已变化，请刷新后重试'),{code:'MEMBERS_CHANGED'});}
-          if(member.kind==='initial'||member.tabId===id)throw new Error('不能移出正在执行的标签页');
+          if(!member){if(action!=='remove')return null;throw Object.assign(new Error('任务标签页已变化，请刷新后重试'),{code:'MEMBERS_CHANGED'});}
+          if(member.tabId===id)throw new Error('不能移出正在执行的标签页');
           nextMembers=members.filter(item=>item!==member);delete nextOwners[member.tabId];
-          text=action==='closed'?'成员标签页 '+member.tabRef+' 已关闭，已从任务移除':'已移出标签页 '+member.tabRef+'；网页未关闭或改动';
+          text=action==='closed'?'成员标签页 '+member.tabRef+' 已关闭，已从任务移除':action==='release'?'标签页 '+member.tabRef+' 已释放，用于新任务':'已移出标签页 '+member.tabRef+'；网页未关闭或改动';
+
         }else throw new Error('成员操作无效');
         const events=(task.events||[]).concat({time:updatedAt,text}).slice(-40);while(events.length>1&&JSON.stringify(events).length>16000)events.shift();
         const record={...task,members:nextMembers,memberSeq,membersRevision,events,updatedAt};
         await area.set({taskRegistry:{...registry,pending:{kind:'members_changed',tabId:null,taskTabId:id,taskId,membersRevision,nextOwners}}});
         await area.set({[rootKey(taskId)]:record});
         await area.set({taskRegistry:registryOf(registry.revision+1,registry.bindings,nextOwners)});
+        return record;
+      });},
+      // Move the execution target (binding) to another member. Same three-step journal; the old
+      // executing tab stays an owned member unless it was closed. Temporary notes follow the task.
+      async switchTab(id,{taskId,expectedRevision,expectedToken,toTabId,token,updatedAt,patch={},closed=false}){return serial(async()=>{
+        const registry=await readRegistry();if(registry.pending)throw scopeError();
+        const task=await get(id),binding=registry.bindings[id];
+        if(!task||task.taskId!==taskId||!binding||binding.revision!==expectedRevision||expectedToken!==undefined&&task.token!==expectedToken)throw scopeError();
+        const members=task.members||[];
+        if(toTabId===id||!members.some(member=>member.tabId===toTabId)||registry.bindings[toTabId]||registry.tabOwners[toTabId]?.taskId!==taskId)throw Object.assign(new Error('目标标签页不属于本任务'),{code:'TAB_NOT_MEMBER'});
+        const revision=registry.revision+1,next={taskId,revision},nextOwners={...registry.tabOwners};
+        delete nextOwners[toTabId];if(!closed)nextOwners[id]={taskId,revision};
+        const fields=['status','reason','phase','pending','check','waitDeadline','nextObservation','results','events','uncertainClicks','lastOutcome','contextUsage','retries'];
+        const record={...task,...Object.fromEntries(Object.entries(patch).filter(([name])=>fields.includes(name))),token,tabId:toTabId,activeTabId:toTabId,scopeRevision:revision,members:closed?members.filter(member=>member.tabId!==id):members,membersRevision:closed?revision:task.membersRevision,updatedAt};
+        const bindings={...registry.bindings};delete bindings[id];bindings[toTabId]=next;
+        await area.set({taskRegistry:{...registry,pending:{kind:'tab_switched',tabId:id,toTabId,binding:next,previousTaskId:taskId,nextOwners}}});
+        await area.set({[rootKey(taskId)]:record});
+        await area.set({taskRegistry:registryOf(revision,bindings,nextOwners)});
+        try{
+          const source=(await area.get('memory:'+id))['memory:'+id];
+          if(source){const target=(await area.get('memory:'+toTabId))['memory:'+toTabId]||{};await area.set({['memory:'+toTabId]:{...target,...source}});await area.remove('memory:'+id);}
+        }catch{ /* Notes are optional; the committed binding stays authoritative. */ }
         return record;
       });},
       async history(id,origin){
@@ -162,7 +193,7 @@
         const registry=await readRegistry();if(registry.pending)throw scopeError();
         const task=await get(id);if(!task||task.taskId!==expectedTaskId)return null;
         const binding=registry.bindings[id];
-        if(!binding||task.members?.find(member=>member.tabId===id)?.kind!=='initial')throw scopeError();
+        if(!binding||!(task.members||[]).some(member=>member.tabId===id))throw scopeError();
         const pending={kind:'member_closed',tabId:id,binding,closedAt};
         const journal={...registry,pending};await area.set({taskRegistry:journal});
         return finishMemberClose(journal);
@@ -189,6 +220,15 @@
       async reconcile(){return serial(async()=>{
         const registry=await readRegistry(),intent=registry.pending;if(!intent)return;
         if(intent.kind==='member_closed'){await finishMemberClose(registry);return;}
+        if(intent.kind==='tab_switched'){
+          // Adopt the new binding only if its root was written; otherwise keep the old one. Pause either way.
+          const root=(await area.get(rootKey(intent.binding.taskId)))[rootKey(intent.binding.taskId)];
+          const adopted=root?.taskId===intent.binding.taskId&&root.scopeRevision===intent.binding.revision&&root.tabId===intent.toTabId;
+          const bindings={...registry.bindings};if(adopted){delete bindings[intent.tabId];bindings[intent.toTabId]=intent.binding;}
+          if(root&&(adopted||root.scopeRevision===registry.bindings[intent.tabId]?.revision))await area.set({[rootKey(root.taskId)]:{...root,status:['completed','ended','stopped'].includes(root.status)?root.status:'paused',reason:'scope_reconciled'}});
+          await area.set({taskRegistry:registryOf(Math.max(registry.revision,intent.binding.revision),bindings,adopted?intent.nextOwners:registry.tabOwners)});
+          return;
+        }
         if(intent.kind==='members_changed'){
           // Directory-only change: adopt owners only if the root already shows it; execution state is untouched.
           const root=(await area.get(rootKey(intent.taskId)))[rootKey(intent.taskId)];

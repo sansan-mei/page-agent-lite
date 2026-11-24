@@ -76,7 +76,7 @@ test('legacy execution switches are ignored and removed when preferences are sav
 });
 
 test('agent preferences are bounded, page-readable and writable only by options; agent uses configured model',async()=>{
- const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'chosen',language:'中文'};
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'chosen',language:'中文',toolMode:'json'};
  let body;const s=backend.createService(c,async(url,opts)=>{body=JSON.parse(opts.body);return new Response(JSON.stringify({choices:[{message:{content:'{"reply":"完成","action":"done"}'}}]}));});
  assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:100,contextTokens:100000,compressionThreshold:80,inputChars:2000});
  await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:2}},page));
@@ -102,7 +102,7 @@ test('task compaction uses separate trusted summary system and configured model'
 
 
 test('trusted agent accepts long prompts and reports normalized usage and model identity',async()=>{
- const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'key',model:'m',language:'中文'};
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'key',model:'m',language:'中文',toolMode:'json'};
  const s=backend.createService(c,async()=>new Response(JSON.stringify({choices:[{message:{content:'{"action":"observe","reply":"ok"}'}}],usage:{prompt_tokens:20000,completion_tokens:10,prompt_tokens_details:{cached_tokens:18000}}})));
  const first=await s.generateAgent('x'.repeat(200000));assert.deepEqual(first.usage,{promptTokens:20000,completionTokens:10,cachedTokens:18000});assert.match(first.modelIdentity,/^[a-f0-9]{64}$/);
  c.data.config.model='other';assert.notEqual(await s.identity(),first.modelIdentity);
@@ -118,7 +118,7 @@ test('context preferences validate ranges and legacy saves preserve configured b
 });
 
 test('reasoning defaults, saved effort, summary requests and compatibility fallback reach API',async()=>{
- const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'m',language:'中文'};
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'m',language:'中文',toolMode:'json'};
  const requests=[];const s=backend.createService(c,async(url,request)=>{requests.push(JSON.parse(request.body));return new Response(JSON.stringify({choices:[{message:{content:'{}'}}]}));});
  assert.equal((await s.handle({type:'settings'},options)).reasoningEffort,'medium');
  await s.generateAgent('observe');assert.equal(requests.at(-1).reasoning_effort,'medium');assert.equal(requests.at(-1).temperature,undefined);assert.equal(requests.at(-1).max_tokens,undefined);

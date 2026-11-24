@@ -1,6 +1,6 @@
 # 任务运行器
 
-`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler，不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
+`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler、scriptAccess（每轮 run_script 是否可用）和 autoApproveScripts（仅开发版为 true），不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
 
 ## 状态
 
@@ -9,7 +9,7 @@
 | running | 可继续推进 |
 | waiting_page | 等待页面就绪，由事件或 alarm 重试 |
 | waiting_confirmation | 旧版兼容；继续时丢弃待确认动作并重新规划 |
-| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input` |
+| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`script_stale`（待批准脚本因页面变化作废） |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
 | completed | 模型返回 done（有完成条件时已核实） |
@@ -24,8 +24,8 @@
 ## 一次 tick
 
 1. 读取任务，核对运行代次、当前 URL 来源属于 `allowedOrigins` 且有主机权限、页面就绪。来源变化走 [跨来源切换](#跨来源切换)。
-2. `executing` 恢复：有条件则只读核对，无条件则暂停；`approved` 页面已变则重新规划。
-3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。
+2. `executing` 恢复：有条件则只读核对，无条件则暂停；`approved` 页面已变则重新规划（已批准的 run_script 记 `STALE`，不执行）。
+3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 的结果作为 `capabilities` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
 6. 网页动作前保存 `executing` 检查点，执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
@@ -50,7 +50,8 @@
 | 情况 | 处理 |
 |---|---|
 | 网络错误、25 秒超时、429/5xx | 最多额外重试 2 次，每次计轮数 |
-| 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
+| `MODEL_PROTOCOL_FALLBACK`（auto 下接口不支持原生工具调用，未执行任何动作） | 与上行共用 2 次重试额度，下一轮改用 JSON 协议，记 `dispatch=not_sent`，计轮数 |
+| 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_TOOL_CALL_MULTIPLE`、`MODEL_TOOL_CALL_INVALID`、`MODEL_TOOL_ARGUMENTS_INVALID`、`MODEL_TOOL_CALL_MISSING`（native 模式）、`MODEL_TOOLS_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |
 | 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划；模型按回执中的遮挡层 `key` 先关闭或完成遮挡层 |
 | 点击核对到期仍 unknown | 最多两次回到 observe（`recovery=replan`），结果仍记 unknown；同一文档不重发该点击 |
@@ -58,6 +59,7 @@
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停 |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
+| run_script | 本轮不可用则暂停为 access；商店包暂停为 script_approval，见 [脚本批准](#脚本批准)；开发版直接执行 |
 | request_sensitive_access | 暂停为 sensitive_access，等待可信侧栏确认；确认后轮换代次，重新观察；拒绝保留屏蔽并暂停，不占自主恢复次数 |
 | 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
@@ -69,6 +71,17 @@
 - **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
 - **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
 - **结束/清空**：结束后不能用继续复活；清空删除当前任务及其临时记忆和来源分区。
+- **脚本批准**（`task:script-approval`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
+
+## 脚本批准
+
+商店包中模型返回 run_script 时不执行，任务暂停为 `script_approval` 并保存 `scriptRequest`：`{id, code, world, url, origin, documentId, snapshotId, reply, time, pending}`（pending 为执行所需的完整待执行记录）。
+
+- 校验与 `task:sensitive-access` 相同：taskId、requestId 匹配，任务仍为 paused/script_approval，allow 为布尔值，否则「脚本确认已过期」。通过后取消旧请求、轮换 token、清除 `scriptRequest`。
+- 拒绝：结果记 `SCRIPT_REJECTED`（dispatch=not_sent、recovery=replan），任务回到 running 并重新观察，模型改用其他方法。
+- 批准：当前标签、URL 与来源须与请求一致，否则记 `STALE` 不执行；一致则 phase=approved。下一 tick 再核对标签和 URL，写 executing 检查点后执行该代码一次（执行前另核对文档 ID）。worker 在 approved 阶段重启会执行这一次；进入 executing 后中断按结果不确定暂停，不重放。
+- 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准执行，结果记 `SCRIPT_DISCARDED`（not_sent）。
+- 每次执行单独批准；开发版（`PageAgentDevFlags.autoApproveScripts`）跳过本节，直接走普通执行路径。
 
 ## 子目标
 
@@ -99,19 +112,30 @@
 - 用户修改网站笔记：取消同站请求，暂停同站运行任务。修改全局笔记：取消所有站点请求，暂停各活动任务。两者都保留等待期限和 executing 检查点，继续时先只读核对。
 - 补充指令设置 `memoryReview` 提醒，成功写入笔记或用户手动修改记忆后清除。
 
+## 多标签执行
+
+任务同一时间只有一个执行标签页（`tabId` = `activeTabId`，即 binding 所在标签）；观察、动作、核对、指针都只作用于它，其他成员不读取、不注入。
+
+- 模型输入：成员多于 1 个时附 `tabs`（仅本任务仍打开的成员：tabRef、kind、active、origin、≤ 80 字符标题），放在 page 前；标题按不可信网页数据处理。
+- `tab_switch`：tabRef 必须在目录中、不是当前执行标签、浏览器确认仍打开且为 HTTP/HTTPS，否则返回 not_sent 错误结果（`TAB_NOT_MEMBER` / `TAB_ALREADY_ACTIVE` / `TAB_CLOSED` / `UNSUPPORTED_PAGE`）交给模型重新规划。通过后在队列内 abort 旧请求，`store.switchTab` 轮换 token 与 scopeRevision，清 pending/check/读取范围，不重置轮数，不激活浏览器前台。迟到回复因 token 与 binding 均已变化而丢弃。
+- 目标标签来源不同：下一轮照常走 [跨来源切换](#跨来源切换)（主机权限、来源分区、上下文清空）；缺少权限则暂停为 `permission_denied`，不读取目标页。
+- `tab_open`：先查目标主机权限（缺少则暂停为 `browser_target`，不创建），成员已满 8 个则拒绝；写 executing 创建意图后调用一次 `tabs.create`（后台、opener 所在窗口）。用浏览器返回的 tabId 登记为 task_created 成员（停止后仍登记，避免无主标签），再切换执行目标到新标签。`tabs.create` 失败或回执不明 → 暂停 `uncertain`；worker 在执行中重启 → 按现有 executing 规则暂停。从不重试、不按 URL 或标题认领。
+- `tab_close`：只接受非执行中的 task_created 成员，且其当前来源仍在 `allowedOrigins`（被用户导航到别处的不关）；写 executing 后调用一次 `tabs.remove`，再向浏览器确认已不存在才移出目录，仍存在则返回 `TAB_STILL_OPEN`，不重试。
+
 ## 成员关闭
 
 `tabs.onRemoved` → `runtime.memberClosed(tabId)`：
 
-- 执行标签页：立即 abort，再在队列内取消调度并调用 `store.closeMember`，归档为 ended/`member_closed`，保留 pending/check 作为未知证据，并释放所有加入的成员；迟到回执不能回写或重新派发。
-- 用户加入的成员标签页：只从目录移除（`changeMembers` closed），任务状态、token 与预算不变。
+- 执行标签页、仍有其他打开的成员：立即 abort，取消调度，把绑定移到第一个仍打开的成员（目录顺序）并暂停为 `active_tab_closed`；进行中的动作检查点记为 unknown 结果（`TAB_CLOSED`）并加入 `uncertainClicks`，不在新标签核对旧条件，不重放。completed/stopped/failed 保持原状态。
+- 执行标签页且无其他打开成员：`store.closeMember` 归档为 ended/`member_closed`，保留 pending/check 作为未知证据，释放所有成员；迟到回执不能回写或重新派发。
+- 非执行成员：只从目录移除（`changeMembers` closed），任务状态、token 与预算不变。
 - 启动 recover 先取浏览器标签 ID 清单，缺失的执行标签页和成员走同一路径；清单查询失败则不推断关闭。
 
 ## 成员目录
 
-- `members(tabId, taskId)`（仅可信侧栏）：返回成员目录（tabRef、类型、是否打开、当前 origin、≤ 80 字符标题、是否在任务范围）和可加入的 HTTP/HTTPS 标签页（≤ 50，标记是否被占用）。不进入模型上下文。
-- `changeMembers`：核对 taskId 与 membersRevision；加入前向浏览器确认标签仍打开且为 HTTP/HTTPS；只能移出 user_joined 成员，移出不关闭网页。
-- 模型仍只在执行标签页读取和操作，成员标签页不读取、不注入；切换执行标签页与 open/close 未实现，见 [多成员任务设计](plans/task-scope-v3.md)。
+- `members(tabId, taskId)`（仅可信侧栏）：返回成员目录（tabRef、类型、是否执行中、是否打开、当前 origin、≤ 80 字符标题、是否在任务范围）和可加入的 HTTP/HTTPS 标签页（≤ 50，标记是否被占用）。
+- `changeMembers`：核对 taskId 与 membersRevision；加入前向浏览器确认标签仍打开且为 HTTP/HTTPS；可移出除执行标签页外的任意成员，移出不关闭网页。
+- 侧栏命令（get/stop/takeover/resume/finish/choose/approve/成员/范围/诊断/清空）从非执行成员标签发出时，后台经 `runtime.resolve` 作用于其任务的执行标签页；历史与记忆仍按发出标签。发送：所属任务未结束时作为补充指令；已结束（或非浏览器对话已完成）时先释放该标签（`release`），再在此标签新建任务。
 
 ## 诊断
 

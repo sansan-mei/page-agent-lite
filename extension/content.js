@@ -35,10 +35,11 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
+      if(message.type==='agent:document')return {documentId,url:location.href};
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});
       const authorized=message.sensitiveFields===true;

@@ -1,8 +1,8 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
 const flush=()=>new Promise(r=>setImmediate(r));
-async function fixture(registered=[],storeExtra={}){
+async function fixture(registered=[],storeExtra={},runtimeExtra={}){
  let listener,removed,permissionRemoved,updated;const calls=[];
- const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async changeOrigins(id,p){calls.push(['scope-change',id,p]);return {status:'paused'};},async reviewPermissions(){calls.push(['review-permissions']);},async navigationChanged(id){calls.push(['navigation-changed',id]);},async tick(){}};
+ const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async changeOrigins(id,p){calls.push(['scope-change',id,p]);return {status:'paused'};},async reviewPermissions(){calls.push(['review-permissions']);},async navigationChanged(id){calls.push(['navigation-changed',id]);},async tick(){},...runtimeExtra};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
  permissions:{onRemoved:{addListener(fn){permissionRemoved=fn;}}},storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
  scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
@@ -90,9 +90,10 @@ test('browser host revocation triggers task permission review without granting t
 test('browser URL changes cancel through the runtime before scheduling a new observation',async()=>{
  const f=await fixture();f.updated(7,{url:'https://new.test/page',status:'complete'});await flush();assert.deepEqual(f.calls,[['navigation-changed',7]]);
 });
-test('a tab joined to another task cannot start or receive a task and is never injected',async()=>{
- const f=await fixture([],{async owner(id){return id===2?{taskId:'a',taskTabId:1,role:'member'}:null;}});
- for(const type of ['task:start','task:submit']){const reply=await f.send({type,tabId:2,goal:'x'},panel);assert.equal(reply.ok,false);assert.match(reply.error,/其他任务/);}
- assert.equal(f.calls.some(x=>x[0]==='tools.inject'||x[0]==='submit'),false);
- assert.equal((await f.send({type:'task:submit',tabId:1,goal:'x'},panel)).ok,true);assert.equal(f.calls.some(x=>x[0]==='tools.inject'),false);
+test('commands from a member tab act on its task executing tab; submit is decided by the runtime and never injects',async()=>{
+ const f=await fixture([],{},{async resolve(id){calls.push(['resolve',id]);return id===2?1:id;}});const calls=f.calls;
+ for(const type of ['task:get','task:stop','task:finish']){calls.length=0;assert.equal((await f.send({type,tabId:2},panel)).ok,true);assert.deepEqual(calls.at(-1)[1],1,type);}
+ calls.length=0;assert.equal((await f.send({type:'task:submit',tabId:2,goal:'x'},panel)).ok,true);assert.deepEqual(calls,[['submit',2,'x']]);
+ calls.length=0;await f.send({type:'task:history',tabId:2},panel);assert.equal(calls.some(x=>x[0]==='resolve'),false);
+ assert.equal(calls.some(x=>x[0]==='tools.inject'),false);
 });

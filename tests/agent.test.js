@@ -314,10 +314,12 @@ test('static tool policy cannot be mutated or expanded and backend tools never e
  for(const action of ['eval','constructor','__proto__','toString']){
   assert.equal(C.agentTool(action),null);assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Unsupported',action,id:'t0',value:'changed'}),snap));
  }
- for(const action of ['memory_clear','site_memory_clear','verify','navigate'])assert.throws(()=>C.agentExecute({action,id:'t0',value:'changed'},snap,document),e=>e.beforeDispatch===true&&e.code==='UNSUPPORTED_ACTION');
+ for(const action of ['memory_clear','site_memory_clear','verify','navigate','run_script'])assert.throws(()=>C.agentExecute({action,id:'t0',value:'changed'},snap,document),e=>e.beforeDispatch===true&&e.code==='UNSUPPORTED_ACTION');
  assert.equal(document.querySelector('input').value,'untouched');
- const prompt=require('../extension/prompts.js').agentSystem('English');
- for(const name of C.agentToolNames())assert.ok(prompt.includes(name));
+ const prompts=require('../extension/prompts.js'),prompt=prompts.agentSystem('English');
+ // run_script is listed only on turns where script execution is available.
+ assert.doesNotMatch(prompt,/run_script/);
+ for(const name of C.agentToolNames())assert.ok(prompts.agentSystem('English','json',{scripts:true}).includes(name));
 });
 
 test('sensitive autocomplete fields are excluded from values, labels, regions and model input',()=>{

@@ -4,9 +4,10 @@
  let host,arrow,box,ring,timer,previous;
  function clear(){clearTimeout(timer);host?.remove();host=arrow=box=ring=null;previous=null;}
  function node(doc,style){const n=doc.createElement('div');n.style.cssText=style+';pointer-events:none!important';return n;}
- function show(target,doc){
+ // rect (top viewport coordinates) is passed for targets inside a same-origin frame; the layer stays in doc.
+ function show(target,doc,rect){
   if(!target?.getBoundingClientRect||doc.hidden)return;
-  const r=target.getBoundingClientRect(),win=doc.defaultView;
+  const r=rect||target.getBoundingClientRect(),win=doc.defaultView;
   const left=Math.max(0,r.left),top=Math.max(0,r.top),right=Math.min(win.innerWidth,r.right),bottom=Math.min(win.innerHeight,r.bottom);
   if(right<=left||bottom<=top)return;
   clearTimeout(timer);

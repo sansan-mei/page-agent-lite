@@ -35,24 +35,27 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `sidepanel.*` | 对话、工具卡片、历史、任务范围、接管；没有执行循环 | [使用指南](usage.md) |
 | `options.*`、`management.js`、`global-management.js` | 设置页；网站/临时记忆管理；全局记忆管理 | [使用指南](usage.md) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
+| `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
+| `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
+| `script-settings.js` | 设置页「脚本执行」：点击申请可选 `userScripts` 权限、显示状态 | [使用指南](usage.md#脚本执行) |
 | `article-tools.js` | 已退役文章面板的兼容源码，无入口、不自动注入 | — |
-| `dev/`（不在 `extension/`） | 本地开发版专用 `run_script`，由 `npm run build:dev` 叠加到 `dist/extension-dev/` | [网页工具](browser-tools.md#开发版-run_script) |
+| `dev/`（不在 `extension/`） | 开发版叠加：`dev-flags.js`（run_script 免批准）、`background-dev.js`，由 `npm run build:dev` 生成 `dist/extension-dev/` | [网页工具](browser-tools.md#run_script) |
 
 ## 消息入口
 
-- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`。
+- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
 - 设置页 → 后台：`task:memory`、`task:memory-clear`、`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`。
-- 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:clear-pointer`。
+- 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:document`（只读文档 ID 探测）、`agent:clear-pointer`。
 
 网页不能创建、停止或读取任务，拿不到密钥、配置或记忆。内容脚本只接受后台消息，不直接导航、不保存任务目标。
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。本地开发版额外有 `userScripts`。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）；本地开发版改为必需权限。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。
-- 动作必须在 `agentToolRegistry` 中（冻结对象，运行时不可注册）；内容执行器拒绝 runtime/browser 路由的动作。
+- 动作必须在 `agentToolRegistry` 中（冻结对象，运行时不可注册）；内容执行器拒绝 runtime/browser 路由的动作。模型生成的代码只能经 run_script 由 `userScripts` 执行，商店包每次须侧栏批准。
 
 ## 生命周期
 
@@ -62,6 +65,6 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 取舍
 
-不引入服务端、Python、向量库、MCP 或子 Agent；保留非流式 OpenAI 兼容接口和严格 JSON 动作协议。后续计划见 [Roadmap](../ROADMAP.md)。
+不引入服务端、Python、向量库、MCP 或子 Agent；保留非流式 OpenAI 兼容接口；动作默认走原生 function calling，不支持时回退严格 JSON，两者共用同一注册表与校验。后续计划见 [Roadmap](../ROADMAP.md)。
 
 参考：[Hermes 架构](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)、[Chrome worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。

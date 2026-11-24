@@ -2,7 +2,7 @@
 
 ## 每轮模型输入
 
-`prompts.js` 组装稳定系统指令和每轮输入；`backend.js` 以非流式 Chat Completions 发送，严格 JSON 文本作为动作。
+`prompts.js` 组装稳定系统指令和每轮输入；`backend.js` 以非流式 Chat Completions 发送。每次请求无状态（系统指令 + 含历史的单条用户输入），不回传 tool 结果消息。
 
 - 每轮输入是一个 JSON，字段顺序为：`taskScope`（当前来源与授权集合，只读）、`goal`、`instructions`（按时间排序）、`taskPlan`、`taskSummary`、`historyIndex`、`results`、`memoryIndex`、`siteMemoryIndex`、`globalMemoryIndex`、`memoryReview`、`uncertainClicks`……最后是当前页面快照。稳定内容在前，变化内容在后，便于服务商前缀缓存。
 - 较新的用户纠正优先；网页、笔记、摘要都作为不可信资料。不设置服务商专用缓存参数，摘要更新时间不发给模型。
@@ -11,7 +11,16 @@
 
 ## 模型响应
 
-`parseChatResponse` 统一解析 content 与 usage。`finish_reason` 只接受 stop 或省略；截断、拒绝、原生 tool_calls、非文本、空值、超长、非法 JSON 都返回稳定 code（见 [运行器](agent-runtime.md#错误与恢复)），不修补成动作，也不回显响应正文。没有原生 function calling 路径。
+执行请求有两种协议，由设置 `toolMode`（auto 默认 / native / json）决定；摘要、翻译、编辑请求始终是 JSON/纯文本，不带 tools。
+
+| 协议 | 请求 | 回复 |
+|---|---|---|
+| native | `tools`（`prompts.agentTools()`：注册表每个动作一个 function，参数只描述 plan 字段，`reply` 必填，`additionalProperties:false`）、`tool_choice:"required"`、`parallel_tool_calls:false`；系统指令要求每轮恰好调用一个工具 | 恰好一个 `type:function` 的 tool_call；arguments 解析为对象后以工具名作 `action` 转成同一 JSON plan，交给 `agentPlan` 校验 |
+| json | 不带 tools；系统指令要求只返回严格 JSON | `content` 严格 JSON plan |
+
+`parseChatResponse(raw, protocol)` 统一解析并提取 usage。两种协议共用截断、拒绝、空值、超长、非法响应、结束状态的 code；native 另有多个调用 `MODEL_TOOL_CALL_MULTIPLE`（一个都不执行）、参数非对象/非法 JSON/含 `action` 键 `MODEL_TOOL_ARGUMENTS_INVALID`、调用格式或旧式 function_call `MODEL_TOOL_CALL_INVALID`、只有文本 `MODEL_TOOL_CALL_MISSING`；json 协议收到 tool_calls 为 `MODEL_TOOL_CALL_UNSUPPORTED`。都不修补成动作，也不回显响应正文（见 [运行器](agent-runtime.md#错误与恢复)）。
+
+auto 回退：回复只有文本但文本本身是严格 JSON 动作时，本轮直接按 json 解析使用，不记录；native 请求遇到 HTTP 400/422 且正文提到 tools/tool_choice/function，或回复是非 JSON 文本时，把当前 modelIdentity 记入 `nativeToolsUnsupported`，本轮报 `MODEL_PROTOCOL_FALLBACK`，之后该模型走 json。重新保存 API 设置会清空记录、重新尝试 native。native 模式下同样情况报 `MODEL_TOOLS_UNSUPPORTED` / `MODEL_TOOL_CALL_MISSING`，不记录。上下文估算在 native 下计入 tools schema。
 
 ## 记忆
 
@@ -19,7 +28,7 @@
 
 | 层 | 工具 | 目录 | 存储与范围 | 容量 |
 |---|---|---|---|---|
-| 临时 | `memory_read/write/delete/clear` | `memoryIndex`（名称、更新时间） | session `memory:<tabId>`，按标签页+origin | 每站 12 条/8000 字符，单条 2000；每标签 10 站 |
+| 临时 | `memory_read/write/delete/clear` | `memoryIndex`（名称、更新时间） | session `memory:<tabId>`，按标签页+origin；切换执行标签页时随任务移动 | 每站 12 条/8000 字符，单条 2000；每标签 10 站 |
 | 网站 | `site_memory_read/write/delete/clear` | `siteMemoryIndex`（id、updatedAt、source） | IndexedDB，按完整 origin，跨任务/标签/重启 | 32 条/64000 字符，单条 2000 |
 | 全局 | `global_memory_read/write/delete/clear` | `globalMemoryIndex` | IndexedDB 单一 global 记录 | 同网站 |
 
