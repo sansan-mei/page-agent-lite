@@ -2,7 +2,7 @@
 window.PAGE_I18N = {
   en: {
     'nav.how': 'How it works', 'nav.verify': 'Verification', 'nav.memory': 'Memory', 'nav.privacy': 'Privacy',
-    'hero.eyebrow': 'Open source · Chrome / Edge side panel',
+    'hero.eyebrow': 'Open source · Chrome / Edge · English & Chinese UI',
     'hero.title': 'One sentence.<br>The page gets to work.',
     'hero.lede': 'Describe a goal. It reads the page, fills forms, clicks and pages through, then checks every step against evidence on the page. Bring your own model; your data never passes through us.',
     'cta.store': 'Coming soon to Chrome Web Store', 'cta.storeLive': 'Add to Chrome — it\u2019s free', 'cta.source': 'View source',
@@ -19,7 +19,7 @@ window.PAGE_I18N = {
     'verify.eyebrow': 'Step-by-step verification', 'verify.title': 'No blind clicks.<br>Every step needs proof.',
     'verify.lede': 'The classic failure of AI browser agents: clicking the wrong thing, assuming success and burning tokens. Here every action carries a check, and uncertain clicks are never replayed.',
     'verify.r1': 'Fill “Email”', 'verify.r2': 'Click “Next page”', 'verify.r3': 'Wait for “Saved”', 'verify.r4': 'Click “Submit”, no feedback', 'verify.r4e': 'Unknown · not replayed', 'verify.r5': 'Pause and ask you', 'verify.r5e': 'Your call',
-    'verify.p1': '100-turn default budget', 'verify.p2': 'Stop anytime', 'verify.p3': 'Resume after takeover', 'verify.p4': 'Auto context compaction',
+    'verify.p1': '100-turn default budget', 'verify.p2': 'Stop anytime', 'verify.p3': 'Resume after takeover', 'verify.p4': 'Auto context compaction', 'verify.p5': 'Optional scripts, approved per run',
     'memory.eyebrow': 'Memory', 'memory.title': 'Correct it once.<br>It remembers.',
     'memory.lede': 'Three layers of memory, all stored in your browser. The model sees only an index each turn and reads notes on demand. View, edit and export them in settings.',
     'memory.l1': 'Temporary', 'memory.l1p': 'This tab · cleared when closed', 'memory.l2': 'Per site', 'memory.l2p': 'Per website · survives tabs and restarts', 'memory.l3': 'Global', 'memory.l3p': 'Preferences shared across sites',
@@ -28,7 +28,7 @@ window.PAGE_I18N = {
     'privacy.a2': 'Local models', 'privacy.a2p': 'Compatible services on localhost work too; leave the key empty for unauthenticated local servers. Page content never leaves your machine.',
     'privacy.a3': 'No telemetry', 'privacy.a3p': 'No project server, no analytics. Your key stays in the extension background, and site access is granted on demand.',
     'limits.title': 'What it can\u2019t do yet',
-    'limits.l1': 'No iframes, Shadow DOM, images or canvas content', 'limits.l2': 'Complex rich-text editors: simple plain-text replacement only', 'limits.l3': 'Synthetic events are not real mouse/keyboard input; some sites ignore them', 'limits.l4': 'No multi-tab collaboration; tasks don\u2019t resume across browser restarts', 'limits.l5': 'Models can misjudge: check the page after submits or deletes',
+    'limits.l1': 'No cross-origin or nested iframes, Shadow DOM, images or canvas (same-origin iframes: one level)', 'limits.l2': 'Complex rich-text editors: simple plain-text replacement only', 'limits.l3': 'Synthetic events are not real mouse/keyboard input; some sites ignore them', 'limits.l4': 'Switches, opens and closes tabs within a task, but works on one tab at a time; tasks don\u2019t resume across browser restarts', 'limits.l5': 'Models can misjudge: check the page after submits or deletes',
     'promo.line': 'One sentence. The page gets to work.',
     'final.title': 'Hand off the repetitive web chores.',
     'foot.privacy': 'Privacy', 'foot.issues': 'Report an issue',
