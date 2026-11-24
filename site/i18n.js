@@ -11,6 +11,7 @@ window.PAGE_I18N = {
     'demo.authorized': 'Authorized', 'demo.goal': 'Fill this sign-up form with my details. Let me review before submitting.', 'demo.composer': 'Add instructions…',
     'demo.caption': 'Illustrative animation, not a real model run.',
     'mq.1': 'Read pages', 'mq.2': 'Fill forms', 'mq.3': 'Click & paginate', 'mq.4': 'Wait for feedback', 'mq.5': 'Verify results', 'mq.6': 'Remember preferences', 'mq.7': 'Take over anytime',
+    'say.text': 'Not another chat box. It reads the page, takes action, checks its work, and stops to ask when it isn\u2019t sure.',
     'how.eyebrow': 'How it works', 'how.title': 'Three steps,<br>one loop.',
     'how.s1': 'Say the goal', 'how.s1p': 'Describe the task in plain language in the side panel. Add instructions mid-way, correct it, or click “I\u2019ll do it” to take over.',
     'how.s2': 'Read the page', 'how.s2p': 'Reads structure and text only on sites you authorize, long pages in segments. Passwords and verification codes are masked by default.',
