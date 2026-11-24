@@ -5,7 +5,7 @@
 | 位置 | 内容 | 生命周期 |
 |---|---|---|
 | local `config` | API 地址、模型、密钥、语言、思考强度 | 本机保留，不同步 |
-| local `agentPreferences` | maxSteps / contextTokens / compressionThreshold / inputChars，默认 50 / 100000 / 80 / 2000 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
+| local `agentPreferences` | maxSteps / contextTokens / compressionThreshold / inputChars，默认 100 / 100000 / 80 / 2000 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
 | local `welcomeImage` | 侧栏主图 PNG data URL；null 或缺省为内置图 | 本机保留 |
 | local `sites`、`savedPages` | 已退役文章工具的站点与记录（origin+pathname+search） | 保留，无界面入口 |
 | session `taskRoot:<taskId>` | 任务主记录（version 3） | 浏览器会话 |

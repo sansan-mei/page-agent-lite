@@ -224,7 +224,7 @@
           const tabId=Number(name.slice(5)),s=old?.state;
           if(Number.isInteger(tabId)&&s?.goal&&!await this.get(tabId))await this.set(tabId,{
             version:2,taskId:crypto.randomUUID(),token:crypto.randomUUID(),tabId,origin:old.origin,goal:s.goal,
-            status:'paused',phase:'observe',steps:s.steps||0,prefs:{maxSteps:50},results:[],pending:null,retries:0,
+            status:'paused',phase:'observe',steps:s.steps||0,prefs:{maxSteps:100},results:[],pending:null,retries:0,
             events:[{time:Date.now(),text:'已迁移旧版目标，点击继续以读取当前页'}],updatedAt:Date.now()
           });
           await area.remove(name);

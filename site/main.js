@@ -77,7 +77,7 @@
   function resetDemo() {
     msgs.innerHTML = '';
     fields.forEach(f => { f.classList.remove('done', 'typing'); f.querySelector('.typed').textContent = ''; });
-    round.textContent = '0 / 50';
+    round.textContent = '0 / 100';
     if (hasGsap) gsap.set(box, { opacity: 0 });
   }
   function rectIn(el) {
@@ -97,7 +97,7 @@
     addMsg(`<small>${t('msg.agent')}</small>${t('msg.read')}`);
     ['name', 'email', 'city'].forEach((k, i) => addMsg(`ƒ <b>${i === 2 ? 'select' : 'fill'}</b> · ${fieldLabel(i)} · <span class="v">${t('msg.verified')}</span>`, 'tool'));
     addMsg(t('msg.pause'), 'notice');
-    round.textContent = '5 / 50';
+    round.textContent = '5 / 100';
     const r = rectIn(page.querySelector('.mock-submit'));
     pointer.style.left = r.x + r.w * .7 + 'px'; pointer.style.top = r.y + r.h * .6 + 'px';
   }
@@ -110,7 +110,7 @@
     const vals = [t('val.name'), t('val.email'), t('val.city')];
     const tl = gsap.timeline({ repeat: -1, repeatDelay: 2.2, onRepeat: resetDemo, delay: .6 });
     tl.set(pointer, { left: '62%', top: '78%' });
-    tl.call(() => { round.textContent = '1 / 50'; addMsg(`<small>${t('msg.agent')}</small>${t('msg.read')}`); }, null, '+=0.5');
+    tl.call(() => { round.textContent = '1 / 100'; addMsg(`<small>${t('msg.agent')}</small>${t('msg.read')}`); }, null, '+=0.5');
     fields.forEach((f, i) => {
       const r = rectIn(f);
       tl.to(pointer, { left: r.x + r.w * .55, top: r.y + r.h * .55, duration: .7, ease: 'power3.inOut' }, '+=0.45');
@@ -118,14 +118,14 @@
       tl.to(box, { opacity: 1, duration: .25 }, '<0.35');
       tl.to(pointer, { scale: .82, duration: .08, yoyo: true, repeat: 1 });
       typeInto(tl, f, vals[i]);
-      tl.call(() => { round.textContent = (i + 2) + ' / 50'; addMsg(`ƒ <b>${i === 2 ? 'select' : 'fill'}</b> · ${fieldLabel(i)} · <span class="v">${t('msg.verified')}</span>`, 'tool'); });
+      tl.call(() => { round.textContent = (i + 2) + ' / 100'; addMsg(`ƒ <b>${i === 2 ? 'select' : 'fill'}</b> · ${fieldLabel(i)} · <span class="v">${t('msg.verified')}</span>`, 'tool'); });
       tl.to(box, { opacity: 0, duration: .25 }, '+=0.25');
     });
     const s = rectIn(page.querySelector('.mock-submit'));
     tl.to(pointer, { left: s.x + s.w * .7, top: s.y + s.h * .6, duration: .7, ease: 'power3.inOut' }, '+=0.3');
     tl.set(box, { x: s.x - 4, y: s.y - 4, width: s.w + 8, height: s.h + 8 }, '<');
     tl.to(box, { opacity: 1, duration: .25, borderColor: '#c27a12' }, '<0.4');
-    tl.call(() => { round.textContent = '5 / 50'; addMsg(t('msg.pause'), 'notice'); }, null, '+=0.2');
+    tl.call(() => { round.textContent = '5 / 100'; addMsg(t('msg.pause'), 'notice'); }, null, '+=0.2');
     tl.to(box, { opacity: 0, borderColor: '#2563eb', duration: .3 }, '+=2.4');
     demo = tl;
   }

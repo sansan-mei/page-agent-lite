@@ -638,7 +638,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
 
   await poll(async()=>((await command('task:get')).value?.status)==='completed','automatic fill and navigation complete',20000);
   const finished=(await command('task:get')).value;
-  assert.equal(finished.taskId,started.value.taskId);assert.equal(finished.steps,3);assert.equal(finished.prefs.maxSteps,50);
+  assert.equal(finished.taskId,started.value.taskId);assert.equal(finished.steps,3);assert.equal(finished.prefs.maxSteps,100);
   assert.equal(page.url(),origin+'/task-two');assert.equal(finished.events.some(e=>e.text.startsWith('等待确认')),false);
   await panel.waitForTimeout(300);
   assert.match(await panel.locator('#progress').textContent(),/已完成/);

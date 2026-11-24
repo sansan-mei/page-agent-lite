@@ -19,7 +19,7 @@ window.PAGE_I18N = {
     'verify.eyebrow': 'Step-by-step verification', 'verify.title': 'No blind clicks.<br>Every step needs proof.',
     'verify.lede': 'The classic failure of AI browser agents: clicking the wrong thing, assuming success and burning tokens. Here every action carries a check, and uncertain clicks are never replayed.',
     'verify.r1': 'Fill “Email”', 'verify.r2': 'Click “Next page”', 'verify.r3': 'Wait for “Saved”', 'verify.r4': 'Click “Submit”, no feedback', 'verify.r4e': 'Unknown · not replayed', 'verify.r5': 'Pause and ask you', 'verify.r5e': 'Your call',
-    'verify.p1': '50-turn default budget', 'verify.p2': 'Stop anytime', 'verify.p3': 'Resume after takeover', 'verify.p4': 'Auto context compaction',
+    'verify.p1': '100-turn default budget', 'verify.p2': 'Stop anytime', 'verify.p3': 'Resume after takeover', 'verify.p4': 'Auto context compaction',
     'memory.eyebrow': 'Memory', 'memory.title': 'Correct it once.<br>It remembers.',
     'memory.lede': 'Three layers of memory, all stored in your browser. The model sees only an index each turn and reads notes on demand. View, edit and export them in settings.',
     'memory.l1': 'Temporary', 'memory.l1p': 'This tab · cleared when closed', 'memory.l2': 'Per site', 'memory.l2p': 'Per website · survives tabs and restarts', 'memory.l3': 'Global', 'memory.l3p': 'Preferences shared across sites',

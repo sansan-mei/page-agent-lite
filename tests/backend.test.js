@@ -78,7 +78,7 @@ test('legacy execution switches are ignored and removed when preferences are sav
 test('agent preferences are bounded, page-readable and writable only by options; agent uses configured model',async()=>{
  const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret',model:'chosen',language:'中文'};
  let body;const s=backend.createService(c,async(url,opts)=>{body=JSON.parse(opts.body);return new Response(JSON.stringify({choices:[{message:{content:'{"reply":"完成","action":"done"}'}}]}));});
- assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:50,contextTokens:100000,compressionThreshold:80,inputChars:2000});
+ assert.deepEqual(await s.handle({type:'agentPreferences'},page),{maxSteps:100,contextTokens:100000,compressionThreshold:80,inputChars:2000});
  await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps:2}},page));
  for(const maxSteps of [-1,1.5,Number.MAX_SAFE_INTEGER+1])await assert.rejects(()=>s.handle({type:'setAgentPreferences',preferences:{maxSteps}},options));
  for(const maxSteps of [0,100,500]){
