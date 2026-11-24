@@ -331,7 +331,7 @@ function agentExecute(p,snap,doc){
  if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature);
  // Visual feedback never gates or changes the actual operation.
  try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,doc);}catch{}
- if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover');return;}
+ if(p.action==='click'||p.action==='hover')return agentClick(n,doc,p.action==='hover');
  if(p.action==='check'){
   if(n.localName!=='input'||!['checkbox','radio'].includes(n.type))throw new Error('目标不是可勾选选项');
   if(n.type==='radio'&&!p.value)throw new Error('不能直接取消单选项');
@@ -445,7 +445,7 @@ function agentClick(n,doc,hover=false){
   return target.dispatchEvent(new EventClass(type,{bubbles,cancelable:true,clientX:x,clientY:y,button:0,buttons:type.endsWith('down')?1:0,pointerId:1,pointerType:'mouse',isPrimary:true}));
  };
  send('pointerover',true);send('pointerenter',true,false);send('mouseover');send('mouseenter',false,false);
- if(hover){send('pointermove',true);send('mousemove');return;}
+ if(hover){send('pointermove',true);send('mousemove');return {input:'hover',point:r&&doc.elementFromPoint?{x:Math.round(x),y:Math.round(y)}:undefined};}
  const pointer=send('pointerdown',true),mouse=pointer?send('mousedown'):false;
  if(mouse)n.focus?.({preventScroll:true});
  send('pointerup',true);if(pointer)send('mouseup');

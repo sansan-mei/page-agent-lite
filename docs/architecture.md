@@ -47,7 +47,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`debugger`。`debugger` 只用于 hover：短暂连接任务标签页发一次真实鼠标移动（见 [真实悬浮](browser-tools.md#真实悬浮)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。
