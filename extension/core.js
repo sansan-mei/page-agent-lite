@@ -327,11 +327,11 @@ function agentExecute(p,snap,doc){
  const win=doc.defaultView;
  if(agentHidden(n,win))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});
  if(p.action==='scroll')return agentScroll(p,n,doc,false);
- if(p.action==='wheel')return agentWheel(p,n,doc);
- if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature);
+ if(p.action==='wheel')return agentWheel(p,n,doc,snap);
+ if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature,snap);
  // Visual feedback never gates or changes the actual operation.
  try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,doc);}catch{}
- if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover');return;}
+ if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover',snap);return;}
  if(p.action==='check'){
   if(n.localName!=='input'||!['checkbox','radio'].includes(n.type))throw new Error('目标不是可勾选选项');
   if(n.type==='radio'&&!p.value)throw new Error('不能直接取消单选项');
@@ -385,12 +385,41 @@ function agentKey(value){
  if(!['Enter','Escape','Tab','Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown','Backspace','Delete',...'abcdefghijklmnopqrstuvwxyz'].includes(key)||modifiers.some(m=>!['Control','Alt','Shift','Meta'].includes(m))||new Set(modifiers).size!==modifiers.length)throw new Error('不支持的按键或组合键');
  return {key:key==='Space'?' ':key,ctrlKey:modifiers.includes('Control'),altKey:modifiers.includes('Alt'),shiftKey:modifiers.includes('Shift'),metaKey:modifiers.includes('Meta')};
 }
-function agentInput(p,n,doc,signature){
+// An overlay often covers only part of a control: probe several points of its visible box,
+// then once more after centring it. Never dispatch to a point the target does not own.
+const agentHitFractions=[[.5,.5],[.25,.5],[.75,.5],[.5,.25],[.5,.75],[.15,.2],[.85,.2],[.15,.8],[.85,.8]];
+function agentHitPoint(n,doc,snap,message){
  const win=doc.defaultView;
+ const probe=()=>{
+  const r=n.getBoundingClientRect(),left=Math.max(0,r.left),top=Math.max(0,r.top),right=Math.min(win.innerWidth,r.right),bottom=Math.min(win.innerHeight,r.bottom);
+  if(!(right>left&&bottom>top))return {};
+  let first=null;
+  for(const [fx,fy] of agentHitFractions){const x=left+(right-left)*fx,y=top+(bottom-top)*fy,hit=doc.elementFromPoint(x,y);if(hit&&n.contains(hit))return {x,y,hit};first??=hit;}
+  return {blocker:first};
+ };
  n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
- const r=n.getBoundingClientRect(),x=(Math.max(0,r.left)+Math.min(win.innerWidth,r.right))/2,y=(Math.max(0,r.top)+Math.min(win.innerHeight,r.bottom))/2;
- const hit=doc.elementFromPoint(x,y);
- if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ let found=probe();
+ if(!found.hit){n.scrollIntoView?.({block:'center',inline:'center',behavior:'instant'});found=probe();}
+ if(found.hit)return found;
+ throw Object.assign(new Error(message),{code:'TARGET_BLOCKED',beforeDispatch:true,observed:agentBlocker(found.blocker,n,snap)});
+}
+// Describe the covering layer only through data the snapshot already exposed, keyed by stable node keys.
+function agentBlocker(hit,n,snap){
+ if(!hit)return {blocker:null,layer:null,layerControls:[]};
+ const brief=n=>({tag:n.localName,role:n.getAttribute?.('role')||undefined});
+ if(hit.contains(n))return {blocker:brief(hit),layer:null,layerControls:[]};
+ let layer=hit;while(layer.parentElement&&!layer.parentElement.contains(n))layer=layer.parentElement;
+ const items=[...(snap?.page?.elements||[]),...(snap?.page?.regions||[])],byId=new Map(items.map(e=>[e.id,e])),byNode=new Map();
+ for(const [id,ref] of snap?.nodes||[])if(byId.has(id))byNode.set(ref.node,byId.get(id));
+ const pick=e=>({key:e.key,role:e.role,label:e.label});
+ let own=null;for(let p=hit;p&&!own;p=p.parentElement){if(byNode.has(p))own=pick(byNode.get(p));if(p===layer)break;}
+ const layerControls=(snap?.page?.elements||[]).filter(e=>!e.disabled&&layer.contains(snap.nodes.get(e.id)?.node)).slice(0,8).map(pick);
+ const region=byNode.get(layer);
+ return {blocker:own||brief(hit),layer:{key:agentNodeKey(layer),...brief(layer),label:region?.label||undefined},layerControls};
+}
+function agentInput(p,n,doc,signature,snap){
+ const win=doc.defaultView;
+ const {x,y,hit}=agentHitPoint(n,doc,snap,'目标被遮挡，请重新观察');
  const guard=()=>{
   if(!n.isConnected||!hit.isConnected||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled]')||!n.contains(doc.elementFromPoint(x,y)))throw Object.assign(new Error('输入期间目标变化，停止后续事件'),{code:'TARGET_CHANGED'});
   if(agentHidden(n,win))throw Object.assign(new Error('输入期间目标隐藏'),{code:'TARGET_CHANGED'});
@@ -405,7 +434,7 @@ function agentInput(p,n,doc,signature){
   return {input:'keyboard',key:opts.key};
  }
  if(p.action==='double_click'){
-  agentClick(n,doc);guard();agentClick(n,doc);guard();
+  agentClick(n,doc,false,snap);guard();agentClick(n,doc,false,snap);guard();
   hit.dispatchEvent(new win.MouseEvent('dblclick',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,detail:2}));
  }else{
   const opts={bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:2};
@@ -413,13 +442,10 @@ function agentInput(p,n,doc,signature){
  }
  return {input:p.action};
 }
-function agentWheel(p,n,doc){
+function agentWheel(p,n,doc,snap){
  const win=doc.defaultView;
  if(!win?.WheelEvent)throw Object.assign(new Error('浏览器不支持滚轮事件'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
- n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
- const r=n.getBoundingClientRect(),x=(Math.max(0,r.left)+Math.min(win.innerWidth,r.right))/2,y=(Math.max(0,r.top)+Math.min(win.innerHeight,r.bottom))/2;
- const hit=doc.elementFromPoint(x,y);
- if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡或不在可操作区域，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ const {x,y,hit}=agentHitPoint(n,doc,snap,'目标被遮挡或不在可操作区域，请重新观察');
  try{root.PageAgentPointer?.show(n,doc);}catch{}
  const horizontal=['left','right'].includes(p.value),amount=['up','left'].includes(p.value)?-600:600;
  const deltaX=horizontal?amount:0,deltaY=horizontal?0:amount;
@@ -427,18 +453,12 @@ function agentWheel(p,n,doc){
  // Synthetic wheel invokes page listeners, never claims native default scrolling.
  return {input:'wheel',deltaX,deltaY,defaultPrevented:!accepted};
 }
-function agentClick(n,doc,hover=false){
+function agentClick(n,doc,hover=false,snap){
  const win=doc.defaultView;
- n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
  const r=n.getBoundingClientRect?.();
  let target=n,x=0,y=0;
- if(r&&doc.elementFromPoint){
-  x=(Math.max(0,r.left)+Math.min(win.innerWidth,r.right))/2;
-  y=(Math.max(0,r.top)+Math.min(win.innerHeight,r.bottom))/2;
-  const hit=doc.elementFromPoint(x,y);
-  if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡或不在可点击区域，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
-  target=hit;
- }
+ if(r&&doc.elementFromPoint)({x,y,hit:target}=agentHitPoint(n,doc,snap,'目标被遮挡或不在可点击区域，请重新观察'));
+ else n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
  const send=(type,pointer=false,bubbles=true)=>{
   const EventClass=pointer?win.PointerEvent:win.MouseEvent;
   if(!EventClass)return true;

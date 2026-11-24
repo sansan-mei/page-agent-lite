@@ -162,6 +162,36 @@ test('occluded targets are rejected before click or pointer events are emitted',
  assert.equal(clicks,0);
 });
 
+test('partly covered targets are clicked at a visible point the target owns',()=>{
+ const {document,window}=parseHTML('<html><body><button>Save</button><div id="cover"></div></body></html>');
+ window.innerWidth=800;window.innerHeight=600;window.MouseEvent=window.Event;const n=document.querySelector('button');
+ n.getBoundingClientRect=()=>({left:0,right:100,top:0,bottom:40,width:100,height:40});
+ const points=[];document.elementFromPoint=(x,y)=>{points.push([x,y]);return x===50?document.getElementById('cover'):n;};
+ let clicks=0;n.addEventListener('click',()=>clicks++);
+ C.agentExecute({action:'click',id:C.agentSnapshot(document).page.elements[0].id},C.agentSnapshot(document),document);
+ assert.equal(clicks,1);assert.deepEqual(points[0],[50,20]);assert.ok(points.slice(1).every(([x])=>x!==50));
+});
+
+test('fully covered targets report the covering layer and its snapshot controls by stable key',()=>{
+ const {document,window}=parseHTML('<html><body><form><input aria-label="开始时间"><button id="save">保存至在线简历</button></form><div id="picker" role="dialog" aria-label="选择日期"><span id="face">2024</span><button>确定</button><button disabled>清空</button></div></body></html>');
+ window.innerWidth=800;window.innerHeight=600;window.MouseEvent=window.Event;
+ const save=document.getElementById('save'),face=document.getElementById('face');
+ save.getBoundingClientRect=()=>({left:0,right:120,top:0,bottom:30,width:120,height:30});
+ const points=[];document.elementFromPoint=(x,y)=>{points.push([x,y]);return face;};
+ let clicks=0;save.addEventListener('click',()=>clicks++);
+ const snap=C.agentSnapshot(document),target=snap.page.elements.find(e=>e.label==='保存至在线简历');
+ let thrown;assert.throws(()=>C.agentExecute({action:'click',id:target.id},snap,document),e=>(thrown=e).code==='TARGET_BLOCKED'&&e.beforeDispatch);
+ assert.equal(clicks,0);assert.equal(points.length,18);
+ const confirm=snap.page.elements.find(e=>e.label==='确定');
+ assert.deepEqual(thrown.observed.layerControls,[{key:confirm.key,role:'button',label:'确定'}]);
+ assert.equal(thrown.observed.layer.role,'dialog');assert.equal(thrown.observed.layer.label,'选择日期');
+ assert.deepEqual(thrown.observed.blocker,{key:thrown.observed.layer.key,role:'dialog',label:'选择日期'});
+ const result=require('../extension/tool-protocol.js').failure(thrown,{dispatch:'not_sent'});
+ assert.equal(result.code,'TARGET_BLOCKED');assert.equal(result.recovery,'relocate');assert.deepEqual(result.observed,thrown.observed);
+ // Keys survive re-observation, so the model can act on the reported control in the next snapshot.
+ assert.equal(C.agentSnapshot(document).page.elements.find(e=>e.label==='确定').key,confirm.key);
+});
+
 test('decision schema rejects malformed options and limits new model fields',()=>{
  const snap={nodes:new Map()};
  for(const choices of [[],['only'],['x','x'],['x',3],Array(9).fill('x')])assert.throws(()=>C.agentPlan(JSON.stringify({action:'pause',reply:'选择',choices}),snap));

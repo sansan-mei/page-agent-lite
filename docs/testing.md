@@ -31,6 +31,7 @@ git diff --check
 | `scripts/aria-select-smoke.cjs` | listbox 分组、同名选项、ARIA 状态核对 |
 | `scripts/editable-smoke.cjs` | 纯文本 contenteditable |
 | `scripts/hover-controls-smoke.cjs` | 可点击行内的悬浮操作（a、aria-haspopup）、visibility 覆盖与继承隐藏、真实点击 |
+| `scripts/overlay-smoke.cjs` | 部分遮挡改点可见点、完全遮挡回报遮挡层控件 key 且不派发、按 key 关闭浮层后重试、固定底栏居中后点击 |
 | `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针 |
 | `scripts/ui-preview.cjs` | 用合成数据生成 README 预览图，检查 320/390/480px 侧栏无横向溢出 |
 

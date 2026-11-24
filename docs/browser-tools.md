@@ -68,11 +68,12 @@ observe 的 value：
 
 `agent:execute` 携带 `{operationId, documentId, snapshotId, url, plan, expected}`。URL 和快照必须匹配，快照只能执行一次；内容脚本再次检查目标、字段类型和签名。
 
-- **点击**：初始命中不属于目标 → `TARGET_BLOCKED`、`dispatch=not_sent`。hover/down/focus/up 发出后目标被替换或遮挡 → `TARGET_CHANGED`、`dispatch=unknown`，不继续 click。命中目标内部无 click 方法的 SVG/path 时，向命中元素派发一次冒泡 MouseEvent。
+- **命中检查**（click/hover/wheel/press_key/double_click/right_click）：在目标可见框内依次探测中心和 8 个偏移点，取第一个属于目标的点派发；全部被挡则滚到视野中央再探测一次。仍被挡 → `TARGET_BLOCKED`、`dispatch=not_sent`，`observed` 含 `blocker`（遮挡元素）、`layer`（遮挡层：与目标不共祖先的最高节点）和 `layerControls`（层内最多 8 个未禁用的快照控件），均用跨快照稳定的 `key` 和快照已有的 role/label，不读取额外页面文本。
+- **点击**：hover/down/focus/up 发出后目标被替换或遮挡 → `TARGET_CHANGED`、`dispatch=unknown`，不继续 click。命中目标内部无 click 方法的 SVG/path 时，向命中元素派发一次冒泡 MouseEvent。
 - **fill**：原型 value setter（绕过实例 value 跟踪器，不注入主世界）。先用脱离文档的同类型 input 检查浏览器值清洗，不能原样保留则 `INVALID_FIELD_VALUE`、not_sent。聚焦后重核签名，派发可取消 beforeinput（`insertReplacementText`）；被取消 → `INPUT_CANCELLED`、dispatch=unknown，不再写值。之后 setter + input/change。事件处理中节点被替换/隐藏/禁用 → `TARGET_CHANGED`。
 - **contenteditable**：仅 `contenteditable` 为 true/空/plaintext-only，且只含文本节点和无属性 `<br>`。写入 textContent（≤ 4000 字符），不解析 HTML、不用 execCommand。其他结构 → `UNSUPPORTED_EDITABLE`、not_sent，不改节点。
 - **ARIA 选择控件**：先 click 打开，再按新快照选项点击。选项按 listbox 分组，名称取自身标签或唯一可见 combobox（aria-controls/aria-owns）；多个 owner 不任选。
-- **press_key / double_click / right_click**：先检查遮挡并聚焦，事件间目标、焦点或遮挡变化即中断；双击中断时第一次点击可能已生效。
+- **press_key / double_click / right_click**：先做命中检查并聚焦，事件间目标、焦点或遮挡变化即中断；双击中断时第一次点击可能已生效。
 
 ## 导航
 

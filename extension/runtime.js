@@ -596,7 +596,7 @@
         if(!await live())return;
         if (['STALE','TARGET_BLOCKED'].includes(error.code)) {
           if((task.recoveryCount||0)>=2){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}
-          await update(tabId,token,t=>{t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.check=null;event(t,'目标已变化，重新读取后规划');});
+          await update(tabId,token,t=>{t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.check=null;event(t,error.code==='TARGET_BLOCKED'?'目标被遮挡，重新读取后先处理遮挡层':'目标已变化，重新读取后规划');});
         } else if (['NAVIGATION','PAGE_BUSY'].includes(error.code)) {
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面连接或忙碌等待超时，未重复操作','timeout');return;}

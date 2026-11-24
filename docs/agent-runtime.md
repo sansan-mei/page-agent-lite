@@ -52,7 +52,7 @@
 | 网络错误、25 秒超时、429/5xx | 最多额外重试 2 次，每次计轮数 |
 | 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |
-| 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划 |
+| 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划；模型按回执中的遮挡层 `key` 先关闭或完成遮挡层 |
 | 点击核对到期仍 unknown | 最多两次回到 observe（`recovery=replan`），结果仍记 unknown；同一文档不重发该点击 |
 | 页面加载/忙碌 | 最多等 30 秒或沿用更早 deadline；地址一致、无 pendingUrl、readyState 为 interactive/complete 即可只读核对 |
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停 |
