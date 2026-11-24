@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="extension/icons/logo.svg" width="80" height="80" alt="Page Agent Lite logo">
+  <img src="extension/icons/logo.webp" width="80" height="80" alt="Page Agent Lite logo">
   <h1>Page Agent Lite</h1>
   <p><strong>一句话，让网页开始行动。</strong></p>
   <p>AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事物</p>
@@ -71,6 +71,6 @@
 
 ## 许可与参考
 
-代码采用 [MIT License](LICENSE)。侧栏默认插画单独采用 CC BY-NC-SA 4.0（署名、非商业、相同方式共享），不属于 MIT 授权，见 [素材说明](extension/licenses/README.md)。
+代码与内置图片素材（图标、侧栏默认插画）均采用 [MIT License](LICENSE)。
 
 运行器与上下文设计参考了 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开文档，网页执行能力参考了 [alibaba/page-agent](https://github.com/alibaba/page-agent)；本项目不依赖它们的运行时。

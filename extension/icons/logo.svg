@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">Page Agent logo</title>
-  <desc id="desc">A white geometric P merging into a pointer on a blue rounded square.</desc>
-  <rect x="16" y="16" width="480" height="480" rx="116" fill="#2563EB"/>
-  <path fill="#FFFFFF" fill-rule="evenodd" d="M152 374V138a14 14 0 0 1 14-14h103c67 0 107 35 107 92 0 48-28 80-76 90l41 57-42 30-65-94h-18v75a10 10 0 0 1-10 10h-44a10 10 0 0 1-10-10Zm64-190v57h51c29 0 44-9 44-28s-15-29-44-29h-51Z"/>
-</svg>
