@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const image = $('welcome-image-preview') || document.querySelector('.welcome-art');
   if (!image) return;
-  const fallback = 'icons/welcome-assistant.png';
+  const fallback = 'icons/welcome-assistant.webp';
   const storage = chrome.storage.local;
   const file = $('welcome-image-file'), reset = $('welcome-image-reset'), status = $('welcome-image-status');
   const limit = 2 * 1024 * 1024;
