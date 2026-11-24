@@ -12,7 +12,17 @@ function build(out=path.join(root,'dist','extension-dev')){
   fs.cpSync(path.join(root,'extension'),out,{recursive:true});
   for(const file of ['dev-tools.js','background-dev.js'])fs.copyFileSync(path.join(root,'dev',file),path.join(out,file));
   const manifestPath=path.join(out,'manifest.json'),manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
-  manifest.name=manifest.name+' (Dev)';
+  const localized=/^__MSG_(\w+)__$/.exec(manifest.name);
+  if(localized){
+    // Localized name: suffix the referenced message in every locale so each UI language shows "(Dev)".
+    const locales=path.join(out,'_locales');
+    for(const locale of fs.readdirSync(locales)){
+      const file=path.join(locales,locale,'messages.json'),messages=JSON.parse(fs.readFileSync(file,'utf8'));
+      const entry=Object.entries(messages).find(([key])=>key.toLowerCase()===localized[1].toLowerCase());
+      if(!entry)throw new Error(`${locale} 缺少 ${localized[1]}`);
+      entry[1].message+=' (Dev)';fs.writeFileSync(file,JSON.stringify(messages,null,2)+'\n');
+    }
+  }else manifest.name=manifest.name+' (Dev)';
   manifest.permissions=[...new Set([...(manifest.permissions||[]),'userScripts'])];
   manifest.background={...manifest.background,service_worker:'background-dev.js'};
   fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2)+'\n');
