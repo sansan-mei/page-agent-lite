@@ -19,7 +19,7 @@
 
 ## 浏览器对话
 
-内部页以 `origin=browser` 和空 `allowedOrigins` 新建任务，不读取 DOM 或网站记忆，只允许回答、提问和提出 HTTP/HTTPS 导航。目标站点未授权时暂停为 `browser_target`，侧栏用现有范围修改流程授权后继续。导航仍先写 executing 和 URL 核对检查点，按原 deadline 核对，不重发。进入网站后沿用任务身份与预算，并走跨来源隔离。浏览器对话的回答保留为结果，后续发送沿用对话。
+内部页以 `origin=browser` 和空 `allowedOrigins` 新建任务，不读取 DOM 或网站记忆，只允许回答、提问和提出 HTTP/HTTPS 导航。已有浏览器主机权限时直接导航；缺少时暂停为 `browser_target`，明确说明尚未打开、任务未完成，侧栏授权后继续。导航仍先写 executing 和 URL 核对检查点，按原 deadline 核对，不重发。进入网站后沿用任务身份与预算，并走跨来源隔离。浏览器对话的回答保留为结果，后续发送沿用对话。
 
 ## 一次 tick
 
@@ -87,7 +87,7 @@
 
 ## 跨来源切换
 
-每次 turn 先读浏览器 URL。来源变化时 `adoptOrigin` 校验任务授权和主机权限：
+每次 turn 先读浏览器 URL。来源变化时 `adoptOrigin` 校验主机权限；通过核对后自动记录目标来源，不要求预先加入任务：
 
 - 原操作只有 URL 条件且实际 URL 满足：只读核对后切换。无条件的 executing、旧 DOM 条件或未预期重定向：暂停并保留 check/deadline/dispatch，不在新站点评估旧字段。
 - URL 变化或主文档开始加载触发 `navigationChanged`：取消旧模型/摘要请求并轮换 token。

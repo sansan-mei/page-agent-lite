@@ -52,7 +52,7 @@ test('trusted navigation enforces origin, permission and a consumed snapshot, ne
  const tools=createBrowserTools(chrome),pending={url:current,documentId:'doc',snapshotId:'s',plan:{action:'navigate',value:'https://example.test/next'}};
  let r=await tools.execute(1,pending);assert.equal(r.dispatch,'sent');assert.equal(r.navigation,true);assert.equal(prepared,1);
  fail=true;r=await tools.execute(1,pending);assert.equal(r.dispatch,'unknown');assert.equal(updates,2);
- for(const value of ['https://other.test/next','javascript:alert(1)','https://user:pass@example.test/next'])await assert.rejects(()=>tools.execute(1,{...pending,plan:{action:'navigate',value}}),e=>e.code==='NAVIGATION_DENIED');
+ for(const value of ['javascript:alert(1)','https://user:pass@example.test/next'])await assert.rejects(()=>tools.execute(1,{...pending,plan:{action:'navigate',value}}),e=>e.code==='NAVIGATION_DENIED');
  granted=false;await assert.rejects(()=>tools.execute(1,pending),e=>e.code==='PERMISSION_DENIED');granted=true;
  current='https://example.test/changed';await assert.rejects(()=>tools.execute(1,pending),e=>e.code==='STALE');assert.equal(updates,2);
 });
@@ -82,7 +82,7 @@ test('browser metadata permits internal tabs but navigation still requires exact
  const chrome={permissions:{async contains(){return granted;}},tabs:{async get(){return {url,status:'complete'};},async sendMessage(){messages++;throw Error('no internal injection');},async update(id,value){updates++;url=value.url;}}};
  const tools=createBrowserTools(chrome),pending={url,plan:{action:'navigate',value:'https://example.test/'}};
  assert.equal((await tools.tab(1,true)).url,url);await assert.rejects(()=>tools.tab(1),e=>e.code==='UNSUPPORTED_PAGE');
- await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:[]}),e=>e.code==='NAVIGATION_DENIED');
+ await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:[]}),e=>e.code==='PERMISSION_DENIED');
  await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']}),e=>e.code==='PERMISSION_DENIED');
  granted=true;const outcome=await tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']});assert.equal(outcome.dispatch,'sent');assert.equal(updates,1);assert.equal(messages,0);
  await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']}),e=>e.code==='STALE');assert.equal(updates,1);

@@ -48,7 +48,7 @@
     }
     async function navigate(tabId,pending,policy,live){
       const destination=new URL(pending.plan.value),source=new URL(pending.url);
-      if(!['http:','https:'].includes(destination.protocol)||!(policy?.allowedOrigins||[source.origin]).includes(destination.origin)||destination.username||destination.password)throw Object.assign(new Error('导航超出当前任务站点或 URL 不安全'),{code:'NAVIGATION_DENIED'});
+      if(!['http:','https:'].includes(destination.protocol)||destination.username||destination.password)throw Object.assign(new Error('导航超出当前任务站点或 URL 不安全'),{code:'NAVIGATION_DENIED'});
       if(!await hasOriginAccess(destination.origin))throw Object.assign(new Error('目标网站权限尚未授权'),{code:'PERMISSION_DENIED'});
       const browserStart=policy?.origin==='browser'&&!['http:','https:'].includes(source.protocol);
       if(!browserStart&&!await chrome.permissions.contains({origins:[source.origin+'/*']}))throw Object.assign(new Error('当前网站权限已撤销'),{code:'PERMISSION_DENIED'});

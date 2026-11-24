@@ -76,10 +76,10 @@ observe 的 value：
 
 ## 导航
 
-内部页启动的浏览器对话只读取标签 URL 元数据；导航来源由可信后台标记为 `browser`，跳过 DOM 快照消费和内部页主机授权，但仍校验目标任务范围、目标主机权限、来源 URL 和运行代次。
+内部页启动的浏览器对话只读取标签 URL 元数据；导航来源由可信后台标记为 `browser`，跳过 DOM 快照消费和内部页主机授权，但仍校验目标主机权限、来源 URL 和运行代次。
 
 1. 运行器把 navigate 记入检查点并绑定 `url_equals`（规范化目标 URL）。
-2. `browser-tools` 校验：目标在任务 `allowedOrigins` 内、源/目标有主机权限、当前标签 URL 未变；拒绝凭据、内部协议、相对 URL。
+2. `browser-tools` 校验：源/目标有主机权限、当前标签 URL 未变；拒绝凭据、内部协议、相对 URL。不要求目标预先加入任务。
 3. `agent:prepare-navigation` 让内容脚本核对并消费快照（不改网页）；内容脚本本身拒绝执行 navigate。
 4. 后台调用一次 `tabs.update`：成功 → `NAVIGATION_DISPATCHED`、sent、status=unknown；回执失败 → `NAVIGATION_UNKNOWN`，只读等待 URL，不补发。
 

@@ -51,12 +51,12 @@ test('worker restart never replays ambiguous operations; thinking recovers with 
 });
 
 test('navigation invalidates legacy approval and cross-origin destination pauses task',async()=>{
- let url='https://example.test/1';const f=fixture({tools:{async tab(){return {url,status:'complete'};}}});
+ let url='https://example.test/1';const f=fixture({tools:{async tab(){return {url,status:'complete'};},async hasOriginAccess(origin){return origin==='https://example.test';}}});
  const t=await f.runtime.start(1,'Work');const old=await f.runtime.get(1);
  old.status='waiting_confirmation';old.phase='confirm';old.pending={url,plan:{action:'click',id:'old'}};await f.store.set(1,old);
  url='https://example.test/2';await f.runtime.approve(1,t.taskId);await f.runtime.tick(1);
  assert.equal(f.executed.length,0);assert.equal((await f.runtime.get(1)).phase,'observe');
- url='https://other.test/';await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).reason,'origin');
+ url='https://other.test/';await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).reason,'permission_denied');
  await assert.rejects(()=>f.runtime.resume(1),/原站点/);
 });
 
@@ -477,7 +477,7 @@ test('pure delay respects origin boundary even after its deadline',async()=>{
  let clock=0,url='https://example.test/1';
  const f=fixture({now:()=>clock,tools:{async tab(){return {url,status:'complete'};}},model:async()=>({text:JSON.stringify({reply:'等待',action:'wait',timeoutMs:1000})})});
  await f.runtime.start(1,'等待');await f.runtime.tick(1);url='https://other.test/';clock=2000;
- await createRuntime(f.deps).tick(1);assert.equal((await f.runtime.get(1)).reason,'origin');assert.equal(f.executed.length,0);
+ await createRuntime(f.deps).tick(1);assert.equal((await f.runtime.get(1)).reason,'origin_verification');assert.equal(f.executed.length,0);
 });
 
 test('delay requires a bounded duration and verify still requires conditions',()=>{
@@ -858,8 +858,8 @@ test('authorized A to B to A navigation keeps one task and budget while each ori
  const aHistory=await f.store.historyGet(1,'https://a.test',t.taskId),bHistory=await f.store.historyGet(1,'https://b.test',t.taskId);assert.ok(JSON.stringify(aHistory).includes('A_BODY_SECRET'));assert.equal(JSON.stringify(aHistory).includes('B_BODY_SECRET'),false);assert.ok(JSON.stringify(bHistory).includes('B_BODY_SECRET'));assert.equal(JSON.stringify(bHistory).includes('A_BODY_SECRET'),false);
 });
 
-test('browser-wide host permission alone never authorizes cross-origin navigation or destination reads',async()=>{
- const f=crossFixture();await f.runtime.start(1,'No implicit grants');await f.runtime.tick(1);assert.equal(f.dispatches.length,0);assert.equal((await f.store.get(1)).lastOutcome.code,'NAVIGATION_DENIED');assert.deepEqual((await f.store.get(1)).allowedOrigins,['https://a.test']);
+test('browser host permission permits navigation without separate task grants',async()=>{
+ const f=crossFixture();await f.runtime.start(1,'Navigate autonomously');await f.runtime.tick(1);assert.equal(f.dispatches.length,1);await f.runtime.tick(1);assert.equal((await f.store.get(1)).origin,'https://b.test');assert.ok((await f.store.get(1)).allowedOrigins.includes('https://b.test'));
  const denied=crossFixture({hasOriginAccess:origin=>origin==='https://a.test'});await denied.runtime.start(1,'No grant');const t=await denied.store.get(1);await assert.rejects(()=>denied.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'}),/授权/);denied.state.url='https://b.test/next';await denied.runtime.tick(1);assert.equal(denied.reads.length,0);assert.equal((await denied.store.get(1)).status,'paused');
 });
 
@@ -910,11 +910,12 @@ test('browser conversation runs without DOM/site permission and keeps answer con
  await f.runtime.submit(1,'Follow up');assert.equal((await f.runtime.get(1)).taskId,first.taskId);await f.runtime.tick(1);assert.equal(calls,2);assert.equal(f.executed.length,0);
 });
 
-test('browser navigation asks for exact origin authorization then enters normal page execution',async()=>{
- const f=crossFixture({model:async data=>({text:JSON.stringify(data.page.browser?{action:'navigate',value:'https://b.test/next',reply:'Open requested site'}:{action:'done',reply:'Opened'})})});
+test('browser navigation requests only missing host permission then enters normal execution',async()=>{
+ let granted=false;
+ const f=crossFixture({hasOriginAccess:origin=>origin==='https://b.test'?granted:true,model:async data=>({text:JSON.stringify(data.page.browser?{action:'navigate',value:'https://b.test/next',reply:'Open requested site'}:{action:'done',reply:'Opened'})})});
  f.state.url='chrome://newtab/';await f.runtime.start(1,'Open site');await f.runtime.tick(1);
  let t=await f.store.get(1);assert.equal(t.reason,'browser_target');assert.equal(t.browserTarget,'https://b.test/next');assert.deepEqual(t.allowedOrigins,[]);assert.equal(f.dispatches.length,0);assert.equal(f.reads.length,0);
- await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);await f.runtime.tick(1);
+ granted=true;await f.runtime.resume(1);await f.runtime.tick(1);
  t=await f.store.get(1);assert.equal(t.check.expected[0].value,'https://b.test/next');assert.equal(f.dispatches.length,1);
  await createRuntime(f.deps).tick(1);t=await f.store.get(1);assert.equal(t.origin,'https://b.test');assert.equal(f.dispatches.length,1);await f.runtime.tick(1);assert.equal((await f.store.get(1)).status,'completed');assert.deepEqual(f.reads,['https://b.test/next']);
 });
@@ -922,4 +923,11 @@ test('browser navigation asks for exact origin authorization then enters normal 
 test('stopping browser planning drops late model navigation',async()=>{
  let resolve,signal;const f=fixture({tools:{async tab(){return {url:'edge://settings/',status:'complete'};}},model:async(text,s)=>{signal=s;return new Promise(r=>resolve=r);}});
  await f.runtime.start(1,'Open site');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));await f.runtime.stop(1);assert.equal(signal.aborted,true);resolve({text:JSON.stringify({action:'navigate',value:'https://example.test/',reply:'Open'})});await job;assert.equal((await f.runtime.get(1)).status,'stopped');assert.equal(f.executed.length,0);
+});
+
+test('internal tab navigates immediately with existing browser permission',async()=>{
+ const f=crossFixture({model:async()=>({text:JSON.stringify({action:'navigate',value:'https://b.test/next',reply:'Open site'})})});
+ f.state.url='chrome://newtab/';await f.runtime.start(1,'Open site');await f.runtime.tick(1);
+ assert.equal(f.dispatches.length,1);assert.notEqual((await f.store.get(1)).reason,'browser_target');
+ await f.runtime.tick(1);assert.equal((await f.store.get(1)).origin,'https://b.test');assert.equal(f.dispatches.length,1);
 });

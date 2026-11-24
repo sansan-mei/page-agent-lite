@@ -49,7 +49,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 - 安装时权限：`activeTab`、`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
-- 执行网页动作需同时满足：浏览器主机权限 + 当前来源在任务 `allowedOrigins` 中。模型不能修改任务范围。
+- 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。
 - 动作必须在 `agentToolRegistry` 中（冻结对象，运行时不可注册）；内容执行器拒绝 runtime/browser 路由的动作。
 

@@ -158,7 +158,6 @@
     }
     async function adoptOrigin(task,tab){
       const origin=new URL(tab.url).origin;
-      if(!(task.allowedOrigins||[task.origin]).includes(origin)){await scopePause(task,'origin','目标站点未加入任务范围，任务暂停；回到原站点或授权目标站点后继续。');return null;}
       if(tools.hasOriginAccess&&!await tools.hasOriginAccess(origin)){await scopePause(task,'permission_denied','目标网站缺少浏览器权限，任务暂停；未读取目标网页。');return null;}
       let proof=null;
       if(task.check||task.phase==='executing'){
@@ -572,12 +571,10 @@
         for(const c of G.automatic(plan))if(!combined.some(e=>e.kind===c.kind&&e.id===c.id&&e.value===c.value))combined.push(c);
         if(plan.action==='navigate'){
           const destination=new URL(plan.value).origin;
-          if(task.origin==='browser'&&!task.allowedOrigins?.includes(destination)){await update(tabId,token,t=>{t.status='paused';t.reason='browser_target';t.phase='observe';t.browserTarget=plan.value;event(t,plan.reply);});return;}
-          if(!(task.allowedOrigins||[task.origin]).includes(destination))throw Object.assign(new Error('导航目标未加入任务授权范围'),{code:'NAVIGATION_DENIED'});
-          if(tools.hasOriginAccess&&!await tools.hasOriginAccess(destination))throw Object.assign(new Error('导航目标缺少网站权限'),{code:'PERMISSION_DENIED'});
+          if(tools.hasOriginAccess&&!await tools.hasOriginAccess(destination)){await update(tabId,token,t=>{t.status='paused';t.reason='browser_target';t.phase='observe';t.browserTarget=plan.value;event(t,'任务未完成：尚未打开目标网站，缺少浏览器网站权限，请授权后继续。');});return;}
           if(destination!==task.origin&&combined.some(condition=>!condition.kind.startsWith('url_')))throw Object.assign(new Error('跨站导航只支持 URL 条件核对，不能使用旧站点 DOM 条件'),{code:'NAVIGATION_DENIED'});
         }
-        const expected=G.bind(combined,snap,plan.action==='navigate'?{allowedOrigins:task.allowedOrigins||[task.origin]}:null);
+        const expected=G.bind(combined,snap,plan.action==='navigate'?{allowedOrigins:[...(task.allowedOrigins||[task.origin]),new URL(plan.value).origin]}:null);
         for(const guard of C.agentTool(plan.action).guard?(task.uncertainClicks||[]):[]){
           const sameTarget=target&&(guard.key?guard.key===target.key:JSON.stringify(guard.target)===JSON.stringify(G.descriptor(target,snap.page)));
           if(guard.url===snap.url&&guard.documentId===snap.documentId&&sameTarget){
