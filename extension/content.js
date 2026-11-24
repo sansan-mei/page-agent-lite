@@ -28,8 +28,10 @@
     }
     return last===before?'NO_CHANGE':'PAGE_CHANGED';
   }
+  // The developer build swaps the service worker entry, so trust whichever worker the manifest declares.
+  const worker=chrome.runtime.getURL(chrome.runtime.getManifest?.().background?.service_worker||'background.js');
   chrome.runtime.onMessage.addListener((message,sender,respond)=>{
-    if(sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('background.js')){
+    if(sender.id!==chrome.runtime.id||sender.url!==worker){
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}

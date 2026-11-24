@@ -128,3 +128,19 @@ test('browser-tools routes run_script to dev tools only when they are loaded',as
     assert.equal(sent.type,'agent:execute');
   }finally{fs.rmSync(out,{recursive:true,force:true});}
 });
+
+test('dev build content script answers its own service worker (background-dev.js)',async()=>{
+  const out=fs.mkdtempSync(path.join(os.tmpdir(),'pal-dev-'));
+  try{
+    build(out);
+    const manifest=JSON.parse(fs.readFileSync(path.join(out,'manifest.json'),'utf8'));
+    const {parseHTML}=require('linkedom');const {document}=parseHTML('<html><body><p>Hello</p><input type="text"></body></html>');
+    let listener;const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,getManifest:()=>manifest,onMessage:{addListener(fn){listener=fn;}},async sendMessage(){}}};
+    const ctx=load(['tool-protocol.js','conditions.js','core.js'],out);
+    vm.runInNewContext(fs.readFileSync(path.join(out,'content.js'),'utf8'),{PageAgentCore:ctx.PageAgentCore,PageAgentConditions:ctx.PageAgentConditions,PageAgentProtocol:ctx.PageAgentProtocol,chrome,document,location:{href:'https://example.test/'},crypto,setTimeout});
+    // An ignored message never calls respond; fail fast instead of hanging the suite.
+    const r=await Promise.race([new Promise(resolve=>listener({type:'agent:observe'},{id:'test',url:'chrome-extension://test/background-dev.js'},resolve)),new Promise(resolve=>setTimeout(()=>resolve({ok:false,ignored:true}),2000))]);
+    assert.equal(r.ok,true);assert.ok(r.value.snapshotId);
+    assert.equal(listener({type:'agent:observe'},{id:'test',url:'https://example.test/',tab:{id:1}},()=>{}),undefined);
+  }finally{fs.rmSync(out,{recursive:true,force:true});}
+});
