@@ -91,6 +91,18 @@ test('pointer controls expose the control boundary once and preserve native butt
  C.agentExecute({action:'click',id:'t0'},snap,document);assert.equal(clicks,1);
 });
 
+test('pointer rows keep nested actions with their own interaction signal and honor visibility overrides',()=>{
+ const {document,window}=parseHTML('<html><body><div id="row">期望职位<a id="add">添加</a><span id="more" aria-haspopup="menu">更多</span><span id="icon">图标</span></div><div id="ops"><button id="edit">编辑</button><button id="gone">删除</button></div></body></html>');
+ const pointerIds=['row','add','more','icon'];
+ window.getComputedStyle=n=>({cursor:pointerIds.includes(n.id)?'pointer':'auto',visibility:['ops','gone'].includes(n.id)?'hidden':'visible'});
+ const snap=C.agentSnapshot(document);
+ assert.deepEqual([...snap.nodes.values()].map(v=>v.node.id).sort(),['add','edit','more','row']);
+ assert.equal(snap.page.coverage.absenceComplete,false);
+ const edit=[...snap.nodes].find(([,v])=>v.node.id==='edit')[0];
+ window.getComputedStyle=n=>({cursor:'auto',visibility:['ops','gone','edit'].includes(n.id)?'hidden':'visible'});
+ assert.throws(()=>C.agentExecute({action:'click',id:edit},snap,document),/已隐藏/);
+});
+
 test('custom control extraction keeps the bounded list and reports truncation',()=>{
  const {document}=parseHTML('<html><body>'+Array.from({length:121},(_,i)=>`<span tabindex="0" title="操作${i}">${i}</span>`).join('')+'</body></html>');
  const snap=C.agentSnapshot(document);

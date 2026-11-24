@@ -130,9 +130,16 @@ function agentEditable(n){
  const parts=[...n.childNodes],supported=parts.every(c=>c.nodeType===3||c.nodeType===1&&c.localName==='br'&&!c.attributes.length);
  return {supported,value:supported?parts.map(c=>c.nodeType===3?c.textContent:'\n').join(''):undefined};
 }
+// visibility is inherited and a descendant may set it back to visible; display:none hides the whole subtree.
+function agentHidden(n,win){
+ const own=win?.getComputedStyle?.(n);
+ if(own&&(own.visibility==='hidden'||own.visibility==='collapse'))return true;
+ for(let p=n;p;p=p.parentElement){const s=p===n?own:win?.getComputedStyle?.(p);if(s?.display==='none')return true;}
+ return false;
+}
 function agentPopup(n){
  const popup=n.closest('[role="listbox"]');if(!popup)return null;
- const owners=popup.id?[...n.ownerDocument.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')].filter(c=>{if(c.closest('[hidden],[aria-hidden="true"],[data-page-agent],input[type="password"],input[type="hidden"]'))return false;for(let p=c;p;p=p.parentElement){const style=n.ownerDocument.defaultView?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;}).filter(c=>[c.getAttribute('aria-controls'),c.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/).includes(popup.id)):[];
+ const owners=popup.id?[...n.ownerDocument.querySelectorAll('[role="combobox"][aria-controls],[role="combobox"][aria-owns]')].filter(c=>{if(c.closest('[hidden],[aria-hidden="true"],[data-page-agent],input[type="password"],input[type="hidden"]'))return false;return !agentHidden(c,n.ownerDocument.defaultView);}).filter(c=>[c.getAttribute('aria-controls'),c.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/).includes(popup.id)):[];
  const owner=owners.length===1?owners[0]:null;
  const label=owner?(owner.getAttribute('aria-label')||owner.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(n.ownerDocument.getElementById(id))).join(' ')||owner.getAttribute('title')||owner.getAttribute('placeholder')||owner.getAttribute('name')||'').trim().slice(0,180):'';
  return {popup,label,signature:[label,agentNodeKey(popup),popup.id,popup.getAttribute('aria-label'),popup.getAttribute('aria-labelledby'),owners.map(c=>[agentNodeKey(c),c.getAttribute('aria-label'),c.getAttribute('aria-controls'),c.getAttribute('aria-owns')])]};
@@ -140,7 +147,7 @@ function agentPopup(n){
 function agentContext(n){
  const doc=n.ownerDocument,win=doc.defaultView;
  const blocked=agentSensitiveSelector+',[hidden],[aria-hidden="true"],[data-page-agent],script,style,noscript,input,textarea,select,[contenteditable]';
- const readable=e=>{if(!e||e.closest(blocked)||e.closest('dialog:not([open])'))return false;for(let p=e;p;p=p.parentElement){const style=win?.getComputedStyle?.(p);if(style&&(style.display==='none'||style.visibility==='hidden'))return false;}return true;};
+ const readable=e=>{if(!e||e.closest(blocked)||e.closest('dialog:not([open])'))return false;return !agentHidden(e,win);};
  const text=e=>{
   let value='',visited=0;
   const read=node=>{if(++visited>300||value.length>=160)return;if(node.nodeType===3){value+=node.textContent;return;}if(node.nodeType!==1||!readable(node))return;for(const child of node.childNodes)read(child);};
@@ -168,7 +175,7 @@ function agentSnapshot(doc, textOffset=0, policy={}){
  if(!Number.isSafeInteger(textOffset)||textOffset<0)throw new Error("Invalid text offset");
  const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let semanticBudget=4000;let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
  const blocked=sensitiveSelector+',[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"]';
- const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;const win=doc.defaultView;for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))return false;}return true;};
+ const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;return !agentHidden(n,doc.defaultView);};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
  const inDialog=n=>!!n.closest(dialogSelector);
  const geometry=new Map(),scrollables=new Set();
@@ -187,11 +194,13 @@ function agentSnapshot(doc, textOffset=0, policy={}){
  const explicit=n=>n.matches(controls)&&(n.getAttribute('tabindex')===null||Number(n.getAttribute('tabindex'))>=0||n.matches(controls.replace(',[tabindex]','')));
  const cursors=new Map();
  const pointer=n=>{if(!n)return false;if(!cursors.has(n))cursors.set(n,doc.defaultView?.getComputedStyle?.(n)?.cursor);return cursors.get(n)==='pointer';};
+ // Inside a clickable row, keep children that carry their own interaction signal (e.g. hover-revealed actions).
+ const distinct=n=>n.matches('a,label,summary,[aria-haspopup]:not([aria-haspopup="false"]),[aria-expanded],[aria-pressed],[data-testid]');
  for(const n of prioritize(doc.querySelectorAll('*'))){
   const direct=explicit(n)||scrollables.has(n);
   if(!direct){
    // A pointer cursor is inherited: expose its boundary, not every icon/count child.
-   if(!pointer(n)||n===doc.body||n===doc.documentElement||pointer(n.parentElement)||n.closest(controls)||n.querySelector(controls))continue;
+   if(!pointer(n)||n===doc.body||n===doc.documentElement||pointer(n.parentElement)&&!distinct(n)||n.closest(controls)||n.querySelector(controls))continue;
   }
   if(!visible(n)){if(!n.closest(blocked))cssHiddenExcluded=true;continue;}
   const id='t'+elements.length,editable=agentEditable(n);
@@ -316,7 +325,7 @@ function agentExecute(p,snap,doc){
  if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))throw Object.assign(new Error('目标已变为敏感字段，未执行'),{code:'STALE',beforeDispatch:true});
  if(!n?.isConnected||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
  const win=doc.defaultView;
- for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});}
+ if(agentHidden(n,win))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});
  if(p.action==='scroll')return agentScroll(p,n,doc,false);
  if(p.action==='wheel')return agentWheel(p,n,doc);
  if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature);
@@ -343,7 +352,7 @@ function agentExecute(p,snap,doc){
  const inputType=n.type;
  const intact=()=>{
   if(!n.isConnected||n.disabled||n.readOnly||n.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector)||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
-  for(let parent=n;parent;parent=parent.parentElement){const style=win.getComputedStyle?.(parent);if(style&&(style.display==='none'||style.visibility==='hidden'))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});}
+  if(agentHidden(n,win))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});
  };
  n.focus?.({preventScroll:true});intact();
  if(agentSignature(n)!==ref.signature)throw Object.assign(new Error('聚焦期间字段变化，未继续写入'),{code:'TARGET_CHANGED'});
@@ -384,7 +393,7 @@ function agentInput(p,n,doc,signature){
  if(!hit||!n.contains(hit))throw Object.assign(new Error('目标被遮挡，请重新观察'),{code:'TARGET_BLOCKED',beforeDispatch:true});
  const guard=()=>{
   if(!n.isConnected||!hit.isConnected||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled]')||!n.contains(doc.elementFromPoint(x,y)))throw Object.assign(new Error('输入期间目标变化，停止后续事件'),{code:'TARGET_CHANGED'});
-  for(let e=n;e;e=e.parentElement){const s=win.getComputedStyle(e);if(s.display==='none'||s.visibility==='hidden')throw Object.assign(new Error('输入期间目标隐藏'),{code:'TARGET_CHANGED'});}
+  if(agentHidden(n,win))throw Object.assign(new Error('输入期间目标隐藏'),{code:'TARGET_CHANGED'});
  };
  if(p.action==='press_key'){
   const opts=agentKey(p.value);
