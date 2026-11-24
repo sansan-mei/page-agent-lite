@@ -6,6 +6,7 @@
   const G = typeof module !== 'undefined' ? require('./conditions.js') : root.PageAgentConditions;
   const originOf=tab=>{const url=new URL(tab.url);return ['http:','https:'].includes(url.protocol)?url.origin:'browser';};
   const ACTIVE = new Set(['running', 'waiting_page']);
+  const refOf=t=>(t.members||[]).find(member=>member.tabId===t.tabId)?.tabRef||'tab0';
   function recent(items, count = 12, size = 10000) {
     const next = items.slice(-count);
     while (JSON.stringify(next).length > size) next.shift();
@@ -24,7 +25,7 @@
       return serial(tabId, async () => {
         const task = await store.get(tabId);
         if (!task || task.token !== token) return null;
-        const existing=new Set(task.results||[]);fn(task);task.results=(task.results||[]).map(entry=>existing.has(entry)||entry.origin?entry:{...entry,origin:task.origin,tabRef:'tab0'}); task.version=task.version===3?3:2;task.updatedAt = now(); await store.set(tabId, task); return task;
+        const existing=new Set(task.results||[]);fn(task);task.results=(task.results||[]).map(entry=>existing.has(entry)||entry.origin?entry:{...entry,origin:task.origin,tabRef:refOf(task)}); task.version=task.version===3?3:2;task.updatedAt = now(); await store.set(tabId, task); return task;
       });
     }
     async function measured(task,kind,operation,live){
@@ -108,7 +109,7 @@
           }
         }catch(e){result={error:e.message,code:e.code||'GLOBAL_MEMORY_ERROR'};}
         if(signal.aborted)return;
-        t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:'tab0',request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:now(),action:plan.action,result});event(t,'全局长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
+        t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:refOf(t),request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:now(),action:plan.action,result});event(t,'全局长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
     async function getSiteMemory(tabId){
@@ -147,7 +148,7 @@
           }
         }catch(e){result={error:e.message,code:e.code||'SITE_MEMORY_ERROR'};}
         if(signal.aborted)return;
-        t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:'tab0',request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
+        t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:refOf(t),request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
     const policyFor=t=>({origin:t.origin,allowedOrigins:t.allowedOrigins||[t.origin],scopeRevision:t.scopeRevision,sensitiveFields:t.sensitiveAccess==='allowed'});
@@ -186,7 +187,7 @@
         controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;
         if(!t.check&&t.phase==='executing'&&t.pending&&url&&new URL(url).origin===t.origin&&url!==t.pending.url){
           const pending=t.pending;t.uncertainClicks=(t.uncertainClicks||[]).concat({url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}).slice(-2);
-          t.results=(t.results||[]).concat({action:pending.plan.action,request:pending.plan,origin:t.origin,tabRef:'tab0',outcome:T.result({status:'unknown',dispatch:'unknown',scope:'dispatch',code:'DOCUMENT_CHANGED',recovery:'observe',operationId:pending.operationId,message:'页面已导航，旧操作未重放；重新观察核对'})});t.phase='observe';t.pending=null;
+          t.results=(t.results||[]).concat({action:pending.plan.action,request:pending.plan,origin:t.origin,tabRef:refOf(t),outcome:T.result({status:'unknown',dispatch:'unknown',scope:'dispatch',code:'DOCUMENT_CHANGED',recovery:'observe',operationId:pending.operationId,message:'页面已导航，旧操作未重放；重新观察核对'})});t.phase='observe';t.pending=null;
         }
         if(!t.check&&t.phase!=='executing'){t.phase='observe';t.pending=null;}
         await store.set(tabId,t);return t;
@@ -271,7 +272,20 @@
       event(task, '任务已开始');
       await serial(tabId, () => store.set(tabId, task)); schedule(tabId); return task;
     }
-    async function submit(tabId, text) {
+    // Side-panel tab that is a non-executing member: route to its task, or release it if that task is finished.
+    async function resolve(tabId){const owner=store.owner?await store.owner(tabId):null;return owner?.role==='member'&&Number.isInteger(owner.taskTabId)?owner.taskTabId:tabId;}
+    async function submit(tabId,text){
+      const limit=inputLimit(await preferences());
+      if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
+      const owner=store.owner?await store.owner(tabId):null;
+      if(owner?.role!=='member')return submitHere(tabId,text);
+      const owning=Number.isInteger(owner.taskTabId)?await store.get(owner.taskTabId):null;
+      if(owning?.taskId!==owner.taskId)throw new Error('该标签页已加入其他任务，请到任务所在标签页操作或先移出');
+      if(owning.status!=='ended'&&(owning.origin==='browser'||owning.status!=='completed'))return submitHere(owner.taskTabId,text);
+      await serial(owner.taskTabId,()=>store.changeMembers(owner.taskTabId,{taskId:owner.taskId,action:'release',memberTabId:tabId,updatedAt:now()}));
+      return submitHere(tabId,text);
+    }
+    async function submitHere(tabId, text) {
       const prefs=await preferences(),limit=inputLimit(prefs);
       if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
       const page=await tools.tab(tabId,true);
@@ -449,7 +463,9 @@
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
         const memoryIndex=memories.map(m=>({id:m.id,updatedAt:m.updatedAt}));
-        const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex);
+        const tabsView=(task.members||[]).length>1?await taskTabs(task):null;
+        if(!await live())return;
+        const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
         const pressure=P.pressure(task,currentPayload,modelIdentity);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
@@ -465,7 +481,7 @@
           const older=history.slice(0,cut);
           if(!older.length){await pause(task,'当前页面和受保护上下文已接近预算，无法继续压缩','context');return;}
           const from=(task.contextSummary?.through||task.contextArchive?.at(-1)?.to||0)+1;
-          const archive={origin:task.origin,tabRef:'tab0',id:'h'+from,from,to:from+older.length-1,results:older};
+          const archive={origin:task.origin,tabRef:refOf(task),id:'h'+from,from,to:from+older.length-1,results:older};
           const archives=(task.contextArchive||[]).concat(archive);
           if(JSON.stringify(archives).length>1000000){await pause(task,'任务历史归档达到 100 万字符上限，请结束任务；原记录已保留','context');return;}
           const input=JSON.stringify({goal:task.goal,instructions:task.instructions||[],previousSummary:task.contextSummary?.content||null,archiveId:archive.id,olderResults:older.map(r=>{
@@ -493,7 +509,7 @@
         if(pressure.tokens>=pressure.trigger){await pause(task,'当前页面和受保护内容已接近上下文预算，无法压缩；请检查窗口设置或缩小页面','context');return;}
         task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
-        const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex);
+        const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
         const sentEstimate=P.pressure(task,payload).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal),live);
         if (!await live()) return;
@@ -536,6 +552,9 @@
           }
           await pause(task,plan.reply,'model');return;
         }
+        if(plan.action==='tab_switch'){await switchAction(task,plan,call);return;}
+        if(plan.action==='tab_open'){await openTabAction(task,plan,call,live);return;}
+        if(plan.action==='tab_close'){await closeTabAction(task,plan,call,live);return;}
         if(plan.action==='history_read'){
           const archive=task.contextArchive?.find(a=>a.id===plan.id),offset=plan.value||0;
           const text=archive?JSON.stringify(archive.results):null;
@@ -611,6 +630,81 @@
         if(controllers.get(runningTaskId)===controller){controllers.delete(runningTaskId);if(controllerTasks.get(tabId)===runningTaskId)controllerTasks.delete(tabId);}
       }
     }
+    // Model-visible directory: only this task's open members, origin and a bounded untrusted title.
+    async function taskTabs(task){
+      const list=[];
+      for(const member of task.members||[]){
+        let tab;try{tab=await tools.tab(member.tabId,true);}catch{continue;}
+        const origin=originOf(tab);list.push({tabRef:member.tabRef,kind:member.kind,active:member.tabId===task.tabId,origin:origin==='browser'?null:origin,title:String(tab.title||'').slice(0,80)});
+      }
+      return list;
+    }
+    function tabResult(t,call,plan,data){
+      const outcome=T.result({dispatch:'not_sent',scope:'dispatch',...data});
+      t.phase='observe';t.pending=null;t.lastOutcome=outcome;t.results=t.results.concat({...call,action:plan.action,outcome,result:outcome.message});event(t,outcome.message);
+    }
+    const tabReject=(task,call,plan,code,message)=>update(task.tabId,task.token,t=>tabResult(t,call,plan,{status:'error',code,recovery:'replan',message}));
+    // Rebind execution to a member: cancels the old request, rotates token and scopeRevision, never focuses the tab.
+    async function switchTo(task,toTabId,entry){
+      return serial(task.tabId,async()=>{
+        const t=await store.get(task.tabId);if(!t||t.taskId!==task.taskId||t.token!==task.token)return null;
+        controllerForTab(task.tabId)?.abort();
+        const results=(t.results||[]).concat({origin:t.origin,tabRef:refOf(t),...entry});
+        const events=recent((t.events||[]).concat({time:now(),text:entry.result}),40,16000);
+        return store.switchTab(task.tabId,{taskId:t.taskId,expectedRevision:t.scopeRevision,expectedToken:t.token,toTabId,token:uuid(),updatedAt:now(),patch:{results,events,status:'running',reason:null,phase:'observe',pending:null,check:null,waitDeadline:null,nextObservation:null,contextUsage:null,retries:0,lastOutcome:entry.outcome}});
+      });
+    }
+    async function switchAction(task,plan,call){
+      const member=(task.members||[]).find(item=>item.tabRef===plan.id);
+      if(!member)return tabReject(task,call,plan,'TAB_NOT_MEMBER','只能切换到任务标签页目录中的成员');
+      if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ALREADY_ACTIVE',member.tabRef+' 已是执行标签页');
+      let tab;try{tab=await tools.tab(member.tabId,true);}catch{return tabReject(task,call,plan,'TAB_CLOSED',member.tabRef+' 已关闭');}
+      if(originOf(tab)==='browser')return tabReject(task,call,plan,'UNSUPPORTED_PAGE',member.tabRef+' 不是普通网页，不能切换');
+      const outcome=T.result({status:'success',dispatch:'not_sent',scope:'dispatch',code:'TAB_SWITCHED',recovery:'observe',message:'执行目标已切换到 '+member.tabRef+'（未切换浏览器前台）；重新观察'});
+      try{if(await switchTo(task,member.tabId,{...call,action:'tab_switch',outcome,result:outcome.message}))await tools.clearPointer?.(task.tabId);}
+      catch(error){if(error.code!=='TAB_NOT_MEMBER')throw error;return tabReject(task,call,plan,'TAB_NOT_MEMBER','该标签页已不属于本任务');}
+    }
+    async function openTabAction(task,plan,call,live){
+      if(!tools.openTab)return tabReject(task,call,plan,'UNSUPPORTED_ACTION','当前环境不能打开标签页');
+      if((task.members||[]).length>=8)return tabReject(task,call,plan,'TAB_LIMIT','每个任务最多 8 个标签页，请先关闭任务创建的标签页');
+      if(tools.hasOriginAccess&&!await tools.hasOriginAccess(new URL(plan.value).origin)){await update(task.tabId,task.token,t=>{t.status='paused';t.reason='browser_target';t.phase='observe';t.browserTarget=plan.value;event(t,'任务未完成：尚未打开新标签页，缺少目标网站的浏览器权限，请授权后继续。');});return;}
+      // Create intent: a worker restart while executing pauses as uncertain and never opens a second tab.
+      const operationId=uuid();
+      const saved=await update(task.tabId,task.token,t=>{t.phase='executing';t.check=null;t.pending={tabId:task.tabId,origin:t.origin,scopeRevision:t.scopeRevision,plan,operationId,label:'tab_open',time:call.time};t.metrics={...t.metrics,actions:(t.metrics?.actions||0)+1};event(t,plan.reply);});
+      if(!saved||!await live())return;
+      let created;
+      try{created=await tools.openTab(plan.value,{openerTabId:task.tabId});}
+      catch(error){
+        if(['PERMISSION_DENIED','NAVIGATION_DENIED'].includes(error.code))return update(task.tabId,task.token,t=>tabResult(t,call,plan,{status:'error',code:error.code,recovery:'pause',operationId,message:error.message}));
+        await update(task.tabId,task.token,t=>{tabResult(t,call,plan,{status:'unknown',dispatch:'unknown',code:'TAB_OPEN_UNKNOWN',recovery:'pause',operationId,message:'无法确认新标签页是否已打开；任务暂停，不会重复打开或按网址认领，请检查浏览器标签页后继续'});t.status='paused';t.reason='uncertain';});
+        return;
+      }
+      // Register the browser-returned tabId even if the run was stopped meanwhile, so the tab stays attributable.
+      let registered=null;
+      try{registered=await serial(task.tabId,()=>store.changeMembers(task.tabId,{taskId:task.taskId,action:'created',memberTabId:created.id,updatedAt:now()}));}catch{ /* Reported below; the tab is left to the user. */ }
+      if(!registered){await update(task.tabId,task.token,t=>{tabResult(t,call,plan,{status:'unknown',dispatch:'sent',code:'TAB_UNREGISTERED',recovery:'pause',operationId,message:'新标签页已打开但未能登记为任务标签页；任务暂停，该标签页按普通标签页处理'});t.status='paused';t.reason='uncertain';});return;}
+      const ref=registered.members.find(member=>member.tabId===created.id)?.tabRef;
+      const outcome=T.result({status:'success',dispatch:'sent',scope:'dispatch',code:'TAB_OPENED',recovery:'observe',operationId,message:'已在后台打开 '+ref+' 并切换执行目标；重新观察'});
+      await switchTo(task,created.id,{...call,action:'tab_open',outcome,result:outcome.message});
+    }
+    async function closeTabAction(task,plan,call,live){
+      const member=(task.members||[]).find(item=>item.tabRef===plan.id);
+      if(!member||member.kind!=='task_created')return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','只能关闭本任务打开的标签页');
+      if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ACTIVE','不能关闭执行标签页；请先用 tab_switch 切到其他成员');
+      if((await store.owner(member.tabId))?.taskId!==task.taskId)return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已不属于本任务');
+      let tab=null;try{tab=await tools.tab(member.tabId,true);}catch{ /* Already gone: only the directory changes. */ }
+      if(tab&&!(task.allowedOrigins||[]).includes(originOf(tab)))return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已离开任务站点，可能正被你使用，不会关闭');
+      const operationId=uuid();
+      if(tab){
+        const saved=await update(task.tabId,task.token,t=>{t.phase='executing';t.check=null;t.pending={tabId:task.tabId,origin:t.origin,scopeRevision:t.scopeRevision,plan,operationId,label:'tab_close',time:call.time};t.metrics={...t.metrics,actions:(t.metrics?.actions||0)+1};event(t,plan.reply);});
+        if(!saved||!await live())return;
+        try{await tools.closeTab(member.tabId);}catch{ /* Existence is checked below; never retried. */ }
+        let open=true;try{await tools.tab(member.tabId,true);}catch{open=false;}
+        if(open)return update(task.tabId,task.token,t=>tabResult(t,call,plan,{status:'not_satisfied',dispatch:'unknown',code:'TAB_STILL_OPEN',recovery:'replan',operationId,message:member.tabRef+' 仍然打开，未重试关闭'}));
+      }
+      await serial(task.tabId,()=>store.changeMembers(task.tabId,{taskId:task.taskId,action:'closed',memberTabId:member.tabId,updatedAt:now()}));
+      await update(task.tabId,task.token,t=>tabResult(t,call,plan,{status:'success',dispatch:tab?'sent':'not_sent',code:'TAB_CLOSED_BY_TASK',recovery:'observe',operationId,message:member.tabRef+' 已关闭并移出任务'}));
+    }
     async function delayCheck(task){
       await update(task.tabId,task.token,t=>{
         const check=t.check;
@@ -645,7 +739,7 @@
         t.lastOutcome=finalOutcome;
         if(pending){t.status='waiting_page';t.phase='verifying';return;}
         t.check=null;t.waitDeadline=null;t.phase='observe';t.recoveryCount=0;
-        t.results=t.results.concat({action:check.action||check.kind,origin:t.origin,tabRef:'tab0',request:check.request,time:check.time||Date.now(),outcome:finalOutcome,result:finalOutcome.message});
+        t.results=t.results.concat({action:check.action||check.kind,origin:t.origin,tabRef:refOf(t),request:check.request,time:check.time||Date.now(),outcome:finalOutcome,result:finalOutcome.message});
         if(reobserve){
           t.verificationRecoveries=(t.verificationRecoveries||0)+1;
           t.uncertainClicks=(t.uncertainClicks||[]).concat({url:check.url,documentId:check.documentId,key:check.key,target:check.target}).slice(-2);
@@ -677,7 +771,7 @@
           await store.setMemory(t.tabId,t.origin,[]);result={cleared:true};forgetPlanContext(t);t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
         }
         t.phase='observe';t.pending=null;t.retries=0;
-        t.results=t.results.concat({origin:t.origin,tabRef:'tab0',action:plan.action,result});event(t,'临时记忆：'+plan.action+' · '+plan.reply);
+        t.results=t.results.concat({origin:t.origin,tabRef:refOf(t),action:plan.action,result});event(t,'临时记忆：'+plan.action+' · '+plan.reply);
         await store.set(t.tabId,t);
       });
     }
@@ -745,8 +839,26 @@
         if(jobs.get(taskId)===job)jobs.delete(taskId);
         const task=await store.get(tabId);
         if(task&&ACTIVE.has(task.status))schedule(tabId,task.retries?2000:task.status==='waiting_page'?1000:100);
-        else {await tools.clearPointer?.(tabId);await cancelSchedule(tabId);}
+        else {
+          await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
+          // tab_switch / tab_open moved the binding: continue on the new executing tab.
+          const moved=!task&&store.getByTaskId?await store.getByTaskId(taskId).catch(()=>null):null;
+          if(moved&&moved.tabId!==tabId&&ACTIVE.has(moved.status))schedule(moved.tabId);
+        }
       }
+    }
+    // The executing tab closed while other members remain: pause on another member; unknown work is recorded, never replayed.
+    function closedPatch(t,next){
+      const results=[...(t.results||[])],uncertainClicks=[...(t.uncertainClicks||[])];
+      const source=t.check?.kind==='action'?t.check:t.phase==='executing'?t.pending:null;
+      if(source){
+        const request=source.request||source.plan;
+        results.push({action:request?.action||source.action,request,time:now(),origin:t.origin,tabRef:refOf(t),outcome:T.result({status:'unknown',dispatch:t.check?.dispatch||'unknown',scope:'dispatch',code:'TAB_CLOSED',recovery:'observe',operationId:source.operationId,message:'执行标签页已关闭，原操作结果未知，不会重放'})});
+        if(source.url)uncertainClicks.push({url:source.url,documentId:source.documentId,key:source.targetKey||source.key,target:source.targetDescriptor||source.target});
+      }
+      const terminal=['completed','stopped','failed'].includes(t.status);
+      const events=recent((t.events||[]).concat({time:now(),text:'执行标签页 '+refOf(t)+' 已关闭；任务暂停在 '+next.tabRef+'，点击继续将重新观察'}),40,16000);
+      return {results,uncertainClicks:uncertainClicks.slice(-2),events,pending:null,check:null,waitDeadline:null,phase:'observe',nextObservation:null,contextUsage:null,status:terminal?t.status:'paused',reason:terminal?t.reason:'active_tab_closed'};
     }
     async function memberClosed(tabId){
       // Abort synchronously before waiting for storage or a running update.
@@ -762,6 +874,11 @@
         await cancelSchedule(tabId);
         if(!task){await store.removeMemory(tabId);return null;}
         controllers.get(task.taskId)?.abort();
+        if(task.status!=='ended'&&store.switchTab)for(const member of (task.members||[]).filter(item=>item.tabId!==tabId)){
+          try{await tools.tab(member.tabId,true);}catch{continue;}
+          try{return await store.switchTab(tabId,{taskId:task.taskId,expectedRevision:task.scopeRevision,toTabId:member.tabId,token:uuid(),updatedAt:now(),closed:true,patch:closedPatch(task,member)});}
+          catch(error){if(error.code!=='TAB_NOT_MEMBER')throw error;}
+        }
         return store.closeMember(tabId,task.taskId,now());
       });
     }
@@ -772,11 +889,11 @@
       const existing=tools.existingTabIds?new Set(await tools.existingTabIds()):null;
       for(const task of await store.list()){
         if(existing&&!existing.has(task.tabId)){await memberClosed(task.tabId);continue;}
-        if(existing)for(const member of task.members||[])if(member.kind==='user_joined'&&!existing.has(member.tabId))await memberClosed(member.tabId);
+        if(existing)for(const member of task.members||[])if(member.tabId!==task.tabId&&!existing.has(member.tabId))await memberClosed(member.tabId);
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

@@ -53,4 +53,4 @@ git diff --check
 - IndexedDB 配额耗尽、升级阻塞、隐私模式；扩展卸载/升级后的数据丢失。
 - 原生下载对话框；真实用户数据下诊断导出的脱敏效果。
 - 开发版 `run_script`：构建产物、注册、参数校验、结果截断/异常/超时只有 Node 模拟（`userScripts` 为替身）；真实 Chrome 中的 `userScripts.execute`、「允许用户脚本」开关和 MAIN/USER_SCRIPT 差异未验证。
-- 多成员任务：成员加入/移出/关闭只有 Node 模拟与侧栏 stub 测试，未在真实浏览器验证；tab_switch、tab_open/tab_close 尚未实现。
+- 多成员任务：成员加入/移出/关闭、tab_switch、tab_open/tab_close、执行标签关闭改绑、切换中断对账只有 Node 模拟（真实 store + 假浏览器）与侧栏 stub 测试；真实浏览器中的 `tabs.create`/`tabs.remove`、后台标签加载与注入、原生侧栏在成员标签上的表现、真实模型是否合理选用标签工具均未验证。
