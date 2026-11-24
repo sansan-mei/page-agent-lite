@@ -25,6 +25,9 @@
 | double_click | id | content | 两次受保护 click 后派发 detail=2 的 dblclick |
 | right_click | id | content | 右键 pointer/mouse down/up + contextmenu，不打开原生菜单 |
 | navigate | 绝对 HTTP/HTTPS URL（≤ 2000 字符） | browser | 见 [导航](#导航) |
+| tab_switch | id=tabRef | runtime | 切换执行标签页，见 [任务标签页](#任务标签页) |
+| tab_open | 绝对 HTTP/HTTPS URL，无 id/expected | browser | 后台打开并登记为任务标签页，切换执行目标 |
+| tab_close | id=tabRef | browser | 关闭非执行中的任务创建标签页 |
 
 - content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。不接受坐标、选择器、脚本或 HTML。
 - press_key：修饰键 Control/Alt/Shift/Meta（不可重复）；主键 Enter/Escape/Tab/Space/方向键/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a–z。不保持按下状态，不触发浏览器原生编辑/快捷键；文本用 fill。
@@ -85,6 +88,13 @@ observe 的 value：
 4. 后台调用一次 `tabs.update`：成功 → `NAVIGATION_DISPATCHED`、sent、status=unknown；回执失败 → `NAVIGATION_UNKNOWN`，只读等待 URL，不补发。
 
 跨来源只接受 URL 条件，用浏览器当前 URL 核对。observe/verify/重连都带 `expectedOrigin`，内容脚本在捕获 DOM 前检查，来源不符则拒读。
+
+## 任务标签页
+
+- tabRef（`tab0`…`tab999`）只取自模型输入的 `tabs` 目录，校验器拒绝数字 tabId、value 和 expected；运行器再核对目录与 `tabOwners`。规则见 [运行器](agent-runtime.md#多标签执行)。
+- `browser-tools.openTab(url, {openerTabId})`：拒绝凭据与非 HTTP/HTTPS，要求目标主机权限；`tabs.create({active:false, windowId: opener 窗口, openerTabId})`，只返回浏览器给出的 tabId。
+- `closeTab(tabId)`：一次 `tabs.remove`，结果由运行器向浏览器确认。
+- 内容脚本不处理这三个动作（路由不是 content）。
 
 ## 结果（V2）
 

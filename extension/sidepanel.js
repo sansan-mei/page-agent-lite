@@ -289,14 +289,14 @@
   });
   $('scope-origins').addEventListener('click',event=>{const origin=event.target.dataset?.origin;if(origin)editScope('remove',origin);});
   let memberView=null,memberRequest=0;
-  const memberKinds={initial:'执行标签页',user_joined:'用户加入',task_created:'任务创建'};
+  const memberKinds={initial:'初始标签页',user_joined:'用户加入',task_created:'任务创建'};
   function renderMembers(){
     const list=$('member-list'),select=$('member-candidate');list.replaceChildren();select.replaceChildren();
     const usable=memberView&&memberView.taskId===task?.taskId;$('member-form').hidden=!usable;if(!usable)return;
     for(const member of memberView.members){
       const li=document.createElement('li'),label=document.createElement('span');
-      label.textContent=[member.tabRef,memberKinds[member.kind]||member.kind,member.open?(member.title||'无标题')+' · '+(member.origin||'非网页'):'已关闭',member.open&&member.origin&&!member.authorized?'站点未授权':''].filter(Boolean).join(' · ');li.append(label);
-      if(member.kind==='user_joined'){const button=document.createElement('button');button.type='button';button.textContent='移出';button.dataset.tabRef=member.tabRef;button.disabled=busy;li.append(button);}
+      label.textContent=[member.tabRef,memberKinds[member.kind]||member.kind,member.active?'执行中':'',member.open?(member.title||'无标题')+' · '+(member.origin||'非网页'):'已关闭',member.open&&member.origin&&!member.authorized?'站点未授权':''].filter(Boolean).join(' · ');li.append(label);
+      if(!member.active){const button=document.createElement('button');button.type='button';button.textContent='移出';button.dataset.tabRef=member.tabRef;button.disabled=busy;li.append(button);}
       list.append(li);
     }
     for(const candidate of memberView.candidates){

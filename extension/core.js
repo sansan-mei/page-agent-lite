@@ -92,6 +92,8 @@ const agentToolRegistry=(()=>{
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
  add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
  add(['navigate'],{route:'browser',effect:'page',timeout:true});
+ // Task tabs: refs come only from the task member directory; handled by the runtime, never by the page.
+ add(['tab_switch'],{});add(['tab_open','tab_close'],{route:'browser',effect:'tab'});
  for(const prefix of ['memory','site_memory','global_memory']){
   add([prefix+'_read'],{});add([prefix+'_write',prefix+'_delete',prefix+'_clear'],{effect:'storage'});
  }
@@ -307,7 +309,9 @@ function agentPlan(raw,snap){
  if(['memory_write','site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
  if(agentTool(p.action).target==='required'&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
- if(p.action==='navigate'){
+ if(['tab_switch','tab_close'].includes(p.action)&&(typeof p.id!=='string'||!/^tab[0-9]{1,3}$/.test(p.id)||p.value!==undefined||p.expected!==undefined))throw new Error('标签页标识无效');
+ if(p.action==='tab_open'&&p.expected!==undefined)throw new Error('打开标签页不支持预期条件');
+ if(p.action==='navigate'||p.action==='tab_open'){
   let url;try{url=new URL(p.value);}catch{throw new Error('导航 URL 无效');}
   if(typeof p.value!=='string'||p.value.length>2000||!['http:','https:'].includes(url.protocol)||url.username||url.password||p.id!==undefined)throw new Error('导航仅支持不含凭据的 HTTP/HTTPS URL');
   p.value=url.href;

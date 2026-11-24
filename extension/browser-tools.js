@@ -83,8 +83,19 @@
         return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));
       }
     }
+    // Task tab lifecycle: open in the opener's window without taking focus; close only by tabId.
+    async function openTab(url,{openerTabId}={}){
+      const destination=new URL(url);
+      if(!['http:','https:'].includes(destination.protocol)||destination.username||destination.password)throw Object.assign(new Error('只能打开不含凭据的 HTTP/HTTPS 网址'),{code:'NAVIGATION_DENIED'});
+      if(!await hasOriginAccess(destination.origin))throw Object.assign(new Error('目标网站权限尚未授权'),{code:'PERMISSION_DENIED'});
+      const opener=await tab(openerTabId,true);
+      const created=await chrome.tabs.create({url:destination.href,active:false,windowId:opener.windowId,openerTabId});
+      if(!Number.isInteger(created?.id))throw Object.assign(new Error('浏览器未返回新标签页'),{code:'TAB_OPEN_UNKNOWN'});
+      return {id:created.id};
+    }
+    async function closeTab(tabId){await chrome.tabs.remove(tabId);}
     async function clearPointer(tabId){try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }}
-    return {tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer};
+    return {tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

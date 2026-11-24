@@ -87,3 +87,14 @@ test('browser metadata permits internal tabs but navigation still requires exact
  granted=true;const outcome=await tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']});assert.equal(outcome.dispatch,'sent');assert.equal(updates,1);assert.equal(messages,0);
  await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']}),e=>e.code==='STALE');assert.equal(updates,1);
 });
+
+test('openTab creates one unfocused tab in the opener window only with host access; closeTab removes by id',async()=>{
+ const created=[],removed=[];let granted=false;
+ const chrome={tabs:{async get(id){return {id,url:'https://a.test/',windowId:3};},async create(p){created.push(p);return {id:77};},async remove(id){removed.push(id);}},permissions:{async contains(){return granted;}}};
+ const tools=createBrowserTools(chrome);
+ await assert.rejects(()=>tools.openTab('https://c.test/x',{openerTabId:1}),e=>e.code==='PERMISSION_DENIED');
+ await assert.rejects(()=>tools.openTab('file:///etc/passwd',{openerTabId:1}),e=>e.code==='NAVIGATION_DENIED');assert.equal(created.length,0);
+ granted=true;assert.deepEqual(await tools.openTab('https://c.test/x',{openerTabId:1}),{id:77});
+ assert.deepEqual(created,[{url:'https://c.test/x',active:false,windowId:3,openerTabId:1}]);
+ await tools.closeTab(77);assert.deepEqual(removed,[77]);
+});

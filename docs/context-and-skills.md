@@ -19,7 +19,7 @@
 
 | 层 | 工具 | 目录 | 存储与范围 | 容量 |
 |---|---|---|---|---|
-| 临时 | `memory_read/write/delete/clear` | `memoryIndex`（名称、更新时间） | session `memory:<tabId>`，按标签页+origin | 每站 12 条/8000 字符，单条 2000；每标签 10 站 |
+| 临时 | `memory_read/write/delete/clear` | `memoryIndex`（名称、更新时间） | session `memory:<tabId>`，按标签页+origin；切换执行标签页时随任务移动 | 每站 12 条/8000 字符，单条 2000；每标签 10 站 |
 | 网站 | `site_memory_read/write/delete/clear` | `siteMemoryIndex`（id、updatedAt、source） | IndexedDB，按完整 origin，跨任务/标签/重启 | 32 条/64000 字符，单条 2000 |
 | 全局 | `global_memory_read/write/delete/clear` | `globalMemoryIndex` | IndexedDB 单一 global 记录 | 同网站 |
 
