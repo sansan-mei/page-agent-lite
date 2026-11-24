@@ -29,6 +29,7 @@
 |---|---|
 | version=3、taskId、token | 身份与运行代次 |
 | initialTabId、activeTabId、initialOrigin、origin/activeOrigin | 初始标签页与当前执行标签页（activeTabId = tabId，只能经 `switchTab` 修改）；origin 只能经 `switchOrigin` 修改 |
+| scriptApproval | 本任务脚本自动批准 `{scope:'task', origin, tabId, grantedAt}`；切换来源/执行标签、结束、撤销、userScripts 权限移除时清除，新任务不继承 |
 | sensitiveAccess、sensitiveRequest | 本对话敏感字段决策（allowed/denied，缺省未确认）及待确认 id/text；来源切换保留决策，新对话不继承 |
 | origin=browser | 未进入网页的浏览器对话；allowedOrigins 初始为空，browserTarget 保存待授权的 HTTP/HTTPS 目标 |
 | allowedOrigins、scopeRevision | 已记录的任务来源及版本；切换来源自动加入，不作为导航白名单。旧侧栏范围修改接口保留兼容 |

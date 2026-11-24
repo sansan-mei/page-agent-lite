@@ -3,12 +3,14 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const {createRuntime}=require('../extension/runtime.js');
 const {createBrowserTools}=require('../extension/browser-tools.js');
 const S=require('../extension/script-tools.js');
+const {createTaskStore}=require('../extension/task-store.js');
 
 const CODE='// read the title\n'+'const parts=[];\n'.repeat(500)+'return document.title;';
-function fixture({autoApproveScripts=false,api=true,plans=null}={}){
+function fixture({autoApproveScripts=false,api=true,plans=null,realStore=false,permission=null}={}){
   const page={url:'https://example.test/page',documentId:'d1'},executes=[],models=[],phases=[];let snapshots=0,seq=0;
   const data=new Map();
-  const store={async get(id){return structuredClone(data.get(id)||null);},async set(id,t){data.set(id,structuredClone(t));},async remove(id){data.delete(id);},async list(){return [...data.values()].map(t=>structuredClone(t));},async getMemory(){return [];},async setMemory(){},async removeMemory(){}};
+  const session={},area={async get(k){return structuredClone(k===null?session:{[k]:session[k]});},async set(v){Object.assign(session,structuredClone(v));},async remove(k){delete session[k];}};
+  const store=realStore?createTaskStore({storage:{session:area}}):{async get(id){return structuredClone(data.get(id)||null);},async set(id,t){data.set(id,structuredClone(t));},async remove(id){data.delete(id);},async list(){return [...data.values()].map(t=>structuredClone(t));},async getMemory(){return [];},async setMemory(){},async removeMemory(){}};
   const chrome={
     tabs:{async get(id){return {id,url:page.url,status:'complete'};},async query(){return [{id:1,url:page.url}];},
       async sendMessage(id,m){
@@ -17,7 +19,7 @@ function fixture({autoApproveScripts=false,api=true,plans=null}={}){
         if(m.type==='agent:clear-pointer')return {ok:true};
         throw new Error('unexpected '+m.type);
       }},
-    permissions:{async contains(){return true;}},
+    permissions:{async contains(q){return q?.permissions?.includes('userScripts')&&permission?permission.granted:true;}},
     scripting:{async executeScript(){}}
   };
   Object.defineProperty(chrome,'userScripts',{get(){return api?{getScripts:async()=>[],configureWorld:async()=>{},async execute(i){
@@ -112,8 +114,8 @@ test('developer flag executes without a pause; unavailable scripts are hidden an
 });
 
 test('only the trusted side panel can send task:script-approval',async()=>{
-  let listener,deps;const calls=[];
-  const runtime={async recover(){},async resolve(id){return id;},async scriptApproval(id,p){calls.push([id,p]);return {ok:true};}};
+  let listener,deps;const calls=[],revokes=[];
+  const runtime={async recover(){},async resolve(id){return id;},async scriptApproval(id,p){calls.push([id,p]);return {ok:true};},async revokeScriptApproval(id,p){revokes.push([id,p]);return {ok:true};}};
   const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}}},
     permissions:{onRemoved:{addListener(){}}},sidePanel:{async setPanelBehavior(){}},scripting:{async getRegisteredContentScripts(){return [];}},
     alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}}},action:{onClicked:{addListener(){}}}};
@@ -129,5 +131,105 @@ test('only the trusted side panel can send task:script-approval',async()=>{
     assert.equal((await send(message,sender)).ok,false);
   assert.equal(calls.length,0);
   assert.equal((await send(message,{id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0})).ok,true);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[[1,{taskId:'t',requestId:'r',allow:true}]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[[1,{taskId:'t',requestId:'r',allow:true,scope:'once'}]]);
+  // Strict shape: scope is once|task, a task-wide grant must approve, ids are strings.
+  const panel={id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0};
+  for(const bad of [{scope:'always'},{scope:'task',allow:false},{scope:''},{scope:null},{allow:'yes'},{requestId:1},{taskId:{}}])
+    assert.equal((await send({...message,...bad},panel)).ok,false);
+  assert.equal(calls.length,1);
+  assert.equal((await send({...message,scope:'task'},panel)).ok,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))),[1,{taskId:'t',requestId:'r',allow:true,scope:'task'}]);
+  // Revoke: trusted side panel only, taskId required.
+  const revoke={type:'task:script-revoke',tabId:1,taskId:'t'};
+  assert.equal((await send(revoke,{id:'test',url:'https://example.test/',frameId:0,tab:{id:1}})).ok,false);
+  assert.equal((await send({...revoke,taskId:7},panel)).ok,false);
+  assert.equal((await send(revoke,panel)).ok,true);assert.deepEqual(JSON.parse(JSON.stringify(revokes)),[[1,{taskId:"t"}]]);
+});
+
+const RUN=(n)=>({reply:'Script '+n,action:'run_script',value:{code:'return '+n+';',world:'USER_SCRIPT'}});
+const runs=f=>f.executes.map(e=>e.js[0].code.match(/return (\d+);/)?.[1]);
+
+test('allow once: the next script pauses for approval again',async()=>{
+  const f=fixture({plans:[RUN(1),RUN(2)]}),t=await paused(f);
+  await f.runtime.scriptApproval(1,{...decision(t,true),scope:'once'});
+  await f.runtime.tick(1);await f.runtime.tick(1);
+  const second=await f.runtime.get(1);
+  assert.deepEqual(runs(f),['1']);assert.equal(second.reason,'script_approval');assert.equal(second.scriptRequest.code,'return 2;');assert.ok(!second.scriptApproval);
+});
+
+test('allow for this task: later same-origin scripts run once each without a pause, full code kept in history',async()=>{
+  const f=fixture({plans:[RUN(1),RUN(2),RUN(3)]}),t=await paused(f);
+  await assert.rejects(()=>f.runtime.scriptApproval(1,{...decision(t,false),scope:'task'}),/无效/);
+  await assert.rejects(()=>f.runtime.scriptApproval(1,{...decision(t,true),scope:'always'}),/无效/);
+  const granted=await f.runtime.scriptApproval(1,{...decision(t,true),scope:'task'});
+  assert.equal(granted.scriptApproval.scope,'task');assert.equal(granted.scriptApproval.origin,'https://example.test');assert.equal(granted.scriptApproval.tabId,1);
+  for(let i=0;i<6;i++)await f.runtime.tick(1);
+  assert.deepEqual(runs(f),['1','2','3']);assert.deepEqual(f.phases,['executing','executing','executing']);
+  const after=await f.runtime.get(1);
+  assert.equal(after.status,'completed');assert.equal(after.scriptRequest,null);
+  assert.deepEqual(after.results.filter(r=>r.action==='run_script').map(r=>[r.request.value.code,r.outcome.code]),[['return 1;','SCRIPT_RESULT'],['return 2;','SCRIPT_RESULT'],['return 3;','SCRIPT_RESULT']]);
+  assert.equal(f.models.length,4);
+});
+
+test('task approval never replays an uncertain run and still checks the document',async()=>{
+  const f=fixture({plans:[RUN(1),RUN(2)]}),t=await paused(f);
+  await f.runtime.scriptApproval(1,{...decision(t,true),scope:'task'});await f.runtime.tick(1);
+  // Second script: the document changes between observation and dispatch -> STALE, not executed.
+  const send=f.chrome.tabs.sendMessage;let observed=0;
+  f.chrome.tabs.sendMessage=async(id,m)=>{const r=await send(id,m);if(m.type==='agent:observe'&&++observed===1)f.page.documentId='d9';return r;};
+  await f.runtime.tick(1);
+  assert.deepEqual(runs(f),['1']);const stale=await f.runtime.get(1);assert.equal(stale.results.at(-1).outcome.code,'STALE');assert.equal(stale.results.at(-1).outcome.dispatch,'not_sent');
+  // A run interrupted after the executing checkpoint pauses as uncertain instead of re-running.
+  const g=fixture({plans:[RUN(1),RUN(2)]}),u=await paused(g);
+  await g.runtime.scriptApproval(1,{...decision(u,true),scope:'task'});await g.runtime.tick(1);
+  const record=await g.store.get(1);record.phase='executing';record.pending={tabId:1,plan:RUN(2),url:g.page.url,documentId:'d1'};record.check=null;await g.store.set(1,record);
+  await g.runtime.tick(1);
+  assert.deepEqual(runs(g),['1']);const uncertain=await g.runtime.get(1);assert.equal(uncertain.reason,'uncertain');assert.ok(uncertain.scriptApproval);
+});
+
+test('revoke, ending the task and permission removal clear the task approval',async()=>{
+  // Revoke: the next script pauses again; stale task ids are refused.
+  let f=fixture({plans:[RUN(1),RUN(2)]}),t=await paused(f);
+  await f.runtime.scriptApproval(1,{...decision(t,true),scope:'task'});await f.runtime.tick(1);
+  await assert.rejects(()=>f.runtime.revokeScriptApproval(1,{taskId:'other'}),/任务已变化/);
+  const revoked=await f.runtime.revokeScriptApproval(1,{taskId:t.taskId});assert.equal(revoked.scriptApproval,null);
+  await f.runtime.tick(1);assert.deepEqual(runs(f),['1']);assert.equal((await f.runtime.get(1)).reason,'script_approval');
+  // Stop, takeover and supplemental instructions keep it; ending the task clears it.
+  f=fixture({plans:[RUN(1),RUN(2)]});t=await paused(f);
+  await f.runtime.scriptApproval(1,{...decision(t,true),scope:'task'});await f.runtime.tick(1);
+  await f.runtime.stop(1);assert.ok((await f.runtime.get(1)).scriptApproval);
+  await f.runtime.takeover(1);assert.ok((await f.runtime.get(1)).scriptApproval);
+  await f.runtime.submit(1,'Continue please');assert.ok((await f.runtime.get(1)).scriptApproval);
+  await f.runtime.finish(1);assert.equal((await f.runtime.get(1)).scriptApproval,null);
+  // userScripts permission removed: reviewPermissions drops every task approval.
+  const permission={granted:true};f=fixture({plans:[RUN(1),RUN(2)],permission});t=await paused(f);
+  await f.runtime.scriptApproval(1,{...decision(t,true),scope:'task'});await f.runtime.tick(1);
+  await f.runtime.reviewPermissions();assert.ok((await f.runtime.get(1)).scriptApproval);
+  permission.granted=false;await f.runtime.reviewPermissions();assert.equal((await f.runtime.get(1)).scriptApproval,null);
+});
+
+test('task approval is bound to the origin: another origin pauses again, returning does not restore it',async()=>{
+  const f=fixture({plans:[RUN(1),RUN(2),RUN(3)],realStore:true}),t=await paused(f);
+  await f.runtime.scriptApproval(1,{...decision(t,true),scope:'task'});await f.runtime.tick(1);
+  assert.deepEqual(runs(f),['1']);
+  f.page.url='https://other.test/page';f.page.documentId='d2';
+  await f.runtime.tick(1);
+  let moved=await f.runtime.get(1);assert.equal(moved.origin,'https://other.test');assert.ok(!moved.scriptApproval);
+  await f.runtime.tick(1);moved=await f.runtime.get(1);
+  assert.deepEqual(runs(f),['1']);assert.equal(moved.reason,'script_approval');assert.equal(moved.scriptRequest.code,'return 2;');
+  // A grant recorded for another origin or tab is never used and is dropped at the next script.
+  const g=fixture({plans:[RUN(1)]});await g.runtime.start(1,'Get the title');
+  const record=await g.store.get(1);record.scriptApproval={scope:'task',origin:'https://other.test',tabId:1,grantedAt:1};await g.store.set(1,record);
+  await g.runtime.tick(1);let after=await g.runtime.get(1);
+  assert.equal(g.executes.length,0);assert.equal(after.reason,'script_approval');assert.equal(after.scriptApproval,null);
+  const h=fixture({plans:[RUN(1)]});await h.runtime.start(1,'Get the title');
+  const other=await h.store.get(1);other.scriptApproval={scope:'task',origin:'https://example.test',tabId:2,grantedAt:1};await h.store.set(1,other);
+  await h.runtime.tick(1);after=await h.runtime.get(1);
+  assert.equal(h.executes.length,0);assert.equal(after.reason,'script_approval');
+});
+
+test('developer build ignores approvals entirely (no card, every script runs)',async()=>{
+  const dev=fixture({autoApproveScripts:true,plans:[RUN(1),RUN(2)]});await dev.runtime.start(1,'Get the title');
+  for(let i=0;i<3;i++)await dev.runtime.tick(1);
+  assert.deepEqual(runs(dev),['1','2']);const after=await dev.runtime.get(1);assert.ok(!after.scriptRequest);assert.ok(!after.scriptApproval);
 });

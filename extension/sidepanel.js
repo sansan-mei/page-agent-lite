@@ -90,7 +90,10 @@
     $('script-reason').textContent=scriptRequest?.reply||'';
     $('script-target').textContent=scriptRequest?t('spScriptTarget',scriptOrigin,t(scriptRequest.world==='MAIN'?'spScriptWorldMain':'spScriptWorldUser')):'';
     if($('script-code').textContent!==(scriptRequest?.code||''))$('script-code').textContent=scriptRequest?.code||'';
-    $('script-approve').disabled=busy||!scriptRequest;$('script-reject').disabled=busy||!scriptRequest;
+    $('script-approve').disabled=busy||!scriptRequest;$('script-approve-task').disabled=busy||!scriptRequest;$('script-reject').disabled=busy||!scriptRequest;
+    // Task-scoped script approval stays visible with a Revoke control while the task keeps it.
+    const scriptGrant=!historyOpen&&current?.scriptApproval?.scope==='task'&&current.status!=='ended'?current.scriptApproval:null;
+    $('script-grant').hidden=!scriptGrant;$('script-grant-text').textContent=scriptGrant?t('spScriptGrant',scriptGrant.origin):'';$('script-revoke').disabled=busy||!scriptGrant;
     const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
     if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
@@ -270,7 +273,8 @@
     catch(e){$('status').textContent=e.message;}
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
-  for(const [id,allow] of [['script-approve',true],['script-reject',false]])$(id).addEventListener('click',()=>{if(task?.scriptRequest)void action('task:script-approval',{taskId:task.taskId,requestId:task.scriptRequest.id,allow});});
+  for(const [id,allow,scope] of [['script-approve',true,'once'],['script-approve-task',true,'task'],['script-reject',false,'once']])$(id).addEventListener('click',()=>{if(task?.scriptRequest)void action('task:script-approval',{taskId:task.taskId,requestId:task.scriptRequest.id,allow,scope});});
+  $('script-revoke').addEventListener('click',()=>{if(task?.scriptApproval)void action('task:script-revoke',{taskId:task.taskId});});
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
   function editScope(action,origin,continueTask=false){
     if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;

@@ -729,16 +729,25 @@
     "message": "批准运行这段脚本？"
   },
   "spScriptText": {
-    "message": "脚本会在该网页中运行，可读取和修改页面内容；返回值会发送至你配置的模型服务。批准只执行这一次，请先阅读完整代码。"
+    "message": "脚本会在该网页中运行，可读取和修改页面内容；返回值会发送至你配置的模型服务。请先阅读完整代码；「本任务内允许」会让本任务在同一标签页和网站上的后续脚本自动执行，可随时撤销。"
   },
   "spScriptCodeLabel": {
     "message": "待批准的脚本代码"
   },
   "spScriptApprove": {
-    "message": "批准并执行一次"
+    "message": "允许一次"
+  },
+  "spScriptApproveTask": {
+    "message": "本任务内允许"
   },
   "spScriptReject": {
     "message": "拒绝"
+  },
+  "spScriptRevoke": {
+    "message": "撤销"
+  },
+  "spScriptGrant": {
+    "message": "本任务脚本已自动批准（{1}）"
   },
   "spScriptTarget": {
     "message": "目标网站：{1} · 运行环境：{2}"

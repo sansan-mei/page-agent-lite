@@ -71,17 +71,20 @@
 - **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
 - **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
 - **结束/清空**：结束后不能用继续复活；清空删除当前任务及其临时记忆和来源分区。
-- **脚本批准**（`task:script-approval`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
+- **脚本批准**（`task:script-approval`、`task:script-revoke`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
 
 ## 脚本批准
 
 商店包中模型返回 run_script 时不执行，任务暂停为 `script_approval` 并保存 `scriptRequest`：`{id, code, world, url, origin, documentId, snapshotId, reply, time, pending}`（pending 为执行所需的完整待执行记录）。
 
+- 消息：`{taskId, requestId, allow, scope}`，scope 为 `once`（缺省）或 `task`，`task` 只能与 allow=true 同用；后台先校验字段类型与枚举（否则「脚本确认无效」），只接受可信侧栏发送者。
 - 校验与 `task:sensitive-access` 相同：taskId、requestId 匹配，任务仍为 paused/script_approval，allow 为布尔值，否则「脚本确认已过期」。通过后取消旧请求、轮换 token、清除 `scriptRequest`。
 - 拒绝：结果记 `SCRIPT_REJECTED`（dispatch=not_sent、recovery=replan），任务回到 running 并重新观察，模型改用其他方法。
-- 批准：当前标签、URL 与来源须与请求一致，否则记 `STALE` 不执行；一致则 phase=approved。下一 tick 再核对标签和 URL，写 executing 检查点后执行该代码一次（执行前另核对文档 ID）。worker 在 approved 阶段重启会执行这一次；进入 executing 后中断按结果不确定暂停，不重放。
+- 批准：当前标签、URL 与来源须与请求一致，否则记 `STALE` 不执行（scope=task 也不授予）；一致则 phase=approved。下一 tick 再核对标签和 URL，写 executing 检查点后执行该代码一次（执行前另核对文档 ID）。worker 在 approved 阶段重启会执行这一次；进入 executing 后中断按结果不确定暂停，不重放。
+- 本任务内允许（scope=task）：另在任务记录写 `scriptApproval={scope:'task', origin, tabId, grantedAt}`。之后模型返回 run_script 时，在存储写入的同一步核对授权仍在且 `tabId`、`origin` 与当前执行标签和快照来源一致，一致则不暂停，直接按普通路径（pending → executing 检查点 → 文档 ID 核对 → 执行一次）运行，请求连同完整代码记入结果；不一致则丢弃授权并照常暂停批准。同来源的新文档（刷新、站内跳转）保留授权。
+- 授权清除：侧栏「撤销」（`task:script-revoke {taskId}`）、结束任务、清空、新建任务、切换来源（`switchOrigin` 重建记录）、切换执行标签（`switchTab` 置空）、`userScripts` 权限被移除（`permissions.onRemoved` → `reviewPermissions`，以及每轮检测到无权限时）。停止、接管、补充指令不清除授权（任务仍可继续，侧栏一直显示撤销入口）。撤销不影响已写入 pending 的这一次执行。
 - 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准执行，结果记 `SCRIPT_DISCARDED`（not_sent）。
-- 每次执行单独批准；开发版（`PageAgentDevFlags.autoApproveScripts`）跳过本节，直接走普通执行路径。
+- 开发版（`PageAgentDevFlags.autoApproveScripts`）跳过本节，直接走普通执行路径，不显示批准卡片。
 
 ## 子目标
 
