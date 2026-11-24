@@ -9,7 +9,7 @@
     "linkedom": "0.18.12"
   },
   "license": "MIT",
-  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事物",
+  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事务",
   "repository": {
     "type": "git",
     "url": "https://github.com/sansan-mei/page-agent-lite.git"

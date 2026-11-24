@@ -2,7 +2,7 @@
   <img src="extension/icons/logo.webp" width="80" height="80" alt="Page Agent Lite logo">
   <h1>Page Agent Lite</h1>
   <p><strong>一句话，让网页开始行动。</strong></p>
-  <p>AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事物</p>
+  <p>AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事务</p>
   <p>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-244b3b?style=flat-square"></a>
     <img alt="Chrome and Edge" src="https://img.shields.io/badge/Chrome%20%2F%20Edge-MV3-5b7850?style=flat-square">

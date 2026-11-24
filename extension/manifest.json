@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Page Agent Lite · 浏览器助手",
   "version": "1.0.0",
-  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事物",
+  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事务",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",
