@@ -3,6 +3,7 @@
   const $=id=>document.getElementById(id);
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
   let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false;
+  const switchTab=$('use-current');switchTab.textContent='切换标签';switchTab.title='使用当前标签页';document.querySelector('.app-header').prepend(switchTab);
   async function refreshTask(){
     const target=tabId,view=selection,version=++taskRefresh;if(target===null)return;
     try{const value=await send('task:get');if(target!==tabId||view!==selection||version!==taskRefresh)return;const previousId=task?.taskId;task=value;if(task?.origin&&task.origin!=='browser'){tabOrigin=task.origin;void refreshPermissions();}render();if(historyOpen&&previousId!==task?.taskId)void loadHistory();}
@@ -11,8 +12,7 @@
   function invalidateTask(){if(busy){++taskRefresh;refreshAfterAction=true;}else void refreshTask();}
   async function refreshPermissions(){
     const version=++permissionCheck,origin=tabOrigin;
-    $('grant').hidden=true;$('grant-all').hidden=true;
-    if(!origin)return;
+    if(!origin){$('grant').hidden=true;$('grant-all').hidden=true;return;}
     try{
       const [site,all]=await Promise.all([chrome.permissions.contains({origins:[origin+'/*']}),chrome.permissions.contains({origins:['http://*/*','https://*/*']})]);
       if(version!==permissionCheck||origin!==tabOrigin)return;
@@ -228,28 +228,26 @@
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
   }
   async function selectTab(useCurrent=false){
-    if(!useCurrent&&tabId!==null&&task&&task.status!=='ended'){
-      const active=(await chrome.tabs.query({active:true,currentWindow:true}))[0];
-      $('use-current').hidden=active?.id===tabId;
-      if(active?.id!==tabId)return;
-    }
-    $('use-current').hidden=true;
-    const version=++selection;++taskRefresh;scopePending=false;refreshAfterAction=false;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;tabId=null;tabOrigin=null;task=null;render();void refreshPermissions();
-    $('status').textContent='';
+    const version=++selection,refreshVersion=++taskRefresh;
     try{
-      const tabs=await chrome.tabs.query({active:true,currentWindow:true});
+      const tab=(await chrome.tabs.query({active:true,currentWindow:true}))[0];
       if(version!==selection)return;
-      const tab=tabs[0];tabId=tab?.id??null;
-      if(tab?.url)tabOrigin=['http:','https:'].includes(new URL(tab.url).protocol)?new URL(tab.url).origin:null;
-      void refreshPermissions();
-      $('target').replaceChildren();
-      for(const [text,className] of (tabOrigin?[[tab.title||'当前网页','site-title'],[tabOrigin,'site-origin']]:[])){
-        const line=document.createElement('span');line.className=className;line.textContent=text;$('target').append(line);
+      if(!useCurrent&&tabId!==null&&task&&task.status!=='ended'&&tab?.id!==tabId){$('use-current').hidden=false;return;}
+      const nextId=tab?.id??null,nextOrigin=tab?.url&&['http:','https:'].includes(new URL(tab.url).protocol)?new URL(tab.url).origin:null;
+      const value=nextId===null?null:await send('task:get',{tabId:nextId});
+      if(version!==selection||refreshVersion!==taskRefresh)return;
+      if(nextId!==tabId||nextOrigin!==tabOrigin){scopePending=false;refreshAfterAction=false;++historyRequest;historyTask=null;historyIndex=[];historyOpen=false;$('status').textContent='';}
+      tabId=nextId;tabOrigin=nextOrigin;task=value;$('use-current').hidden=true;
+      const title=tabOrigin?tab.title||'当前网页':'',signature=JSON.stringify([title,tabOrigin]);
+      if($('target').dataset.signature!==signature){
+        $('target').dataset.signature=signature;$('target').replaceChildren();
+        for(const [text,className] of (tabOrigin?[[title,'site-title'],[tabOrigin,'site-origin']]:[])){
+          const line=document.createElement('span');line.className=className;line.textContent=text;$('target').append(line);
+        }
+        $('target').title=tabOrigin?`${title} · ${tabOrigin}`:'';
       }
-      $('target').title=tabOrigin?`${tab.title||'当前网页'} · ${tabOrigin}`:'';
       if(!tab?.url)$('status').textContent='无法读取当前标签页，请重新打开侧栏。';
-      if(tabId===null){render();return;}
-      const refreshVersion=++taskRefresh,value=await send('task:get');if(version!==selection||refreshVersion!==taskRefresh)return;task=value;render();
+      render();void refreshPermissions();
     }catch(e){if(version===selection)$('status').textContent=e.message;}
   }
   async function action(type,extra,draft){

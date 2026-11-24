@@ -111,7 +111,7 @@ test('sidepanel all-site grant requests both schemes from gesture then connects 
 test('header history is read-only and new dialogue resets the view while retaining ended records',async()=>{
  const task={origin:'https://example.test',taskId:'dialogue',goal:'Current goal',status:'running',steps:2,prefs:{maxSteps:50},events:[{time:1,text:'Recent reply'}]};
  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:finish'?{ok:true,value:{...task,status:'ended'}}:m.type==='task:history'?{ok:true,value:[task]}:m.type==='task:history-get'?{ok:true,value:task}:undefined),d=f.document;
- assert.deepEqual([...d.querySelectorAll('.app-header button')].map(el=>el.id),['history','finish','settings']);
+ assert.deepEqual([...d.querySelectorAll('.app-header button')].map(el=>el.id),['use-current','history','finish','settings']);
  assert.equal(d.querySelector('.app-header img'),null);assert.equal(d.getElementById('task-menu'),null);
  assert.equal(d.getElementById('chat').contains(d.getElementById('finish')),false);
  f.calls.length=0;d.getElementById('history').click();
@@ -341,4 +341,16 @@ test('proposed browser destination asks exact host permission before adding scop
  const f=await fixture(true,m=>['task:get','task:scope-change','task:resume'].includes(m.type)?{ok:true,value:task}:undefined);
  f.calls.length=0;f.document.getElementById('browser-target-open').click();await flush();await flush();
  assert.equal(f.calls[0][0],'permission');assert.equal(f.calls[0][1].origins[0],'https://example.test/*');assert.equal(f.calls[1][1].type,'task:scope-change');assert.equal(f.calls[1][1].origin,'https://example.test');assert.equal(f.calls[2][1].type,'task:resume');
+});
+
+
+test('tab refresh keeps header nodes and permission layout while asynchronous reads are pending',async()=>{
+ let delayed=false,resolveTask;const permissionReplies=[];
+ const f=await fixture(true,m=>m.type==='task:get'?delayed?new Promise(resolve=>resolveTask=resolve):{ok:true,value:null}:undefined,false,()=>delayed?new Promise(resolve=>permissionReplies.push(resolve)):Promise.resolve(false));
+ const d=f.document,title=d.getElementById('target').firstChild,bar=d.getElementById('target').parentElement;
+ assert.equal(bar.hidden,false);assert.equal(d.getElementById('grant').hidden,false);
+ delayed=true;f.updated(9,{status:'complete'});await flush();
+ assert.equal(bar.hidden,false);assert.equal(d.getElementById('target').firstChild,title);assert.equal(d.getElementById('grant').hidden,false);
+ resolveTask({ok:true,value:null});await flush();assert.equal(d.getElementById('target').firstChild,title);assert.equal(d.getElementById('grant').hidden,false);
+ for(const resolve of permissionReplies)resolve(false);await flush();assert.equal(d.getElementById('grant').hidden,false);
 });
