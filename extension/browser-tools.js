@@ -60,27 +60,9 @@
       try{await chrome.tabs.update(tabId,{url:destination.href});}catch{dispatch='unknown';code='NAVIGATION_UNKNOWN';}
       return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch,scope:'dispatch',code,recovery:'wait',message:'导航已请求；重新观察并核对 URL，不重发结果不确定的导航'}),navigation:true};
     }
-    // Only trusted input applies CSS :hover. The session exists for one Input command on the
-    // task tab and never enables Runtime or Debugger domains; any failure keeps the synthetic result.
-    async function trustedHover(tabId,pending,result,policy,live){
-      const x=result.observed?.point?.x,y=result.observed?.point?.y;
-      if(!chrome.debugger?.attach||![x,y].every(v=>Number.isFinite(v)&&v>=0&&v<=100000))return result;
-      const fallback=reason=>({...result,observed:{...result.observed,pointer:'synthetic'},message:(result.message+'；真实鼠标未移动（'+reason+'），只发出了合成悬浮事件').slice(0,500)});
-      try{await checkOrigin(tabId,policy);if((await tab(tabId)).url!==pending.url)return fallback('页面已变化');}catch{return fallback('页面已变化');}
-      if(live&&!await live())return result;
-      const target={tabId};
-      try{await chrome.debugger.attach(target,'1.3');}catch(error){return fallback(String(error?.message||'调试连接失败').slice(0,120));}
-      try{await chrome.debugger.sendCommand(target,'Input.dispatchMouseEvent',{type:'mouseMoved',x,y,button:'none',buttons:0,pointerType:'mouse'});}
-      catch(error){return fallback(String(error?.message||'鼠标事件失败').slice(0,120));}
-      finally{try{await chrome.debugger.detach(target);}catch{ /* Tab may have closed. */ }}
-      return {...result,status:'unknown',scope:'dispatch',code:'TRUSTED_HOVER',recovery:'observe',observed:{...result.observed,pointer:'trusted'},message:'已把真实鼠标移到目标上；悬浮后出现的内容需重新观察后再操作'};
-    }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
-      try{
-        const result=T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});
-        return pending.plan?.action==='hover'&&result.dispatch==='sent'?await trustedHover(tabId,pending,result,policy,live):result;
-      }catch(error){
+      try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect
         // observation only, NEVER replay the side effect.

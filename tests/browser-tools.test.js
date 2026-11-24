@@ -87,26 +87,3 @@ test('browser metadata permits internal tabs but navigation still requires exact
  granted=true;const outcome=await tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']});assert.equal(outcome.dispatch,'sent');assert.equal(updates,1);assert.equal(messages,0);
  await assert.rejects(()=>tools.execute(1,pending,{origin:'browser',allowedOrigins:['https://example.test']}),e=>e.code==='STALE');assert.equal(updates,1);
 });
-
-test('hover moves the real mouse once through a short debugger session and falls back without replaying',async()=>{
- const T=require('../extension/tool-protocol.js');
- const make=({url='https://a.test/p',attach,send,action='hover'}={})=>{
-  const calls=[];
-  const chrome={permissions:{async contains(){return true;}},tabs:{async get(){return {url,status:'complete'};},async sendMessage(id,m){calls.push(m.type);return {ok:true,value:T.result({operationId:'op',status:'unknown',dispatch:'sent',code:'NO_CHANGE',recovery:'observe',observed:{input:action,point:{x:12,y:34}},message:'操作已发出'})};}},
-   debugger:{async attach(t,v){calls.push(['attach',t.tabId,v]);if(attach)throw Error(attach);},async sendCommand(t,method,params){calls.push([method,params.type,params.x,params.y]);if(send)throw Error(send);},async detach(t){calls.push(['detach',t.tabId]);}}};
-  return {calls,run:(live)=>createBrowserTools(chrome).execute(7,{operationId:'op',url:'https://a.test/p',plan:{action}},{origin:'https://a.test',allowedOrigins:['https://a.test']},live)};
- };
- let f=make();let r=await f.run(async()=>true);
- assert.deepEqual(f.calls,['agent:execute',['attach',7,'1.3'],['Input.dispatchMouseEvent','mouseMoved',12,34],['detach',7]]);
- assert.equal(r.code,'TRUSTED_HOVER');assert.equal(r.observed.pointer,'trusted');assert.equal(r.dispatch,'sent');
- f=make({attach:'Another debugger is already attached'});r=await f.run();
- assert.deepEqual(f.calls,['agent:execute',['attach',7,'1.3']]);assert.equal(r.code,'NO_CHANGE');assert.equal(r.observed.pointer,'synthetic');assert.match(r.message,/真实鼠标未移动/);
- f=make({send:'boom'});r=await f.run();
- assert.deepEqual(f.calls.slice(-1),[['detach',7]]);assert.equal(r.observed.pointer,'synthetic');
- f=make({url:'https://a.test/other'});r=await f.run();
- assert.deepEqual(f.calls,['agent:execute']);assert.equal(r.observed.pointer,'synthetic');
- f=make();r=await f.run(async()=>false);
- assert.deepEqual(f.calls,['agent:execute']);
- f=make({action:'click'});r=await f.run();
- assert.deepEqual(f.calls,['agent:execute']);assert.equal(r.code,'NO_CHANGE');
-});

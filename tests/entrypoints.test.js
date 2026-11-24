@@ -11,7 +11,7 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json')));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.version, '1.0.0');
-  assert.deepEqual(manifest.permissions.sort(), ['alarms', 'debugger', 'scripting', 'sidePanel', 'storage', 'tabs']);
+  assert.deepEqual(manifest.permissions.sort(), ['alarms', 'scripting', 'sidePanel', 'storage', 'tabs']);
   assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.content_scripts, undefined);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);

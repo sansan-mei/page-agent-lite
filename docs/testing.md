@@ -30,7 +30,6 @@ git diff --check
 | `scripts/form-input-smoke.cjs` | 原生 setter、beforeinput 取消、回滚、节点替换、值清洗、敏感字段授权与旧快照拒绝 |
 | `scripts/aria-select-smoke.cjs` | listbox 分组、同名选项、ARIA 状态核对 |
 | `scripts/editable-smoke.cjs` | 纯文本 contenteditable |
-| `scripts/trusted-hover-smoke.cjs` | 加载真实扩展：纯 CSS `:hover` 按钮在真实悬浮前不可见、之后可点击，断开调试后悬浮保持，已取消的运行不移动鼠标；需 Playwright 自带 Chromium（品牌版 Chrome 不加载 `--load-extension`） |
 | `scripts/hover-controls-smoke.cjs` | 可点击行内的悬浮操作（a、aria-haspopup）、visibility 覆盖与继承隐藏、真实点击 |
 | `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针 |
 | `scripts/ui-preview.cjs` | 用合成数据生成 README 预览图，检查 320/390/480px 侧栏无横向溢出 |

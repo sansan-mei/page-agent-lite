@@ -9,8 +9,7 @@
     "scripting",
     "storage",
     "sidePanel",
-    "alarms",
-    "debugger"
+    "alarms"
   ],
   "optional_host_permissions": [
     "http://*/*",

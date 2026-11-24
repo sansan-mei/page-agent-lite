@@ -18,7 +18,7 @@
 | fill | id、字符串 value | content | input / textarea / 简单 contenteditable |
 | check | id、布尔 value | content | 原生 radio / checkbox |
 | select | id、字符串 value | content | 存在且未禁用的 option |
-| hover | id | content | pointer/mouse over/enter/move，再由后台把真实鼠标移到命中点，见 [真实悬浮](#真实悬浮)；无 down/up/click |
+| hover | id | content | pointer/mouse over/enter/move，无 down/up/click |
 | scroll | value=up/down/left/right，可选容器 id | content | 600px；不传 id 滚窗口 |
 | wheel | id、value=方向 | content | 一次可取消 WheelEvent（±600 像素），只触发监听器，无原生滚动 |
 | press_key | id、value | content | keydown/keyup，见下 |
@@ -28,7 +28,7 @@
 
 - content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。不接受坐标、选择器、脚本或 HTML。
 - press_key：修饰键 Control/Alt/Shift/Meta（不可重复）；主键 Enter/Escape/Tab/Space/方向键/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a–z。不保持按下状态，不触发浏览器原生编辑/快捷键；文本用 fill。
-- 除 hover 的真实鼠标移动外，事件都是合成的，不是 `isTrusted` 输入。拖拽、长按、系统输入不支持。
+- 合成事件都不是 `isTrusted` 输入。拖拽、长按、系统输入、纯 CSS `:hover` 不支持。
 
 ## observe 快照
 
@@ -73,17 +73,6 @@ observe 的 value：
 - **contenteditable**：仅 `contenteditable` 为 true/空/plaintext-only，且只含文本节点和无属性 `<br>`。写入 textContent（≤ 4000 字符），不解析 HTML、不用 execCommand。其他结构 → `UNSUPPORTED_EDITABLE`、not_sent，不改节点。
 - **ARIA 选择控件**：先 click 打开，再按新快照选项点击。选项按 listbox 分组，名称取自身标签或唯一可见 combobox（aria-controls/aria-owns）；多个 owner 不任选。
 - **press_key / double_click / right_click**：先检查遮挡并聚焦，事件间目标、焦点或遮挡变化即中断；双击中断时第一次点击可能已生效。
-
-### 真实悬浮
-
-合成事件不会让 CSS `:hover` 生效，只靠它显示的按钮在悬浮前不在快照里。hover 因此分两步：
-
-1. 内容脚本照常滚入视野、命中检查并派发合成事件，回执 `observed.point {x,y}` 为命中点（视口 CSS 像素）。
-2. `browser-tools.js` 再核对来源、标签 URL 与运行代次，用 `chrome.debugger` 连接任务标签页（协议 1.3），只发一次 `Input.dispatchMouseEvent` mouseMoved，随即断开。不启用 Runtime/Debugger 等其他域，不执行脚本。
-
-- 成功：`code=TRUSTED_HOVER`、status=unknown、recovery=observe、`observed.pointer=trusted`。显示出的按钮须重新观察后用新 ID 操作。
-- 连接或发送失败（如已有其他调试器、页面已变化）：保留内容脚本回执，`observed.pointer=synthetic`，消息说明原因；不重试。运行已停止或替换时不移动鼠标。
-- 悬浮状态保持到用户在网页上移动鼠标、页面滚动或布局变化。连接期间浏览器会显示调试提示条。
 
 ## 导航
 
