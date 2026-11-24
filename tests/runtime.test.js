@@ -884,3 +884,20 @@ test('a URL change aborts a pending source model and its late click cannot reach
 test('origin history capacity failure pauses with the original source intact instead of retrying or trimming',async()=>{
  const f=crossFixture();await f.runtime.start(1,'Large source');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);t=await f.store.get(1);const large='x'.repeat(1000001);await f.store.set(1,{...t,results:[{result:large}]});f.state.url='https://b.test/next';await f.runtime.tick(1);const paused=await f.store.get(1);assert.equal(paused.status,'paused');assert.equal(paused.reason,'origin_storage');assert.equal(paused.origin,'https://a.test');assert.equal(paused.results[0].result,large);assert.equal(f.reads.length,0);assert.equal(f.payloads.length,0);assert.equal(paused.steps,0);
 });
+
+
+test('sensitive permission waits for explicit trusted decision and is conversation scoped',async()=>{
+ for(const allow of [true,false]){
+  const policies=[];
+  const f=fixture({model:async()=>({text:JSON.stringify({action:'request_sensitive_access',reply:'Need sensitive fields'})}),tools:{async observe(id,offset,policy){policies.push(policy);return {url:'https://example.test/1',snapshotId:'s',page:{elements:[]}};}}});
+  await f.runtime.start(1,'Fill');await f.runtime.tick(1);
+  let t=await f.runtime.get(1);const request={taskId:t.taskId,requestId:t.sensitiveRequest.id,allow};
+  assert.equal(t.status,'paused');assert.equal(t.helpAttempts||0,0);assert.equal(f.executed.length,0);assert.equal(policies[0].sensitiveFields,false);
+  await assert.rejects(()=>f.runtime.resume(1));
+  await assert.rejects(()=>f.runtime.sensitiveAccess(1,{...request,taskId:'old'}));
+  t=await f.runtime.sensitiveAccess(1,request);assert.equal(t.sensitiveAccess,allow?'allowed':'denied');
+  await assert.rejects(()=>f.runtime.sensitiveAccess(1,request));
+  if(allow){await f.runtime.tick(1);assert.equal(policies[1].sensitiveFields,true);}
+  await f.runtime.finish(1);await f.runtime.start(1,'New conversation');assert.equal((await f.runtime.get(1)).sensitiveAccess,undefined);
+ }
+});

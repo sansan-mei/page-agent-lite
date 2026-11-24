@@ -86,7 +86,7 @@ function byteSize(text){return encodeURIComponent(text).replace(/%[0-9A-F]{2}/g,
 const agentToolRegistry=(()=>{
  const records=Object.create(null);
  const add=(names,policy)=>{for(const name of names)records[name]=Object.freeze({route:'runtime',effect:'read',target:'none',timeout:false,guard:false,...policy});};
- add(['done','pause'],{effect:'control'});
+ add(['done','pause','request_sensitive_access'],{effect:'control'});
  add(['observe','verify','history_read'],{});add(['wait'],{timeout:true});
  add(['click','fill','check','select','wheel','press_key','double_click','right_click'],{route:'content',effect:'page',target:'required',timeout:true,guard:true});
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
@@ -157,13 +157,14 @@ function agentReadOptions(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||!Object.keys(value).length||Object.keys(value).some(k=>!['elementOffset','query','regionOffset','regionQuery','regionTextOffset','includeText'].includes(k))||value.regionTextOffset!==undefined&&(!Number.isSafeInteger(value.regionTextOffset)||value.regionTextOffset<0||typeof value.regionQuery!=='string'||!value.regionQuery.trim())||value.includeText!==undefined&&typeof value.includeText!=='boolean'||value.elementOffset!==undefined&&(!Number.isSafeInteger(value.elementOffset)||value.elementOffset<0)||value.regionOffset!==undefined&&(!Number.isSafeInteger(value.regionOffset)||value.regionOffset<0)||value.regionQuery!==undefined&&(typeof value.regionQuery!=='string'||!value.regionQuery.trim()||value.regionQuery.length>180)||value.query!==undefined&&(typeof value.query!=='string'||!value.query.trim()||value.query.length>180))throw new Error('Invalid element reading scope');
  return value;
 }
-function agentSnapshot(doc, textOffset=0){
+function agentSnapshot(doc, textOffset=0, policy={}){
+ const sensitiveSelector=policy.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector;
  const reading=typeof textOffset==='object'?agentReadOptions(textOffset):{};
  if(typeof textOffset==='object')textOffset=0;
  const elementOffset=reading.elementOffset||0;let matchedElements=0;
  if(!Number.isSafeInteger(textOffset)||textOffset<0)throw new Error("Invalid text offset");
  const nodes=new Map(), elements=[],regions=[],groups=[],groupNodes=new Map();let semanticBudget=4000;let contextBudget=5000,elementsComplete=true,regionsComplete=true,cssHiddenExcluded=false;
- const blocked=agentSensitiveSelector+',[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"]';
+ const blocked=sensitiveSelector+',[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"]';
  const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;const win=doc.defaultView;for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))return false;}return true;};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
  const inDialog=n=>!!n.closest(dialogSelector);
@@ -220,7 +221,7 @@ function agentSnapshot(doc, textOffset=0){
    }
    group.optionIds.push(id);
   }
-  const options=n.localName==='select'?[...n.options].filter(o=>!o.closest(agentSensitiveSelector)).map(o=>({value:o.value,label:agentText(o).slice(0,100)})).slice(0,40):undefined;
+  const options=n.localName==='select'?[...n.options].filter(o=>!o.closest(sensitiveSelector)).map(o=>({value:o.value,label:agentText(o).slice(0,100)})).slice(0,40):undefined;
   const role=n.getAttribute('role')||(editable?'textbox':null)||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
   const ariaChecked=n.getAttribute('aria-checked');
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
@@ -253,14 +254,14 @@ function agentSnapshot(doc, textOffset=0){
  const regionRange={start:Math.min(regionOffset,matchedRegions),end:Math.min(regionOffset,matchedRegions)+regions.length,total:matchedRegions,nextOffset:regionOffset+regions.length<matchedRegions?regionOffset+regions.length:null,query:reading.regionQuery||null};
  elementsComplete=!reading.query&&elementOffset===0&&matchedElements<=120;
  const elementRange={start:Math.min(elementOffset,matchedElements),end:Math.min(elementOffset,matchedElements)+elements.length,total:matchedElements,nextOffset:elementOffset+elements.length<matchedElements?elementOffset+elements.length:null,query:reading.query||null};
- const sensitiveExcluded=!!doc.querySelector(agentSensitiveSelector);
+ const sensitiveExcluded=!!doc.querySelector(sensitiveSelector);
  const hiddenExcluded=sensitiveExcluded||cssHiddenExcluded||[...doc.querySelectorAll('[hidden],[aria-hidden="true"]')].some(n=>!n.closest('[data-page-agent]'));
- return {nodes,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{sensitiveExcluded,elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
+ return {nodes,sensitiveFields:policy.sensitiveFields===true,page:{viewport:{width:doc.defaultView?.innerWidth||0,height:doc.defaultView?.innerHeight||0,...agentScrollInfo(doc.scrollingElement||doc.documentElement)},title:doc.title,scrollY:doc.defaultView?.scrollY||0,text,textRange,elementRange,regionRange,truncated:reading.includeText===false||start>0||textRange.nextOffset!==null||!elementsComplete||!regionsComplete,elements,groups,regions,coverage:{sensitiveFieldsAuthorized:policy.sensitiveFields===true,sensitiveExcluded,elementsComplete,regionsComplete,textComplete:reading.includeText!==false&&start===0&&textRange.nextOffset===null,absenceComplete:!hiddenExcluded}}};
 }
 function agentVerify(plan,snap){
  if(!['fill','check','select'].includes(plan.action))return null;
  const n=snap.nodes.get(plan.id)?.node;
- if(n?.closest(agentSensitiveSelector))return {verified:false,message:'敏感字段已排除，无法核对'};
+ if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))return {verified:false,message:'敏感字段已排除，无法核对'};
  if(!n?.isConnected)return {verified:false,message:'操作后目标被替换，尚未核实结果，需重新读取页面'};
  const editor=agentEditable(n),actual=plan.action==='check'?n.checked:editor?editor.value:n.value;
  const verified=actual===plan.value;
@@ -308,7 +309,7 @@ function agentExecute(p,snap,doc){
  if(agentTool(p.action)?.route!=='content')throw Object.assign(new Error('该工具不能在网页执行'),{code:'UNSUPPORTED_ACTION',beforeDispatch:true});
  if(p.action==='scroll'&&p.id===undefined){return agentScroll(p,doc.scrollingElement||doc.documentElement,doc,true);}
  const ref=snap.nodes.get(p.id),n=ref?.node;
- if(n?.closest(agentSensitiveSelector))throw Object.assign(new Error('目标已变为敏感字段，未执行'),{code:'STALE',beforeDispatch:true});
+ if(n?.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))throw Object.assign(new Error('目标已变为敏感字段，未执行'),{code:'STALE',beforeDispatch:true});
  if(!n?.isConnected||agentSignature(n)!==ref.signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，请重新发送指令'),{code:'STALE'});
  const win=doc.defaultView;
  for(let p=n;p;p=p.parentElement){const s=win?.getComputedStyle?.(p);if(s&&(s.display==='none'||s.visibility==='hidden'))throw Object.assign(new Error('页面目标已隐藏，请重新定位'),{code:'STALE'});}
@@ -326,7 +327,7 @@ function agentExecute(p,snap,doc){
  const editable=agentEditable(n);
  if(p.action==='fill'&&editable&&!editable.supported)throw Object.assign(new Error('此编辑器包含复杂节点，不支持纯文本替换'),{code:'UNSUPPORTED_EDITABLE',beforeDispatch:true});
  if(n.readOnly||n.getAttribute('aria-readonly')==='true')throw new Error('目标为只读字段');
- if(p.action==='fill'&&!(editable||n.localName==='textarea'||n.localName==='input'&&['text','search','email','tel','url','number','date','time','datetime-local','month','week'].includes(n.type)))throw new Error('目标不是支持的文本字段');
+ if(p.action==='fill'&&!(editable||n.localName==='textarea'||n.localName==='input'&&['text','search','email','tel','url','number','date','time','datetime-local','month','week',...(snap.sensitiveFields===true?['password']:[])].includes(n.type)))throw new Error('目标不是支持的文本字段');
  if(p.action==='select'&&(n.localName!=='select'||![...n.options].some(o=>o.value===p.value&&!o.disabled)))throw new Error('下拉选项无效');
  const proto=n.localName==='textarea'?win.HTMLTextAreaElement?.prototype:n.localName==='select'?win.HTMLSelectElement?.prototype:win.HTMLInputElement?.prototype;
  const setter=proto&&Object.getOwnPropertyDescriptor(proto,'value')?.set;
@@ -337,7 +338,7 @@ function agentExecute(p,snap,doc){
  }
  const inputType=n.type;
  const intact=()=>{
-  if(!n.isConnected||n.disabled||n.readOnly||n.closest(agentSensitiveSelector)||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
+  if(!n.isConnected||n.disabled||n.readOnly||n.closest(snap.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector)||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||n.localName==='input'&&n.type!==inputType||editable&&!agentEditable(n)?.supported||n.getAttribute('aria-readonly')==='true')throw Object.assign(new Error('输入事件期间目标变化，已停止后续事件'),{code:'TARGET_CHANGED'});
   for(let parent=n;parent;parent=parent.parentElement){const style=win.getComputedStyle?.(parent);if(style&&(style.display==='none'||style.visibility==='hidden'))throw Object.assign(new Error('输入目标已隐藏，已停止后续事件'),{code:'TARGET_CHANGED'});}
  };
  n.focus?.({preventScroll:true});intact();

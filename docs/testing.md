@@ -27,7 +27,7 @@ git diff --check
 |---|---|
 | `scripts/browser-smoke.cjs` | 完整扩展链路：任务、填写/点击、翻页、导航与跨来源、等待阶段 worker 终止、丢回执不重发、记忆与浏览器重启、历史、范围、成员关闭、诊断 |
 | `scripts/page-read-smoke.cjs` | 分页/查找、区域读取与核对、敏感字段排除、离屏点击 |
-| `scripts/form-input-smoke.cjs` | 原生 setter、beforeinput 取消、回滚、节点替换、值清洗 |
+| `scripts/form-input-smoke.cjs` | 原生 setter、beforeinput 取消、回滚、节点替换、值清洗、敏感字段授权与旧快照拒绝 |
 | `scripts/aria-select-smoke.cjs` | listbox 分组、同名选项、ARIA 状态核对 |
 | `scripts/editable-smoke.cjs` | 纯文本 contenteditable |
 | `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针 |

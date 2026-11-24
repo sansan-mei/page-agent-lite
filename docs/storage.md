@@ -28,6 +28,7 @@
 |---|---|
 | version=3、taskId、token | 身份与运行代次 |
 | initialTabId、activeTabId、initialOrigin、origin/activeOrigin | 执行标签页：初始与活动标签相同（尚无切换）；origin 只能经 `switchOrigin` 修改 |
+| sensitiveAccess、sensitiveRequest | 本对话敏感字段决策（allowed/denied，缺省未确认）及待确认 id/text；来源切换保留决策，新对话不继承 |
 | allowedOrigins、scopeRevision | 任务站点范围（≤ 16 个完整 origin）及版本 |
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的执行标签页，其余为 kind=user_joined；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
 | goal、instructions | 原目标；带时间的补充指令（≤ 12000 字符） |

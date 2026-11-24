@@ -149,7 +149,7 @@
         t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:'tab0',request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
     }
-    const policyFor=t=>({origin:t.origin,allowedOrigins:t.allowedOrigins||[t.origin],scopeRevision:t.scopeRevision});
+    const policyFor=t=>({origin:t.origin,allowedOrigins:t.allowedOrigins||[t.origin],scopeRevision:t.scopeRevision,sensitiveFields:t.sensitiveAccess==='allowed'});
     const inScope=t=>(t.allowedOrigins||[t.origin]).includes(t.origin);
     async function scopePause(task,reason,message=null){
       controllerForTab(task.tabId)?.abort();
@@ -191,6 +191,18 @@
         if(!t.check&&t.phase!=='executing'){t.phase='observe';t.pending=null;}
         await store.set(tabId,t);return t;
       });if(saved)schedule(tabId);
+    }
+    async function sensitiveAccess(tabId,{taskId,requestId,allow}){
+      const saved=await serial(tabId,async()=>{
+        const t=await store.get(tabId);
+        if(!t||t.taskId!==taskId||t.status!=='paused'||t.reason!=='sensitive_access'||!t.sensitiveRequest||t.sensitiveRequest.id!==requestId||typeof allow!=='boolean')throw new Error('敏感字段确认已过期');
+        if(new URL((await tools.tab(tabId)).url).origin!==t.origin)throw new Error('网页来源已变化，请返回任务网站');
+        controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
+        t.token=uuid();t.sensitiveAccess=allow?'allowed':'denied';t.sensitiveRequest=null;t.phase='observe';t.nextObservation=null;t.pending=null;t.check=null;t.waitDeadline=null;
+        t.status=allow?'running':'paused';t.reason=allow?null:'sensitive_access_denied';
+        event(t,allow?'已授权本次对话读取和操作敏感字段；重新观察':'未授权，本次对话继续屏蔽敏感字段');await store.set(tabId,t);return t;
+      });
+      if(allow)schedule(tabId);return saved;
     }
     async function changeOrigins(tabId,operation){
       return serial(tabId,async()=>{
@@ -321,6 +333,7 @@
     }
     async function resume(tabId) {
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
+      if(task.sensitiveRequest&&task.reason==='sensitive_access')throw new Error('请先选择是否授权本次对话操作敏感字段');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
       const page=await tools.tab(tabId);
       if(new URL(page.url).origin!==task.origin){const moved=await adoptOrigin(task,page);if(!moved)throw new Error('请核对任务范围和原站点未确定操作后再继续');schedule(tabId);return moved;}
@@ -504,6 +517,12 @@
           task=await update(tabId,token,t=>{t.taskPlan=merged;});if(!task||!await live())return;
         }
         if(!['done','pause'].includes(plan.action))call={request:plan,time:Date.now()};
+        if(plan.action==='request_sensitive_access'){
+          await update(tabId,token,t=>{t.status='paused';t.reason='sensitive_access';t.phase='observe';t.pending=null;t.check=null;t.nextObservation=null;
+            if(t.sensitiveAccess!=='allowed'&&t.sensitiveAccess!=='denied')t.sensitiveRequest={id:uuid(),text:plan.reply};
+            event(t,t.sensitiveAccess==='denied'?'本次对话已拒绝敏感字段授权':t.sensitiveAccess==='allowed'?'本次对话已授权敏感字段，请继续重新观察':plan.reply);
+          });return;
+        }
         if(plan.action==='pause'){
           if(plan.choices){await update(tabId,token,t=>{t.status='paused';t.reason='question';t.pending=null;t.check=null;t.waitDeadline=null;t.question={id:uuid(),text:plan.reply,options:plan.choices};event(t,plan.reply);});return;}
           if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<3){
@@ -751,7 +770,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

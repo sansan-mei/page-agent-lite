@@ -33,7 +33,7 @@
       if(!response?.ok){const e=new Error(response?.error||'页面工具通信失败');e.code=response?.code||(response?.ok===false?'TOOL_ERROR':undefined);e.result=response?.result;throw e;}return response.value;
     }
     async function observe(tabId,textOffset=0,policy=null){
-      const message={type:'agent:observe',textOffset,...(policy?.origin?{expectedOrigin:policy.origin}:{})};
+      const message={type:'agent:observe',textOffset,...(policy?.sensitiveFields===true?{sensitiveFields:true}:{}),...(policy?.origin?{expectedOrigin:policy.origin}:{})};
       await checkOrigin(tabId,policy);
       try{return await call(tabId,message);}catch(error){
         if(error.code)throw error;
@@ -61,7 +61,7 @@
     }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
-      try{return T.normalize(await call(tabId,{type:'agent:execute',...pending}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
+      try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect
         // observation only, NEVER replay the side effect.
@@ -73,11 +73,11 @@
     }
     async function verify(tabId,operation,policy=null){
       await checkOrigin(tabId,policy);
-      try{return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));}
+      try{return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));}
       catch(error){
         if(error.code)throw error;
         await observe(tabId,0,policy);
-        return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));
+        return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));
       }
     }
     async function clearPointer(tabId){try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }}

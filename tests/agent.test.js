@@ -282,3 +282,16 @@ test('named region text segments reach the tail and never make partial absence c
  document.querySelector('section').textContent='updated';assert.equal(C.agentSnapshot(document,{regionQuery:'Report',regionTextOffset:0}).page.regions[0].text,'updated');
  for(const value of [{regionTextOffset:0},{regionTextOffset:-1,regionQuery:'Report'},{regionTextOffset:1.5,regionQuery:'Report'},{regionTextOffset:0,regionQuery:''}])assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Read',action:'observe',value}),first));
 });
+
+
+test('sensitive inputs require snapshot authorization and file/hidden stay excluded',()=>{
+ const {document}=parseHTML('<html><body><input type="password" aria-label="Password" value="secret"><input type="text" autocomplete="cc-number" aria-label="Card" value="123"><input type="file"><input type="hidden" value="hidden"></body></html>');
+ assert.equal(C.agentSnapshot(document).page.elements.length,0);
+ const snap=C.agentSnapshot(document,0,{sensitiveFields:true});
+ assert.equal(snap.page.coverage.sensitiveFieldsAuthorized,true);
+ assert.deepEqual(snap.page.elements.map(e=>e.label),['Password','Card']);
+ const card=snap.page.elements.find(e=>e.label==='Card');
+ C.agentExecute({action:'fill',id:card.id,value:'456'},snap,document);
+ assert.equal(C.agentVerify({action:'fill',id:card.id,value:'456'},snap).verified,true);
+ assert.equal(C.agentSnapshot(document).page.elements.length,0);
+});

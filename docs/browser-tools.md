@@ -46,7 +46,7 @@
 - 识别的交互元素：原生控件、role=link/menuitem/switch/combobox/option/tab、onclick、非负 tabindex、pointer 样式边界。onclick 只用于识别，不读取执行。标签来自 label、aria-labelledby、title。
 - 元素可带 `scroll {x,y,maxX,maxY}`、expanded/selected/haspopup、`controlledLabels`、`editable`（plain_text / unsupported_structure）、`context {path, description}`。
 - `coverage` 分别标注元素、区域、正文是否完整；`page.viewport` 给出窗口尺寸与滚动范围。没读到不等于不存在。
-- 排除：密码/文件/隐藏字段、`autocomplete` 含 current-password/new-password/one-time-code/cc-number/cc-csc 的元素及子树（不区分大小写，支持 section-/billing 前缀）、hidden/aria-hidden、display:none/visibility:hidden、扩展自身 UI。存在敏感排除时 `coverage.sensitiveExcluded=true`。这不是全面脱敏。
+- 默认排除：密码/文件/隐藏字段、`autocomplete` 含 current-password/new-password/one-time-code/cc-number/cc-csc 的元素及子树（不区分大小写，支持 section-/billing 前缀）、hidden/aria-hidden、display:none/visibility:hidden、扩展自身 UI。存在敏感排除时 `coverage.sensitiveExcluded=true`。这不是全面脱敏。可信后台传入本对话的敏感字段授权时，允许密码及上述 autocomplete 字段；文件、隐藏字段始终排除。授权绑定快照，执行消息的授权不一致则拒绝旧快照。模型只能用 `request_sensitive_access` 请求侧栏确认，不能自行授权；交互见 [使用指南](usage.md#敏感字段授权)。
 
 ### 分段读取
 

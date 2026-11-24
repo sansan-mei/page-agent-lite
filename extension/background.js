@@ -95,6 +95,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       if(m.type==='task:get')return runtime.get(m.tabId);
+      if(m.type==='task:sensitive-access')return runtime.sensitiveAccess(m.tabId,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
       if(m.type==='task:members')return runtime.members(m.tabId,m.taskId);
       if(m.type==='task:member-change')return runtime.changeMembers(m.tabId,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
       if(m.type==='task:scope-change')return runtime.changeOrigins(m.tabId,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});

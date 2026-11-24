@@ -75,6 +75,10 @@
     $('conversation').hidden=historyOpen;$('history-view').hidden=!historyOpen;
     $('history').setAttribute('aria-expanded',String(historyOpen));
     $('composer').hidden=historyOpen;
+    const sensitiveRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='sensitive_access'?current.sensitiveRequest:null;
+    $('sensitive-confirmation').hidden=!sensitiveRequest;
+    $('sensitive-reason').textContent=sensitiveRequest?.text||'';
+    $('sensitive-allow').disabled=busy||!sensitiveRequest;$('sensitive-deny').disabled=busy||!sensitiveRequest;
     const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
     if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
@@ -249,6 +253,7 @@
     catch(e){$('status').textContent=e.message;}
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
+  for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
   function editScope(action,origin){
     if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;
     const target=tabId,taskId=task.taskId,expectedRevision=task.scopeRevision,view=selection,draft=$('scope-origin').value;

@@ -38,6 +38,19 @@ const path=require('node:path');
   assert.equal(results.events.length,2);assert.equal(results.cancel.code,'INPUT_CANCELLED');assert.equal(results.cancel.result.dispatch,'unknown');assert.equal(results.cancelValue,'old');assert.equal(results.rollback.value.status,'not_satisfied');
   assert.equal(results.replace.code,'TARGET_CHANGED');assert.equal(results.replaceInput.code,'TARGET_CHANGED');assert.equal(results.invalidDate.code,'INVALID_FIELD_VALUE');assert.equal(results.invalidDate.result.dispatch,'not_sent');assert.equal(results.keptDate,'2026-11-23');assert.equal(results.date.value.status,'success');
   assert.equal(results.invalidNumber.code,'INVALID_FIELD_VALUE');assert.equal(results.keptNumber,'7');assert.equal(results.number.value.status,'success');
+  const sensitive=await page.evaluate(async()=>{
+   const send=message=>new Promise(resolve=>formListener(message,{id:'test',url:'chrome-extension://test/background.js'},resolve));
+   const input=document.createElement('input');input.type='password';input.setAttribute('aria-label','Sensitive password');input.value='old';document.body.append(input);
+   const before=(await send({type:'agent:observe'})).value;
+   const snap=(await send({type:'agent:observe',sensitiveFields:true})).value;
+   const id=snap.page.elements.find(e=>e.label==='Sensitive password').id;
+   const operation={type:'agent:execute',url:snap.url,documentId:snap.documentId,snapshotId:snap.snapshotId,plan:{reply:'Fill',action:'fill',id,value:'example-only'}};
+   const denied=await send(operation);
+   const filled=await send({...operation,sensitiveFields:true});
+   const after=(await send({type:'agent:observe'})).value;
+   return {before:before.page.elements.some(e=>e.label==='Sensitive password'),denied,filled,value:input.value,after:after.page.elements.some(e=>e.label==='Sensitive password')};
+  });
+  assert.equal(sensitive.before,false);assert.equal(sensitive.denied.code,'STALE');assert.equal(sensitive.denied.result.dispatch,'not_sent');assert.equal(sensitive.filled.value.status,'success');assert.equal(sensitive.value,'example-only');assert.equal(sensitive.after,false);
   console.log('Form browser checks passed: native setters, controlled input/textarea, InputEvent payload, focus, cancellation, asynchronous rollback, replacement boundaries, valid/invalid dates.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

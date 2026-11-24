@@ -54,6 +54,7 @@
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停 |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
+| request_sensitive_access | 暂停为 sensitive_access，等待可信侧栏确认；确认后轮换代次，重新观察；拒绝保留屏蔽并暂停，不占自主恢复次数 |
 | 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
 未确定动作按原文档 + 节点 key（缺失时用语义描述）记入 `uncertainClicks`（最多 2 条），覆盖点击、键鼠输入和 fill/check/select，防止重新规划后重复执行。

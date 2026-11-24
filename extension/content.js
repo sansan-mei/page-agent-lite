@@ -4,8 +4,8 @@
   globalThis.__pageAgentTools = true;
   const C=globalThis.PageAgentCore,G=globalThis.PageAgentConditions,T=globalThis.PageAgentProtocol;
   const documentId=crypto.randomUUID();
-  let snapshot=null,snapshotId=null,executing=false;
-  function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset),documentId,url:location.href};}
+  let snapshot=null,snapshotId=null,executing=false,sensitiveFields=false;
+  function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset,{sensitiveFields}),documentId,url:location.href};}
   function captureForChecks(expected){
     G.validate(expected);
     const current=capture(),regions=new Map(current.page.regions.map(r=>[r.key,r]));
@@ -39,6 +39,9 @@
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});
+      const authorized=message.sensitiveFields===true;
+      if(message.type==='agent:execute'&&snapshot?.sensitiveFields!==authorized)throw Object.assign(new Error('敏感字段授权已变化，请重新观察'),{code:'STALE'});
+      sensitiveFields=authorized;
       if(message.type==='agent:observe'){
         snapshot=capture(message.textOffset??0);snapshotId=crypto.randomUUID();
         return {snapshotId,documentId,url:location.href,readyState:document.readyState,page:snapshot.page};
@@ -67,7 +70,7 @@
           evidence:check?.evidence||[],observed:verification?{actual:verification.actual??null}:interaction||null,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
           message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'操作已发出，暂未观察到页面变化':'操作已发出，页面有变化；具体效果待核对'});
         return {...r,verification,navigation:false};
-      }finally{executing=false;}
+      }finally{executing=false;sensitiveFields=false;}
     })().then(value=>respond({ok:true,value}),error=>{
       const result=T.failure(error,{operationId:message.operationId,documentId,dispatch:dispatched&&error.code!=='STALE'&&!error.beforeDispatch?'unknown':'not_sent'});
       respond({ok:false,error:result.message,code:result.code,result});

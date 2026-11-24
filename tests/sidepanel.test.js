@@ -314,3 +314,15 @@ test('task tab directory loads only on gesture, renders untrusted titles as text
  d.querySelector('#member-list button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();
  assert.equal(changes[1].action,'remove');assert.equal(changes[1].tabRef,'tab1');assert.match(d.getElementById('member-status').textContent,/未关闭/);
 });
+
+
+test('sensitive confirmation displays model reason as text and sends explicit decision',async()=>{
+ for(const allow of [true,false]){
+  const task={taskId:'sensitive-task',origin:'https://example.test',goal:'Fill',status:'paused',reason:'sensitive_access',phase:'observe',steps:1,prefs:{},results:[],events:[],sensitiveRequest:{id:'request-1',text:'<b>Need card</b>'}};
+  const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:sensitive-access'?{ok:true,value:{...task,sensitiveRequest:null}}:undefined);
+  const box=f.document.getElementById('sensitive-confirmation');assert.equal(box.hidden,false);
+  assert.equal(f.document.getElementById('sensitive-reason').textContent,'<b>Need card</b>');assert.equal(box.querySelector('b'),null);
+  f.document.getElementById(allow?'sensitive-allow':'sensitive-deny').click();await flush();
+  const sent=f.calls.find(c=>c[1]?.type==='task:sensitive-access')[1];assert.equal(sent.allow,allow);assert.equal(sent.taskId,task.taskId);assert.equal(sent.requestId,'request-1');assert.equal(box.hidden,true);
+ }
+});
