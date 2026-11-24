@@ -1,0 +1,64 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的 tag，例如 v1.0.1（为旧 tag 补发 Release）
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Check out the tag, keeping release tooling from the workflow commit
+        run: |
+          git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null || { echo "::error::Tag $TAG does not exist"; exit 1; }
+          git checkout -q "$TAG"
+          git checkout -q "$GITHUB_SHA" -- scripts/release-check.cjs scripts/store-shots.cjs
+          git merge-base --is-ancestor "$TAG" origin/main || { echo "::error::$TAG is not on main"; exit 1; }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Check versions and CHANGELOG
+        run: node scripts/release-check.cjs "$TAG" --notes "$RUNNER_TEMP/notes.md"
+      - name: Run tests
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          for file in extension/*.js; do node --check "$file"; done
+          npm test
+      - name: Package extension/ as-is
+        run: |
+          mkdir -p dist
+          git archive --format=zip -o "dist/page-agent-lite-${TAG#v}.zip" "$TAG:extension"
+          unzip -l "dist/page-agent-lite-${TAG#v}.zip" | tail -1
+      - name: Render store screenshots
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y -qq fonts-noto-cjk >/dev/null
+          node scripts/store-shots.cjs
+          (cd dist/store && zip -q "../page-agent-lite-${TAG#v}-store-images.zip" *.png)
+      - name: Publish GitHub Release
+        run: |
+          files=("dist/page-agent-lite-${TAG#v}.zip" "dist/page-agent-lite-${TAG#v}-store-images.zip")
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" --title "Page Agent Lite $TAG" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          fi

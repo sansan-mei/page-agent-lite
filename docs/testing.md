@@ -42,7 +42,7 @@ git diff --check
 
 ## CI
 
-`.github/workflows/ci.yml`：`test` job 跑 `node --check extension/*.js` 和 `npm test`；`smoke` job 安装 Playwright Chromium 跑 `browser-smoke.cjs`，上传 `tests/browser-output/`。`.github/workflows/pages.yml` 只部署 `site/` 宣传页，不跑测试。
+`.github/workflows/ci.yml`：`test` job 跑 `node --check extension/*.js` 和 `npm test`；`smoke` job 安装 Playwright Chromium 跑 `browser-smoke.cjs`，上传 `tests/browser-output/`。`.github/workflows/pages.yml` 只部署 `site/` 宣传页，不跑测试。`.github/workflows/release.yml` 在推送 `v*` tag 时用 `scripts/release-check.cjs` 核对版本与 CHANGELOG，再跑 `npm test` 后打包发布。
 
 ## 尚未验证
 

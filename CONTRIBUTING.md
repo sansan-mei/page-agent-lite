@@ -18,6 +18,13 @@
 - 商店截图：`PAGE_AGENT_CHROMIUM=<chrome 路径> node scripts/store-shots.cjs`，输出中英文 1280×800 截图和 440×280、1400×560 宣传图到 `dist/store/`；`?shot=<区块 class>` 单独渲染某个区块。
 - 上架后把 `site/main.js` 的 `STORE_URL` 改成商店地址，按钮会变成「免费添加到 Chrome」。
 
+## 发版
+
+1. 把 `extension/manifest.json`、`package.json`、`package-lock.json` 的版本改成同一个新版本；把 `CHANGELOG.md` 的「未发布」内容移到 `## <版本>（日期）` 下。
+2. 合入 `main` 后打 tag 并推送：`git tag -a v1.0.1 -m "v1.0.1" && git push origin v1.0.1`。
+3. `.github/workflows/release.yml` 自动核对版本与 CHANGELOG、跑测试，把 `extension/` 原样打成 zip、生成商店截图，并发布到 GitHub Release；版本对不上会直接失败，不会发布。旧 tag 可在 Actions 页手动运行该 workflow 补发。
+4. 从 Release 下载 zip 上传到 Chrome 应用商店（暂未自动上传）。
+
 ## 提交问题
 
 请提供浏览器版本、扩展版本、重现步骤、预期与实际结果。截图与日志先移除 API 密钥、Cookie、个人信息及站点敏感内容。安全漏洞不要公开提交，见 [SECURITY.md](SECURITY.md)。
