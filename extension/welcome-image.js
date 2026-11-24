@@ -32,7 +32,7 @@
       const savingRevision = revision;
       await storage.set({welcomeImage: value});
       if (revision === savingRevision) { revision++; show(value); }
-      status.textContent = value ? '主图已保存，侧栏同步生效。图片仅保存在本机。' : '已恢复默认鲸鱼娘主图。';
+      status.textContent = value ? '主图已保存，侧栏同步生效。图片仅保存在本机。' : '已恢复默认主图。';
     } catch (error) { status.textContent = error.message || '主图保存失败，请重试。'; }
     finally { busy = false; controls(); if (file) file.value = ''; }
   }

@@ -71,6 +71,6 @@
 
 ## 许可与参考
 
-代码采用 [MIT License](LICENSE)。侧栏鲸鱼娘插画单独采用 CC BY-NC-SA 4.0（署名、非商业、相同方式共享），不属于 MIT 授权，见 [素材说明](extension/licenses/README.md)。
+代码采用 [MIT License](LICENSE)。侧栏默认插画单独采用 CC BY-NC-SA 4.0（署名、非商业、相同方式共享），不属于 MIT 授权，见 [素材说明](extension/licenses/README.md)。
 
 运行器与上下文设计参考了 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的公开文档，网页执行能力参考了 [alibaba/page-agent](https://github.com/alibaba/page-agent)；本项目不依赖它们的运行时。
