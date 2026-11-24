@@ -92,4 +92,11 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 #scope-origins button {flex:none;}
 #scope-form label {display:block;margin-bottom:6px;}
 #scope-form input {width:100%;box-sizing:border-box;}
+#task-members h3 {margin:12px 0 4px;font-size:12px;}
+#member-list {list-style:none;padding:0;}
+#member-list li {display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;overflow-wrap:anywhere;}
+#member-list span {min-width:0;}
+#member-list button {flex:none;}
+#member-form label {display:block;margin:6px 0;}
+#member-form select {width:100%;box-sizing:border-box;margin-bottom:6px;}
 #scope-add {margin-top:8px;}

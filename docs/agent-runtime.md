@@ -96,7 +96,17 @@
 
 ## 成员关闭
 
-`tabs.onRemoved` → `runtime.memberClosed(tabId)`：立即 abort，再在队列内取消调度并调用 `store.closeMember`，归档为 ended/`member_closed`，保留 pending/check 作为未知证据；迟到回执不能回写或重新派发。启动 recover 先取浏览器标签 ID 清单，缺失的成员走同一路径；清单查询失败则不推断关闭。当前只支持单成员。
+`tabs.onRemoved` → `runtime.memberClosed(tabId)`：
+
+- 执行标签页：立即 abort，再在队列内取消调度并调用 `store.closeMember`，归档为 ended/`member_closed`，保留 pending/check 作为未知证据，并释放所有加入的成员；迟到回执不能回写或重新派发。
+- 用户加入的成员标签页：只从目录移除（`changeMembers` closed），任务状态、token 与预算不变。
+- 启动 recover 先取浏览器标签 ID 清单，缺失的执行标签页和成员走同一路径；清单查询失败则不推断关闭。
+
+## 成员目录
+
+- `members(tabId, taskId)`（仅可信侧栏）：返回成员目录（tabRef、类型、是否打开、当前 origin、≤ 80 字符标题、是否在任务范围）和可加入的 HTTP/HTTPS 标签页（≤ 50，标记是否被占用）。不进入模型上下文。
+- `changeMembers`：核对 taskId 与 membersRevision；加入前向浏览器确认标签仍打开且为 HTTP/HTTPS；只能移出 user_joined 成员，移出不关闭网页。
+- 模型仍只在执行标签页读取和操作，成员标签页不读取、不注入；切换执行标签页与 open/close 未实现，见 [多成员任务设计](plans/task-scope-v3.md)。
 
 ## 诊断
 

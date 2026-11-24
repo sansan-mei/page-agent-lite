@@ -205,6 +205,41 @@
         return store.changeOrigins(tabId,{...operation,token:uuid(),updatedAt:now()});
       });
     }
+    function tabView(tab,allowed){
+      let origin=null;try{const url=new URL(tab.url);if(['http:','https:'].includes(url.protocol))origin=url.origin;}catch{ /* Non-web tabs have no origin. */ }
+      return {origin,title:String(tab.title||'').slice(0,80),authorized:!!origin&&allowed.includes(origin)};
+    }
+    // Trusted side-panel directory: current members plus joinable open web tabs. Not sent to the model.
+    async function members(tabId,taskId){
+      const task=await store.get(tabId);
+      if(!task||task.taskId!==taskId)throw new Error('任务已变化，请刷新后重试');
+      const tabs=tools.listTabs?await tools.listTabs():[],byId=new Map(tabs.map(tab=>[tab.id,tab])),allowed=task.allowedOrigins||[task.origin];
+      const directory=(task.members||[]).map(member=>{const tab=byId.get(member.tabId);return {tabRef:member.tabRef,kind:member.kind,tabId:member.tabId,active:member.tabId===tabId,open:!!tab,...(tab?tabView(tab,allowed):{origin:null,title:'',authorized:false})};});
+      const joined=new Set(directory.map(member=>member.tabId)),candidates=[];
+      for(const tab of tabs){
+        if(joined.has(tab.id)||candidates.length>=50)continue;
+        const view=tabView(tab,allowed);if(!view.origin)continue;
+        candidates.push({tabId:tab.id,...view,occupied:!!await store.owner(tab.id)});
+      }
+      return {taskId,membersRevision:task.membersRevision??0,members:directory,candidates};
+    }
+    async function changeMembers(tabId,operation){
+      return serial(tabId,async()=>{
+        const task=await store.get(tabId);
+        if(!task||task.taskId!==operation.taskId||!Number.isSafeInteger(operation.expectedMembersRevision)||(task.membersRevision??0)!==operation.expectedMembersRevision)throw new Error('任务标签页已变化，请刷新后重试');
+        if(operation.action==='join'){
+          if(['ended','completed'].includes(task.status))throw new Error('任务已结束，不能加入标签页');
+          if(!Number.isInteger(operation.memberTabId)||operation.memberTabId<0||operation.memberTabId===tabId)throw new Error('标签页无效');
+          const member=await tools.tab(operation.memberTabId);if(!tabView(member,[]).origin)throw Object.assign(new Error('该页面不支持加入，请选择普通 HTTP/HTTPS 网页'),{code:'UNSUPPORTED_PAGE'});
+          return store.changeMembers(tabId,{taskId:task.taskId,expectedMembersRevision:operation.expectedMembersRevision,action:'join',memberTabId:operation.memberTabId,updatedAt:now()});
+        }
+        if(operation.action==='remove'){
+          if(typeof operation.tabRef!=='string'||!/^tab\d{1,3}$/.test(operation.tabRef))throw new Error('标签页标识无效');
+          return store.changeMembers(tabId,{taskId:task.taskId,expectedMembersRevision:operation.expectedMembersRevision,action:'remove',tabRef:operation.tabRef,updatedAt:now()});
+        }
+        throw new Error('成员操作无效');
+      });
+    }
     async function reviewPermissions(){
       if(!tools.hasOriginAccess)return;
       for(const task of await store.list()){
@@ -691,6 +726,12 @@
     async function memberClosed(tabId){
       // Abort synchronously before waiting for storage or a running update.
       controllerForTab(tabId)?.abort();
+      const owner=store.owner?await store.owner(tabId):null;
+      if(owner?.role==='member'){
+        // A joined, non-executing member only leaves the directory; the task keeps running.
+        await store.removeMemory(tabId);if(owner.taskTabId===null)return null;
+        return serial(owner.taskTabId,()=>store.changeMembers(owner.taskTabId,{taskId:owner.taskId,action:'closed',memberTabId:tabId,updatedAt:now()}));
+      }
       return serial(tabId,async()=>{
         const task=await store.get(tabId);
         await cancelSchedule(tabId);
@@ -706,10 +747,11 @@
       const existing=tools.existingTabIds?new Set(await tools.existingTabIds()):null;
       for(const task of await store.list()){
         if(existing&&!existing.has(task.tabId)){await memberClosed(task.tabId);continue;}
+        if(existing)for(const member of task.members||[])if(member.kind==='user_joined'&&!existing.has(member.tabId))await memberClosed(member.tabId);
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,changeOrigins,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
