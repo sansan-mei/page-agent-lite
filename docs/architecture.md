@@ -35,6 +35,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `sidepanel.*` | 对话、工具卡片、历史、任务范围、接管；没有执行循环 | [使用指南](usage.md) |
 | `options.*`、`management.js`、`global-management.js` | 设置页；网站/临时记忆管理；全局记忆管理 | [使用指南](usage.md) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
+| `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
 | `article-tools.js` | 已退役文章面板的兼容源码，无入口、不自动注入 | — |
 | `dev/`（不在 `extension/`） | 本地开发版专用 `run_script`，由 `npm run build:dev` 叠加到 `dist/extension-dev/` | [网页工具](browser-tools.md#开发版-run_script) |
 

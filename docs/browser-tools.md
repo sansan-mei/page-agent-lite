@@ -125,7 +125,7 @@ observe 的 value：
 
 仅 `npm run build:dev` 生成的 `dist/extension-dev/`（本地加载，不上架）提供；商店包 `extension/` 没有该动作和 `userScripts` 权限。
 
-- 构建：`scripts/build-dev.cjs` 原样复制 `extension/`，加入 `dev/dev-tools.js`、`dev/background-dev.js`；manifest 名称加「(Dev)」（版本号不变）、增加 `userScripts` 权限、worker 入口改为 `background-dev.js`（先加载 dev-tools 再加载 background）。
+- 构建：`scripts/build-dev.cjs` 原样复制 `extension/`，加入 `dev/dev-tools.js`、`dev/background-dev.js`；名称加「(Dev)」（manifest 用 `__MSG_extName__` 时改写各 `_locales` 的 `extName`；版本号不变）、增加 `userScripts` 权限、worker 入口改为 `background-dev.js`（先加载 dev-tools 再加载 background）。
 - 注册：`core.js` 建表时读取已加载的 `PageAgentDevTools.registry`，之后仍冻结；提示词末尾追加开发版说明。内容脚本不加载 dev-tools，网页执行器照旧拒绝该动作。
 - 参数：value 为代码字符串（≤ 20000 字符）或 `{code, world}`，world 为 `USER_SCRIPT`（默认，隔离环境、可访问 DOM、不受网页 CSP 限制）或 `MAIN`（可访问网页 JS 全局）；不接受 id。代码作为 async 函数体在当前标签顶层框架执行，`return` 的值转成字符串返回。
 - 执行：校验来源与主机权限、标签 URL 与快照一致后调用一次 `chrome.userScripts.execute`；USER_SCRIPT 环境设置为允许 eval。结果 `SCRIPT_RESULT`（`observed.result` ≤ 4000 字符，`truncated`、`world`）、`SCRIPT_ERROR`（`observed.error`）、`SCRIPT_TIMEOUT`（30 秒未返回，status=unknown，不重发）。dispatch=sent、recovery=observe，执行后重新观察。

@@ -1,0 +1,788 @@
+{
+  "extName": {
+    "message": "Page Agent Lite · 浏览器助手"
+  },
+  "extDescription": {
+    "message": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事务"
+  },
+  "actionTitle": {
+    "message": "打开 Page Agent Lite"
+  },
+  "htmlLang": {
+    "message": "zh-CN"
+  },
+  "spHistory": {
+    "message": "历史记录"
+  },
+  "spNewChatTitle": {
+    "message": "结束当前任务并输入新目标"
+  },
+  "spNewChat": {
+    "message": "新对话"
+  },
+  "spSettingsTitle": {
+    "message": "设置与记忆管理"
+  },
+  "spSettings": {
+    "message": "设置"
+  },
+  "spConnecting": {
+    "message": "正在连接当前标签页…"
+  },
+  "spGrantSite": {
+    "message": "授权当前网站"
+  },
+  "spGrantAll": {
+    "message": "授权全部网页"
+  },
+  "spUseCurrentTab": {
+    "message": "使用当前标签页"
+  },
+  "spConversationLabel": {
+    "message": "当前任务对话"
+  },
+  "spWelcomeTitle": {
+    "message": "浏览器里的事，交给我"
+  },
+  "spWelcomeText": {
+    "message": "找网页、读内容、填表单，从一句话开始。"
+  },
+  "spGoalLabel": {
+    "message": "你的目标"
+  },
+  "spTaskTabs": {
+    "message": "任务标签页"
+  },
+  "spScopeHint": {
+    "message": "助手可按任务需要直接打开网站；仅缺少浏览器网站权限时请求授权。"
+  },
+  "spScopeOriginLabel": {
+    "message": "添加完整站点来源"
+  },
+  "spScopeAdd": {
+    "message": "授权并加入任务"
+  },
+  "spMembersHint": {
+    "message": "加入后归本任务所有，其他任务不能使用；助手目前仍只在执行标签页读取和操作。移出不会关闭网页。"
+  },
+  "spMembersRefresh": {
+    "message": "查看与加入标签页"
+  },
+  "spOpenPages": {
+    "message": "已打开的网页"
+  },
+  "spMemberAdd": {
+    "message": "加入任务"
+  },
+  "spSensitiveTitle": {
+    "message": "授权本次对话操作敏感字段？"
+  },
+  "spSensitiveText": {
+    "message": "授权后，密码、验证码、卡号及安全码等字段内容可能发送至你配置的模型服务，并随任务记录保留在本次浏览器会话内。仅对本次对话生效，不代表授权订阅或付款。"
+  },
+  "spSensitiveAllow": {
+    "message": "授权本次对话"
+  },
+  "spSensitiveDeny": {
+    "message": "不授权"
+  },
+  "spBrowserTargetText": {
+    "message": "任务未完成：尚未打开目标网站，需要浏览器网站权限。"
+  },
+  "spBrowserTargetOpen": {
+    "message": "授权网站并继续"
+  },
+  "spTimelineLabel": {
+    "message": "任务消息"
+  },
+  "spPlanSummary": {
+    "message": "任务计划（历史进度）"
+  },
+  "spPlanHint": {
+    "message": "已核对仅代表记录时的页面状态；最终结果需重新验证。"
+  },
+  "spChoiceSubmit": {
+    "message": "提交选择并继续"
+  },
+  "spConfirmTitle": {
+    "message": "请确认操作"
+  },
+  "spApprove": {
+    "message": "确认并继续"
+  },
+  "spHistoryBack": {
+    "message": "返回对话"
+  },
+  "spHistoryNote": {
+    "message": "当前标签页、当前网站的对话；仅在本次浏览器会话内保留"
+  },
+  "spHistoryEmpty": {
+    "message": "暂无历史记录"
+  },
+  "spRunDetails": {
+    "message": "运行详情"
+  },
+  "spExportDiagnostics": {
+    "message": "导出当前任务统计（不含正文）"
+  },
+  "spVerification": {
+    "message": "操作核对"
+  },
+  "spContextSummary": {
+    "message": "当前任务摘要"
+  },
+  "spEventLog": {
+    "message": "完整状态记录"
+  },
+  "spClear": {
+    "message": "清空当前对话记录"
+  },
+  "spResume": {
+    "message": "继续任务"
+  },
+  "spInstructionLabel": {
+    "message": "输入任务或补充指令"
+  },
+  "spPlaceholderNew": {
+    "message": "告诉我你想做什么…"
+  },
+  "spTakeover": {
+    "message": "我来操作"
+  },
+  "spStop": {
+    "message": "停止"
+  },
+  "spSendTitle": {
+    "message": "发送任务"
+  },
+  "spSend": {
+    "message": "发送"
+  },
+  "spComposerHint": {
+    "message": "Enter 发送，Shift + Enter 换行"
+  },
+  "spComposerNote": {
+    "message": "内容发送至自选模型 · 关闭侧栏后任务仍可运行"
+  },
+  "optTitle": {
+    "message": "Page Agent Lite · 设置"
+  },
+  "optKicker": {
+    "message": "偏好设置"
+  },
+  "optHeading": {
+    "message": "设置你的 Page Agent"
+  },
+  "optIntro": {
+    "message": "在这里配置默认模型与助手行为。发送对话后，助手会读取当前网页并在本次任务中多次调用模型。API 授权与网页访问授权相互独立。"
+  },
+  "optLoading": {
+    "message": "正在读取设置…"
+  },
+  "optSections": {
+    "message": "设置分类"
+  },
+  "optNavConnection": {
+    "message": "模型连接"
+  },
+  "optNavBehavior": {
+    "message": "执行预算"
+  },
+  "optNavManagement": {
+    "message": "网站与记忆"
+  },
+  "optNavAppearance": {
+    "message": "侧栏主图"
+  },
+  "optConnectionTitle": {
+    "message": "连接你的模型"
+  },
+  "optEndpoint": {
+    "message": "API 基础地址（包括 /v1，不含 /chat/completions）"
+  },
+  "optModel": {
+    "message": "模型名称"
+  },
+  "optModelPlaceholder": {
+    "message": "填写服务商提供的模型 ID"
+  },
+  "optReasoning": {
+    "message": "思考强度"
+  },
+  "optReasoningLow": {
+    "message": "低"
+  },
+  "optReasoningMedium": {
+    "message": "中（默认）"
+  },
+  "optReasoningHigh": {
+    "message": "高"
+  },
+  "optReasoningDefault": {
+    "message": "服务默认（不发送思考参数）"
+  },
+  "optReasoningHint": {
+    "message": "通过 reasoning_effort 请求模型思考强度；效果由模型服务决定。若接口不支持，请选择服务默认。思考可能增加耗时和费用。"
+  },
+  "optKey": {
+    "message": "API 密钥（本机服务可留空）"
+  },
+  "optLanguage": {
+    "message": "默认回复语言"
+  },
+  "optSaveConnection": {
+    "message": "授权此 API 地址并保存配置"
+  },
+  "optConnectionHint": {
+    "message": "仅允许 HTTPS 或 localhost / 127.0.0.1 / [::1] 的 HTTP 地址。密钥仅保存于本机 chrome.storage.local，不同步，也不交给网页内容脚本；本机存储并非加密保险箱。"
+  },
+  "optMaxSteps": {
+    "message": "每次任务的执行轮数上限（默认 100，0 表示不限）"
+  },
+  "optMaxStepsHint": {
+    "message": "不限轮数时，持续执行直到任务完成、任务暂停、发生错误或你点击停止。也可以填写 50、500 等自定义上限。每轮会调用模型，翻页后累计轮数继续保留。"
+  },
+  "optInputChars": {
+    "message": "侧栏输入框单次字符上限（默认 2000，范围 100–10000）"
+  },
+  "optInputCharsHint": {
+    "message": "限制每次发送的任务或补充指令长度。补充指令总长上限为 12000 与单次上限 6 倍中的较大值。内容越长，每轮请求越耗上下文和费用。"
+  },
+  "optContextTokens": {
+    "message": "模型上下文窗口（token）"
+  },
+  "optCompression": {
+    "message": "自动压缩阈值（可用输入预算的百分比）"
+  },
+  "optContextHint": {
+    "message": "请填写模型实际支持的上下文窗口，默认 100000 token；预留 2000 token 输出空间，在剩余预算的 80% 才压缩。接口未提供用量时采用估算。正常执行保留原始历史以利于缓存复用，缓存是否命中由服务商决定。"
+  },
+  "optAutoHint": {
+    "message": "填写、勾选、选择和点击均自动执行，无需开启开关或逐次确认。你可以随时停止；已发出的网页操作不会自动撤销。"
+  },
+  "optSaveBehavior": {
+    "message": "保存助手默认设置"
+  },
+  "optManagementTitle": {
+    "message": "网站与记忆管理"
+  },
+  "optManagementHint": {
+    "message": "选择已打开的网页。修改或清空记忆会取消相关旧请求并暂停相关任务，请返回侧栏继续。"
+  },
+  "optManagedTab": {
+    "message": "目标网页"
+  },
+  "optTabsRefresh": {
+    "message": "刷新网页列表"
+  },
+  "optGrantAll": {
+    "message": "授权所有网站"
+  },
+  "optSiteMemory": {
+    "message": "网站长期记忆"
+  },
+  "optSiteMemoryHint": {
+    "message": "仅在本机保存，同一网站跨标签页和浏览器重启可用。模型按需维护；不会自动保存整段对话。切换登录账号时请检查笔记是否适用。"
+  },
+  "optNoteName": {
+    "message": "笔记名称"
+  },
+  "optSiteNotePlaceholder": {
+    "message": "例如 preferred_workflow"
+  },
+  "optNoteText": {
+    "message": "内容"
+  },
+  "optSaveNote": {
+    "message": "保存笔记"
+  },
+  "optRefreshLongMemory": {
+    "message": "刷新长期记忆"
+  },
+  "optSiteMemoryClear": {
+    "message": "清空本站长期记忆"
+  },
+  "optSiteMemoryExport": {
+    "message": "导出本站记忆"
+  },
+  "optGlobalMemory": {
+    "message": "全局长期记忆"
+  },
+  "optGlobalMemoryHint": {
+    "message": "保存跨网站适用的偏好和通用经验，仅限本机，跨标签页和浏览器重启可用。可查看、编辑或新增笔记；修改会暂停各网站相关任务。网站专用流程请保存在网站记忆中。"
+  },
+  "optGlobalNotePlaceholder": {
+    "message": "例如 output_preference"
+  },
+  "optGlobalMemoryClear": {
+    "message": "清空全局长期记忆"
+  },
+  "optGlobalMemoryExport": {
+    "message": "导出全局记忆"
+  },
+  "optTempMemory": {
+    "message": "临时记忆"
+  },
+  "optTempMemoryHint": {
+    "message": "模型自行判断保存、读取和清理。记忆仅限当前标签页和网站，关闭标签页后清除；你也可以随时清空。"
+  },
+  "optMemoryRefresh": {
+    "message": "刷新记忆"
+  },
+  "optMemoryClear": {
+    "message": "清空临时记忆"
+  },
+  "optAppearanceHint": {
+    "message": "设置新对话中显示的图片。选择后自动保存，已打开的侧栏同步更新。"
+  },
+  "optImagePreview": {
+    "message": "当前侧栏主图预览"
+  },
+  "optImageUpload": {
+    "message": "上传主图"
+  },
+  "optImageHint": {
+    "message": "支持 PNG、JPG、WebP，文件不超过 5 MB，边长不超过 8192 像素。透明底图片效果更好；保存时等比缩小至最长边 1024 像素。仅保存在本机，不发送给模型。"
+  },
+  "optImageReset": {
+    "message": "恢复默认主图"
+  },
+  "optFooter": {
+    "message": "自选模型 · 本机记忆 · 由你掌控"
+  },
+  "commonMessagingFailed": {
+    "message": "扩展通信失败"
+  },
+  "commonLabelValue": {
+    "message": "{1}：{2}"
+  },
+  "commonEdit": {
+    "message": "编辑"
+  },
+  "commonDelete": {
+    "message": "删除"
+  },
+  "commonMemoryReadFailed": {
+    "message": "长期记忆读取失败"
+  },
+  "statusRunning": {
+    "message": "执行中"
+  },
+  "statusWaitingPage": {
+    "message": "等待网页"
+  },
+  "statusWaitingConfirmation": {
+    "message": "等待确认"
+  },
+  "statusPaused": {
+    "message": "已暂停"
+  },
+  "statusStopped": {
+    "message": "已停止"
+  },
+  "statusFailed": {
+    "message": "执行失败"
+  },
+  "statusCompleted": {
+    "message": "已完成"
+  },
+  "statusEnded": {
+    "message": "已结束"
+  },
+  "outcomeSuccess": {
+    "message": "已核实"
+  },
+  "outcomePending": {
+    "message": "等待核对"
+  },
+  "outcomeUnknown": {
+    "message": "结果未知"
+  },
+  "outcomeNotSatisfied": {
+    "message": "未满足预期"
+  },
+  "outcomeReturned": {
+    "message": "已返回"
+  },
+  "activityObserve": {
+    "message": "读取页面"
+  },
+  "activityThinking": {
+    "message": "正在思考"
+  },
+  "activityExecuting": {
+    "message": "正在操作"
+  },
+  "activityVerifying": {
+    "message": "正在核对"
+  },
+  "activityCompacting": {
+    "message": "整理上下文"
+  },
+  "phaseThinking": {
+    "message": "请求模型"
+  },
+  "phaseExecuting": {
+    "message": "执行操作"
+  },
+  "phaseVerifying": {
+    "message": "核对结果"
+  },
+  "phaseIdle": {
+    "message": "空闲"
+  },
+  "summaryCompleted": {
+    "message": "已完成及证据"
+  },
+  "summaryRemaining": {
+    "message": "待完成"
+  },
+  "summaryFacts": {
+    "message": "关键事实与纠正"
+  },
+  "summaryFailed": {
+    "message": "失败方法"
+  },
+  "summaryUncertain": {
+    "message": "未确定的操作"
+  },
+  "timingModel": {
+    "message": "模型请求"
+  },
+  "timingSummary": {
+    "message": "摘要请求"
+  },
+  "timingTool": {
+    "message": "工具派发"
+  },
+  "planPending": {
+    "message": "待处理"
+  },
+  "planActive": {
+    "message": "进行中"
+  },
+  "planCompleted": {
+    "message": "曾核对通过"
+  },
+  "planBlocked": {
+    "message": "受阻"
+  },
+  "commonUnknown": {
+    "message": "未知"
+  },
+  "memberInitial": {
+    "message": "执行标签页"
+  },
+  "memberUserJoined": {
+    "message": "用户加入"
+  },
+  "memberTaskCreated": {
+    "message": "任务创建"
+  },
+  "spSwitchTab": {
+    "message": "切换标签"
+  },
+  "outcomeStale": {
+    "message": "目标过期，未执行"
+  },
+  "outcomeBlocked": {
+    "message": "目标被遮挡，未执行"
+  },
+  "outcomeScrolled": {
+    "message": "已滚动"
+  },
+  "outcomeAtEdge": {
+    "message": "已到边界"
+  },
+  "outcomeNoScroll": {
+    "message": "未观察到滚动"
+  },
+  "outcomeSent": {
+    "message": "已派发，待核对"
+  },
+  "spToolCall": {
+    "message": "工具调用"
+  },
+  "spUntitledChat": {
+    "message": "未命名对话"
+  },
+  "spResultDetails": {
+    "message": "操作结果详情"
+  },
+  "spWaitingReadonly": {
+    "message": "等待只读核对"
+  },
+  "spCurrentCheck": {
+    "message": "当前核对"
+  },
+  "spTabUnreadable": {
+    "message": "无法读取当前标签页，请重新打开侧栏。"
+  },
+  "spScopeCanceled": {
+    "message": "网站授权已取消，任务范围未修改"
+  },
+  "spScopeTaskChanged": {
+    "message": "任务已变化，授权未加入新任务"
+  },
+  "spScopeInvalid": {
+    "message": "请输入不带路径、参数或凭据的 HTTP/HTTPS 站点来源"
+  },
+  "spMemberJoined": {
+    "message": "标签页已加入任务。"
+  },
+  "spMemberRemoved": {
+    "message": "标签页已移出任务，网页未关闭。"
+  },
+  "spChooseOne": {
+    "message": "请至少选择一项"
+  },
+  "spDiagnosticsExported": {
+    "message": "已导出当前任务统计，不含目标、网页或表单正文"
+  },
+  "spDiagnosticsFailed": {
+    "message": "诊断导出失败"
+  },
+  "spGrantCanceled": {
+    "message": "你取消了网站授权，尚未连接网页"
+  },
+  "outcomeNotSent": {
+    "message": "未执行"
+  },
+  "spRequest": {
+    "message": "请求参数"
+  },
+  "spNote": {
+    "message": "说明"
+  },
+  "spLegacyRequest": {
+    "message": "旧记录未保存完整参数"
+  },
+  "spResult": {
+    "message": "返回结果"
+  },
+  "spPendingResult": {
+    "message": "操作已准备或派发，等待工具返回"
+  },
+  "spOpenSite": {
+    "message": "打开网站：{1}"
+  },
+  "spRemoveFromTask": {
+    "message": "移出任务"
+  },
+  "spContextUsage": {
+    "message": "上次请求输入 {1} token · 缓存 {2} token"
+  },
+  "spNotReported": {
+    "message": "未报告"
+  },
+  "spContextEstimate": {
+    "message": "上下文约 {1} token（估算）"
+  },
+  "spContextMeta": {
+    "message": "已整理 {1} 条较早结果 · {2}"
+  },
+  "spProgress": {
+    "message": "{1} · {2} / {3} 轮"
+  },
+  "spDelayWait": {
+    "message": "延时等待"
+  },
+  "spUnlimited": {
+    "message": "不限"
+  },
+  "spReady": {
+    "message": "准备就绪"
+  },
+  "spWaitingDelay": {
+    "message": "正在延时等待；到期 {1}"
+  },
+  "spWaitingCheck": {
+    "message": "正在核对 {1} 项预期；截止 {2}"
+  },
+  "spLastOutcome": {
+    "message": "{1} · {2}（仅代表本次工具结果）"
+  },
+  "spEvidence": {
+    "message": "{1} · {2} · {3} · 目标 {4} · 预期 {5} · 实际 {6}"
+  },
+  "spMatched": {
+    "message": "匹配"
+  },
+  "spMismatched": {
+    "message": "不匹配"
+  },
+  "spTaskMeta": {
+    "message": "任务 {1} · 更新 {2}"
+  },
+  "spMetrics": {
+    "message": "阶段：{1} · 观察 {2} · 操作 {3} · 核对 {4}"
+  },
+  "spReasonCode": {
+    "message": " · 暂停/失败代码：{1}"
+  },
+  "spTiming": {
+    "message": " · {1} {2} 次，已回报累计 {3}，最近 {4}，失败 {5}"
+  },
+  "spSeconds": {
+    "message": "{1} 秒"
+  },
+  "spUnreported": {
+    "message": "，未回报 {1}"
+  },
+  "spRecordCount": {
+    "message": "· {1} 条保留结果"
+  },
+  "spRecordHeading": {
+    "message": "记录 #{1} · {2}"
+  },
+  "spTarget": {
+    "message": "目标"
+  },
+  "spResultLabel": {
+    "message": "结果"
+  },
+  "spStatusLabel": {
+    "message": "状态"
+  },
+  "spNoResults": {
+    "message": "尚无工具结果，状态消息见下方。"
+  },
+  "spResultsHint": {
+    "message": "开始任务后，这里显示操作与核对结果。"
+  },
+  "spPlanCheck": {
+    "message": "（核对：{1}）"
+  },
+  "spNotice": {
+    "message": "重要操作提示：{1}"
+  },
+  "spOperationValue": {
+    "message": "；内容：{1}"
+  },
+  "spSendContinue": {
+    "message": "发送并继续当前任务"
+  },
+  "spSendStart": {
+    "message": "发送并开始任务"
+  },
+  "spPlaceholderOngoing": {
+    "message": "补充要求，或告诉我下一步…"
+  },
+  "spTakeoverDone": {
+    "message": "操作完成，重新观察"
+  },
+  "spCurrentPage": {
+    "message": "当前网页"
+  },
+  "spScopeContinued": {
+    "message": "已授权，任务继续。"
+  },
+  "spScopeUpdated": {
+    "message": "任务范围已更新，任务已暂停；核对后点击继续。"
+  },
+  "spUntitled": {
+    "message": "无标题"
+  },
+  "spNotWebpage": {
+    "message": "非网页"
+  },
+  "spClosed": {
+    "message": "已关闭"
+  },
+  "spSiteNotAllowed": {
+    "message": "站点未授权"
+  },
+  "spRemove": {
+    "message": "移出"
+  },
+  "spOccupied": {
+    "message": "已被其他任务占用"
+  },
+  "spGrantedAll": {
+    "message": "所有普通网站已授权，当前网页已连接。"
+  },
+  "spGrantedSite": {
+    "message": "网站已授权并连接，可以开始或继续任务。"
+  },
+  "optInvalidConfig": {
+    "message": "请输入有效模型、密钥与语言"
+  },
+  "optApiDenied": {
+    "message": "API 授权被拒绝，配置未保存"
+  },
+  "optApiSaved": {
+    "message": "API 配置已保存；尚未执行模型调用。网页访问请另行授权。"
+  },
+  "optBehaviorSaved": {
+    "message": "助手默认设置已保存，新任务或点击「继续任务」后生效。"
+  },
+  "optLoaded": {
+    "message": "设置已读取。API 与站点需分别授权。"
+  },
+  "optLoadFailed": {
+    "message": "无法读取设置，请重启扩展后重试。"
+  },
+  "optFailed": {
+    "message": "操作失败"
+  },
+  "mgSiteUpdated": {
+    "message": "网站长期记忆已更新，相关运行任务已暂停，可点击继续。"
+  },
+  "mgTempEmpty": {
+    "message": "暂无临时记忆"
+  },
+  "mgTempCleared": {
+    "message": "临时记忆已清空，相关任务已暂停。"
+  },
+  "mgNoTabs": {
+    "message": "请先打开普通 HTTP/HTTPS 网页，再刷新列表。"
+  },
+  "mgSiteCount": {
+    "message": "{1} · {2}/32 条"
+  },
+  "mgSiteEmpty": {
+    "message": "本站暂无长期记忆"
+  },
+  "mgGrantedAll": {
+    "message": "所有普通网站已授权。"
+  },
+  "mgGrantCanceled": {
+    "message": "已取消全站授权。"
+  },
+  "gmUpdated": {
+    "message": "全局长期记忆已更新，相关运行任务已暂停，可点击继续。"
+  },
+  "gmCount": {
+    "message": "全局 · {1}/32 条"
+  },
+  "gmEmpty": {
+    "message": "全局暂无长期记忆"
+  },
+  "wiReadFailed": {
+    "message": "无法读取主图设置，暂时显示默认图片。"
+  },
+  "wiType": {
+    "message": "请选择 PNG、JPG 或 WebP 图片。"
+  },
+  "wiSize": {
+    "message": "图片不能超过 5 MB。"
+  },
+  "wiDecode": {
+    "message": "无法读取这张图片，请换一张。"
+  },
+  "wiDimensions": {
+    "message": "图片边长不能超过 8192 像素。"
+  },
+  "wiTooLarge": {
+    "message": "图片保存后超过 2 MB，请选择更小或更简洁的图片。"
+  },
+  "wiSaved": {
+    "message": "主图已保存，侧栏同步生效。图片仅保存在本机。"
+  },
+  "wiReset": {
+    "message": "已恢复默认主图。"
+  },
+  "wiSaveFailed": {
+    "message": "主图保存失败，请重试。"
+  }
+}

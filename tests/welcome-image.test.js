@@ -1,16 +1,15 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const vm=require('node:vm');
 const {parseHTML}=require('linkedom');
+const {runUi}=require('./i18n-helper.js');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
-const source=fs.readFileSync('extension/welcome-image.js','utf8');
 const png='data:image/png;base64,iVBORw0KGgo=';
 function fixture({saved=null,get,fail=false,settings=false}={}){
  const {document,window}=parseHTML(settings?'<img id="welcome-image-preview" src="icons/welcome-assistant.webp"><input id="welcome-image-file"><button id="welcome-image-reset"></button><p id="welcome-image-status"></p>':'<img class="welcome-art" src="icons/welcome-assistant.webp">');
  let changed;const writes=[];
  const chrome={storage:{local:{get:get||(async()=>({welcomeImage:saved})),async set(value){if(fail)throw Error('配额不足');writes.push(value);}},onChanged:{addListener(fn){changed=fn;}}}};
- vm.runInNewContext(source,{chrome,document,URL,Image:class{}});
+ runUi('extension/welcome-image.js',{chrome,document,URL,Image:class{}});
  return {document,window,writes,change:(value)=>changed({welcomeImage:{newValue:value}},'local')};
 }
 test('welcome image ignores URLs and active formats and observes only local appearance changes',async()=>{

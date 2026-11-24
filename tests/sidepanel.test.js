@@ -1,9 +1,9 @@
-const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const {parseHTML}=require('linkedom');
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const {parseHTML}=require('linkedom');const {runUi}=require('./i18n-helper.js');
 const flush=()=>new Promise(r=>setImmediate(r));
 async function fixture(granted,hook=()=>undefined,management=false,contains=async()=>false,extraGlobals={},activeTab={id:9,url:'https://example.test/task',title:'Homework'}){
  const {document,window}=parseHTML(fs.readFileSync(management?'extension/options.html':'extension/sidepanel.html','utf8'));
  const calls=[];let updated,added,removed,storageChanged,activated;const chrome={tabs:{async query(){return [activeTab];},onRemoved:{addListener(){}},onActivated:{addListener(fn){activated=fn;}},onUpdated:{addListener(fn){updated=fn;}}},permissions:{contains,onAdded:{addListener(fn){added=fn;}},onRemoved:{addListener(fn){removed=fn;}},request(p){calls.push(['permission',p]);return Promise.resolve(granted);}},runtime:{async sendMessage(m){calls.push(['message',m]);const result=hook(m);if(result!==undefined)return await result;return {ok:true,value:m.type==='task:get'?null:{connected:true}};},async openOptionsPage(){}},storage:{onChanged:{addListener(fn){storageChanged=fn;}}}};
- vm.runInNewContext(fs.readFileSync(management?'extension/management.js':'extension/sidepanel.js','utf8'),{chrome,document,window,URL,Date,...extraGlobals});await flush();
+ runUi(management?'extension/management.js':'extension/sidepanel.js',{chrome,document,window,URL,Date,...extraGlobals});await flush();
  return {document,window,calls,updated,added,removed,storageChanged,async activate(tab){activeTab=tab;activated();await flush();}};
 }
 test('sidepanel requests only current origin directly from gesture, then connects',async()=>{

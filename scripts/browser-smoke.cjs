@@ -100,6 +100,8 @@ function sha256(data) {
 }
 
 /** Poll until predicate returns truthy or timeout. */
+// UI text in the browser's UI language (the smoke browser may run in English or Chinese).
+const uiText=(page,key)=>page.evaluate(k=>chrome.i18n.getMessage(k),key);
 async function poll(fn, label, ms = 12000) {
   const deadline = Date.now() + ms;
   let lastErr;
@@ -497,7 +499,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await optionsPage.waitForTimeout(1000);
   console.log('OPTIONS_DIAGNOSTIC', await optionsPage.locator('#status').textContent(), await sw.evaluate(() => globalThis.__smokeSender));
   await poll(
-    async () => (await optionsPage.locator('#status').textContent()).includes('设置已读取'),
+    async () => (await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optLoaded')),
     'options page settings initialized',
   );
 
@@ -508,7 +510,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await optionsPage.locator('#config button[type="submit"]').click();
 
   await poll(
-    async () => (await optionsPage.locator('#status').textContent()).includes('API 配置已保存'),
+    async () => (await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optApiSaved')),
     'options submitted & API config saved',
   );
 
@@ -593,7 +595,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(await optionsPage.locator('#article-settings, #article, #auto-click, #auto-fill').count(),0);
   assert.equal(await optionsPage.locator('#context-tokens').inputValue(),'100000');
   await optionsPage.locator('#agent-config button[type="submit"]').click();
-  await poll(async()=>(await optionsPage.locator('#status').textContent()).includes('助手默认设置已保存'),'budget preferences saved without execution toggles');
+  await poll(async()=>(await optionsPage.locator('#status').textContent()).includes(await uiText(optionsPage,'optBehaviorSaved')),'budget preferences saved without execution toggles');
   pass('settings default to 100000 tokens with no automation switches or article tools');
 
   // Recent PA1/PA3 changes through real isolated-world messaging.
@@ -641,7 +643,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(finished.taskId,started.value.taskId);assert.equal(finished.steps,3);assert.equal(finished.prefs.maxSteps,100);
   assert.equal(page.url(),origin+'/task-two');assert.equal(finished.events.some(e=>e.text.startsWith('等待确认')),false);
   await panel.waitForTimeout(300);
-  assert.match(await panel.locator('#progress').textContent(),/已完成/);
+  assert.ok((await panel.locator('#progress').textContent()).includes(await uiText(panel,'statusCompleted')));
   pass('default automatic fill and click navigate without approval and preserve task ID and cumulative budget');
   report.caveats.push('Sidepanel extension document is exercised in a test tab; native browser sidebar placement and toolbar gesture remain unverified.');
   await panel.screenshot({path:path.join(outputDir,'06-sidepanel.png'),fullPage:true});
@@ -811,7 +813,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await optionsPage.locator('#site-memory-id').fill('temporary');await optionsPage.locator('#site-memory-text').fill('discard this note');await optionsPage.locator('#site-memory-save').click();
   await poll(async()=>((await command('task:site-memory')).value?.notes.length)===2,'second durable note saved');
   await optionsPage.locator('#site-memory-refresh').click();
-  await optionsPage.locator('#site-memories > div').filter({hasText:'temporary'}).getByRole('button',{name:'删除',exact:true}).click();
+  await optionsPage.locator('#site-memories > div').filter({hasText:'temporary'}).getByRole('button',{name:await uiText(optionsPage,'commonDelete'),exact:true}).click();
   await poll(async()=>((await command('task:site-memory')).value?.notes.length)===1,'durable note deleted in settings');
   await optionsPage.screenshot({path:path.join(outputDir,'09-site-memory.png'),fullPage:true});
   pass('model saves and reads durable notes across tasks with index-only defaults; settings edits and exports real JSON');
@@ -836,7 +838,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.ok((await command('task:get')).value.results.some(r=>r.action==='global_memory_read'&&r.result.note.text==='User preference: Chinese tables'));
   await optionsPage.locator('#global-memory-panel').evaluate(el=>el.open=true);await optionsPage.locator('#global-memory-refresh').click();
   await poll(async()=>(await optionsPage.locator('#global-memories').textContent()).includes('Chinese tables'),'global viewer');
-  await optionsPage.locator('#global-memories > div').filter({hasText:'format'}).getByRole('button',{name:'编辑',exact:true}).click();
+  await optionsPage.locator('#global-memories > div').filter({hasText:'format'}).getByRole('button',{name:await uiText(optionsPage,'commonEdit'),exact:true}).click();
   assert.equal(await optionsPage.locator('#global-memory-text').inputValue(),'User preference: Chinese tables');
   await optionsPage.locator('#global-memory-text').fill('Edited global preference');await optionsPage.locator('#global-memory-save').click();
   await poll(async()=>((await command('task:global-memory')).value?.notes[0]?.text)==='Edited global preference','global edit saved');
@@ -844,7 +846,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   const globalDownloadEvent=optionsPage.waitForEvent('download');await optionsPage.locator('#global-memory-export').click();const globalDownload=await globalDownloadEvent;
   const globalStream=await globalDownload.createReadStream(),globalChunks=[];for await(const chunk of globalStream)globalChunks.push(chunk);
   const globalExport=JSON.parse(Buffer.concat(globalChunks).toString());assert.equal(globalExport.scope,'global');assert.equal(globalExport.notes[0].text,'Edited global preference');
-  await optionsPage.locator('#global-memories > div').getByRole('button',{name:'删除',exact:true}).click();await poll(async()=>((await command('task:global-memory')).value?.notes.length)===0,'global delete');
+  await optionsPage.locator('#global-memories > div').getByRole('button',{name:await uiText(optionsPage,'commonDelete'),exact:true}).click();await poll(async()=>((await command('task:global-memory')).value?.notes.length)===0,'global delete');
   await poll(async()=>optionsPage.locator('#global-memory-save').isEnabled(),'global save enabled');
   await optionsPage.locator('#global-memory-id').fill('retained');await optionsPage.locator('#global-memory-text').fill('Before clear');await optionsPage.locator('#global-memory-save').click();
   await poll(async()=>((await command('task:global-memory')).value?.notes.length)===1,'global recreated');await poll(async()=>optionsPage.locator('#global-memory-clear').isEnabled(),'global clear enabled');

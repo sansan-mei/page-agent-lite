@@ -19,7 +19,12 @@ test('build:dev overlays dev files and leaves the store package without run_scri
     const dev=JSON.parse(fs.readFileSync(path.join(out,'manifest.json'),'utf8'));
     assert.ok(!store.permissions.includes('userScripts'));assert.equal(store.background.service_worker,'background.js');
     assert.ok(dev.permissions.includes('userScripts'));assert.equal(dev.background.service_worker,'background-dev.js');
-    assert.match(dev.name,/\(Dev\)$/);assert.equal(dev.version,store.version);assert.equal(dev.version_name,undefined);
+    assert.equal(dev.name,store.name);
+    for(const locale of ['zh_CN','en']){
+      const read=dir=>JSON.parse(fs.readFileSync(path.join(dir,'_locales',locale,'messages.json'),'utf8')).extName.message;
+      assert.equal(read(out),read(path.join(root,'extension'))+' (Dev)',locale);assert.doesNotMatch(read(path.join(root,'extension')),/Dev/);
+    }
+    assert.equal(dev.version,store.version);assert.equal(dev.version_name,undefined);
     assert.ok(!fs.existsSync(path.join(root,'extension/dev-tools.js')));
     assert.match(fs.readFileSync(path.join(out,'background-dev.js'),'utf8'),/importScripts\('dev-tools\.js','background\.js'\)/);
     const storeCtx=load(['tool-protocol.js','conditions.js','core.js','prompts.js'],path.join(root,'extension'));

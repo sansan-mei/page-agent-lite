@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {parseHTML} = require('linkedom');
+const {runUi} = require('./i18n-helper.js');
 const dir = path.join(__dirname, '../extension');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -27,7 +28,7 @@ test('options requests API permission from submit gesture and refuses unsafe end
     permissions: {async request(p) {grants.push(p); return true;}}, tabs: {async query() {return [];}}};
   vm.runInNewContext(fs.readFileSync(path.join(dir, 'core.js'), 'utf8'), {document, URL});
   const core = require('../extension/core.js');
-  vm.runInNewContext(fs.readFileSync(path.join(dir, 'options.js'), 'utf8'), {document, chrome, URL, PageAgentCore: core});
+  runUi('extension/options.js', {document, chrome, URL, PageAgentCore: core});
   await flush();
   const input = (id, value) => {document.getElementById(id).value = value;};
   input('endpoint', 'http://evil.test/v1'); input('model', 'm'); input('key', 'secret'); input('language', '中文');

@@ -1,10 +1,10 @@
 'use strict';
 (() => {
-  const $=id=>document.getElementById(id);
+  const $=id=>document.getElementById(id),t=PageAgentI18n.t;
   let tabId=null,tabOrigin=null,selection=0;
   async function send(type,extra={}) {
     const result=await chrome.runtime.sendMessage({type,tabId,...extra});
-    if(!result?.ok)throw new Error(result?.error||'扩展通信失败');return result.value;
+    if(!result?.ok)throw new Error(result?.error||t('commonMessagingFailed'));return result.value;
   }
   let siteVersion=null,siteData=null,siteBusy=false,siteReadGeneration=0;
   function siteControls(){
@@ -15,14 +15,14 @@
     const target=tabId,version=selection,read=++siteReadGeneration;if(target===null||!tabOrigin)return;
     try{
       const data=await send('task:site-memory');if(target!==tabId||version!==selection||read!==siteReadGeneration)return;
-      if(!data||data.origin!==tabOrigin||!Array.isArray(data.notes))throw new Error('长期记忆读取失败');
+      if(!data||data.origin!==tabOrigin||!Array.isArray(data.notes))throw new Error(t('commonMemoryReadFailed'));
       siteVersion=data.version;siteData=data;$('site-memories').replaceChildren();
       for(const note of data.notes){
-        const item=document.createElement('div'),p=document.createElement('p');p.textContent=note.id+'：'+note.text;item.append(p);
-        const edit=document.createElement('button');edit.type='button';edit.textContent='编辑';edit.addEventListener('click',()=>{$('site-memory-id').value=note.id;$('site-memory-text').value=note.text;});item.append(edit);
-        const remove=document.createElement('button');remove.type='button';remove.textContent='删除';remove.disabled=siteBusy;remove.addEventListener('click',()=>void changeSiteMemory('delete',{id:note.id}));item.append(remove);$('site-memories').append(item);
+        const item=document.createElement('div'),p=document.createElement('p');p.textContent=t('commonLabelValue',note.id,note.text);item.append(p);
+        const edit=document.createElement('button');edit.type='button';edit.textContent=t('commonEdit');edit.addEventListener('click',()=>{$('site-memory-id').value=note.id;$('site-memory-text').value=note.text;});item.append(edit);
+        const remove=document.createElement('button');remove.type='button';remove.textContent=t('commonDelete');remove.disabled=siteBusy;remove.addEventListener('click',()=>void changeSiteMemory('delete',{id:note.id}));item.append(remove);$('site-memories').append(item);
       }
-      $('site-memory-status').textContent=data.notes.length?`${data.origin} · ${data.notes.length}/32 条`:'本站暂无长期记忆';
+      $('site-memory-status').textContent=data.notes.length?t('mgSiteCount',data.origin,data.notes.length):t('mgSiteEmpty');
     }catch(e){if(target===tabId&&version===selection&&read===siteReadGeneration){siteVersion=null;siteData=null;$('site-memory-status').textContent=e.message;}}
     finally{siteControls();}
   }
@@ -33,7 +33,7 @@
       await send('task:site-memory-change',{origin:tabOrigin,action,expectedVersion:siteVersion,...extra});
       if(target!==tabId||version!==selection)return;
       if(action==='write'&&$('site-memory-id').value===extra.id&&$('site-memory-text').value===extra.text){$('site-memory-id').value='';$('site-memory-text').value='';}
-      await refreshSiteMemory();$('management-status').textContent='网站长期记忆已更新，相关运行任务已暂停，可点击继续。';
+      await refreshSiteMemory();$('management-status').textContent=t('mgSiteUpdated');
     }catch(e){if(target===tabId&&version===selection){$('site-memory-status').textContent=e.message;siteVersion=null;}}
     finally{siteBusy=false;siteControls();}
   }
@@ -42,8 +42,8 @@
     try{
       const notes=await send('task:memory');if(target!==tabId||version!==selection)return;
       $('memories').replaceChildren();
-      for(const note of notes){const p=document.createElement('p');p.textContent=note.id+'：'+note.text;$('memories').append(p);}
-      if(!notes.length)$('memories').textContent='暂无临时记忆';
+      for(const note of notes){const p=document.createElement('p');p.textContent=t('commonLabelValue',note.id,note.text);$('memories').append(p);}
+      if(!notes.length)$('memories').textContent=t('mgTempEmpty');
     }catch(e){if(target===tabId&&version===selection)$('memories').textContent=e.message;}
   }
   $('site-memory-refresh').addEventListener('click',()=>void refreshSiteMemory());
@@ -59,7 +59,7 @@
 
   async function clearMemory(){
     const version=selection;
-    try{await send('task:memory-clear');if(version===selection){await refreshMemory();$('management-status').textContent='临时记忆已清空，相关任务已暂停。';}}
+    try{await send('task:memory-clear');if(version===selection){await refreshMemory();$('management-status').textContent=t('mgTempCleared');}}
     catch(e){$('management-status').textContent=e.message;}
   }
   function choose(){
@@ -78,13 +78,13 @@
         const option=document.createElement('option');option.value=String(tab.id);option.dataset.origin=new URL(tab.url).origin;option.textContent=(tab.title||tab.url)+' · '+option.dataset.origin;
         if(tab.id===previous)option.selected=true;$('managed-tab').append(option);
       }
-      choose();if(tabId===null)$('management-status').textContent='请先打开普通 HTTP/HTTPS 网页，再刷新列表。';
+      choose();if(tabId===null)$('management-status').textContent=t('mgNoTabs');
     }catch(e){$('management-status').textContent=e.message;}
   }
   $('managed-tab').addEventListener('change',choose);$('tabs-refresh').addEventListener('click',()=>void tabs());
   $('grant-all').addEventListener('click',()=>{
     const granted=chrome.permissions.request({origins:['http://*/*','https://*/*']});
-    void granted.then(ok=>{$('management-status').textContent=ok?'所有普通网站已授权。':'已取消全站授权。';}).catch(e=>{$('management-status').textContent=e.message;});
+    void granted.then(ok=>{$('management-status').textContent=ok?t('mgGrantedAll'):t('mgGrantCanceled');}).catch(e=>{$('management-status').textContent=e.message;});
   });
   chrome.tabs.onUpdated.addListener((id,change)=>{if(id===tabId&&change.url)void tabs();});
   chrome.tabs.onRemoved.addListener(id=>{if(id===tabId)void tabs();});

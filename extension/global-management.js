@@ -1,9 +1,9 @@
 'use strict';
 (() => {
-  const $=id=>document.getElementById(id);
+  const $=id=>document.getElementById(id),t=PageAgentI18n.t;
   async function send(type,extra={}){
     const result=await chrome.runtime.sendMessage({type,...extra});
-    if(!result?.ok)throw new Error(result?.error||'扩展通信失败');return result.value;
+    if(!result?.ok)throw new Error(result?.error||t('commonMessagingFailed'));return result.value;
   }
   let globalVersion=null,globalData=null,globalBusy=false,globalReadGeneration=0;
   function globalControls(){
@@ -14,14 +14,14 @@
     const read=++globalReadGeneration;
     try{
       const data=await send('task:global-memory');if(read!==globalReadGeneration)return;
-      if(!data||data.scope!=='global'||!Array.isArray(data.notes))throw new Error('长期记忆读取失败');
+      if(!data||data.scope!=='global'||!Array.isArray(data.notes))throw new Error(t('commonMemoryReadFailed'));
       globalVersion=data.version;globalData=data;$('global-memories').replaceChildren();
       for(const note of data.notes){
-        const item=document.createElement('div'),p=document.createElement('p');p.textContent=note.id+'：'+note.text;item.append(p);
-        const edit=document.createElement('button');edit.type='button';edit.textContent='编辑';edit.addEventListener('click',()=>{$('global-memory-id').value=note.id;$('global-memory-text').value=note.text;});item.append(edit);
-        const remove=document.createElement('button');remove.type='button';remove.textContent='删除';remove.disabled=globalBusy;remove.addEventListener('click',()=>void changeGlobalMemory('delete',{id:note.id}));item.append(remove);$('global-memories').append(item);
+        const item=document.createElement('div'),p=document.createElement('p');p.textContent=t('commonLabelValue',note.id,note.text);item.append(p);
+        const edit=document.createElement('button');edit.type='button';edit.textContent=t('commonEdit');edit.addEventListener('click',()=>{$('global-memory-id').value=note.id;$('global-memory-text').value=note.text;});item.append(edit);
+        const remove=document.createElement('button');remove.type='button';remove.textContent=t('commonDelete');remove.disabled=globalBusy;remove.addEventListener('click',()=>void changeGlobalMemory('delete',{id:note.id}));item.append(remove);$('global-memories').append(item);
       }
-      $('global-memory-status').textContent=data.notes.length?`全局 · ${data.notes.length}/32 条`:'全局暂无长期记忆';
+      $('global-memory-status').textContent=data.notes.length?t('gmCount',data.notes.length):t('gmEmpty');
     }catch(e){if(read===globalReadGeneration){globalVersion=null;globalData=null;$('global-memory-status').textContent=e.message;}}
     finally{globalControls();}
   }
@@ -32,7 +32,7 @@
       await send('task:global-memory-change',{action,expectedVersion:globalVersion,...extra});
 
       if(action==='write'&&$('global-memory-id').value===extra.id&&$('global-memory-text').value===extra.text){$('global-memory-id').value='';$('global-memory-text').value='';}
-      await refreshGlobalMemory();$('management-status').textContent='全局长期记忆已更新，相关运行任务已暂停，可点击继续。';
+      await refreshGlobalMemory();$('management-status').textContent=t('gmUpdated');
     }catch(e){$('global-memory-status').textContent=e.message;globalVersion=null;}
     finally{globalBusy=false;globalControls();}
   }

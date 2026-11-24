@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Page Agent Lite · 浏览器助手",
+  "name": "__MSG_extName__",
   "version": "1.0.0",
-  "description": "AI驱动的轻量浏览器插件，能持续自动化帮你处理浏览器事务",
+  "description": "__MSG_extDescription__",
+  "default_locale": "zh_CN",
   "minimum_chrome_version": "120",
   "permissions": [
     "tabs",
@@ -23,7 +24,7 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "打开 Page Agent Lite",
+    "default_title": "__MSG_actionTitle__",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

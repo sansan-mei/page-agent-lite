@@ -15,7 +15,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .settings-nav { position: sticky; top: 24px; display: grid; gap: 6px; padding-top: 6px; }
 .settings-nav p { color: var(--muted); font: 10px/1.5 ui-monospace, monospace; letter-spacing: 1.5px; margin: 0 0 12px 12px; }
 .settings-nav a { display: block; border-radius: 8px; padding: 11px 12px; color: var(--muted); font-size: 12px; text-decoration: none; border: 1px solid transparent; transition: color .2s, background .2s; }
-.settings-nav a span { font: 10px/1.5 ui-monospace, monospace; color: var(--accent); margin-right: 10px; }
+.settings-nav a > span:first-child { font: 10px/1.5 ui-monospace, monospace; color: var(--accent); margin-right: 10px; }
 .settings-nav a:hover, .settings-nav a:focus-visible { color: var(--text); background: var(--surface); border-color: var(--line); }
 .settings-content { min-width: 0; }
 section { background: #ffffff; padding: 28px; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 12px; scroll-margin-top: 24px; }
@@ -59,7 +59,7 @@ textarea { min-height: 130px; }
   .settings-nav { position: static; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; }
   .settings-nav p { display: none; }
   .settings-nav a { padding: 8px 10px; border-color: var(--line); font-size: 11px; }
-  .settings-nav a span { margin-right: 5px; }
+  .settings-nav a > span:first-child { margin-right: 5px; }
   section { padding: 22px; }
   .settings-header { margin-bottom: 26px; }
   h1 { letter-spacing: -1px; }
