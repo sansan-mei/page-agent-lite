@@ -1,26 +1,24 @@
 'use strict';
-// Options page "Script execution": request the optional userScripts permission from a click
-// (user gesture) and show whether run_script can run. The toggle itself lives on the
-// extension details page and cannot be changed by the extension.
+// Options page "Script execution" row: one action at a time walks the user through enabling
+// run_script — request the optional userScripts permission from a click (user gesture), then
+// send them to the extension details page for the browser toggle the extension cannot flip.
 (() => {
   const $ = id => document.getElementById(id), t = PageAgentI18n.t, S = PageAgentScriptTools;
   const required = (chrome.runtime?.getManifest?.().permissions || []).includes(S.permission);
   let version = 0;
-  // Badge: off / permission granted but browser toggle off / on / developer build auto-approves.
-  function badge(state) {
-    const [name, key] = required && state.available ? ['dev', 'optScriptsBadgeDev'] : state.available ? ['on', 'optScriptsBadgeOn'] : required || state.permission ? ['toggle', 'optScriptsBadgeToggle'] : ['off', 'optScriptsBadgeOff'];
-    $('script-badge').setAttribute('data-state', name); $('script-badge').textContent = t(key);
-  }
+  // off: permission missing · toggle: browser toggle off · on: ready · dev: developer build auto-approves.
+  function stateName(state) { return state.available ? (required ? 'dev' : 'on') : required || state.permission ? 'toggle' : 'off'; }
+  const badges = {off: 'optScriptsBadgeOff', toggle: 'optScriptsBadgeToggle', on: 'optScriptsBadgeOn', dev: 'optScriptsBadgeDev'};
   async function refresh() {
     const current = ++version;
     let state = {permission: false, api: false, available: false};
     try { state = await S.status(chrome); } catch { /* treated as unavailable */ }
     if (current !== version) return state;
-    $('script-status').textContent = required ? t(state.available ? 'optScriptsDevReady' : 'optScriptsDevToggle') : t(state.available ? 'optScriptsReady' : state.permission ? 'optScriptsNeedToggle' : 'optScriptsOff');
-    badge(state);
-    $('script-step-permission').setAttribute('data-done', String(required || state.permission));
-    $('script-step-toggle').setAttribute('data-done', String(state.available));
-    $('script-grant').hidden = required || state.permission;
+    const name = stateName(state);
+    $('script-badge').setAttribute('data-state', name); $('script-badge').textContent = t(badges[name]);
+    $('script-status').textContent = name === 'toggle' ? t(required ? 'optScriptsDevToggle' : 'optScriptsNeedToggle') : '';
+    $('script-grant').hidden = name !== 'off';
+    $('script-details').hidden = name !== 'toggle';
     $('script-revoke').hidden = required || !state.permission;
     return state;
   }

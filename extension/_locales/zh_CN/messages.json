@@ -167,38 +167,17 @@
   "optTitle": {
     "message": "Page Agent Lite · 设置"
   },
-  "optKicker": {
-    "message": "偏好设置"
-  },
-  "optHeading": {
-    "message": "设置你的 Page Agent"
-  },
   "optIntro": {
-    "message": "配置模型连接与助手默认行为；API 授权与网页访问授权相互独立。"
-  },
-  "optSections": {
-    "message": "设置分类"
-  },
-  "optNavConnection": {
-    "message": "模型连接"
-  },
-  "optNavBehavior": {
-    "message": "执行预算"
-  },
-  "optNavManagement": {
-    "message": "网站与记忆"
-  },
-  "optNavAppearance": {
-    "message": "侧栏主图"
+    "message": "连接你自己的模型，就能在侧栏开始使用。"
   },
   "optConnectionTitle": {
-    "message": "连接你的模型"
+    "message": "连接模型"
   },
   "optEndpoint": {
-    "message": "API 基础地址（包括 /v1，不含 /chat/completions）"
+    "message": "API 地址"
   },
   "optModel": {
-    "message": "模型名称"
+    "message": "模型"
   },
   "optModelPlaceholder": {
     "message": "填写服务商提供的模型 ID"
@@ -218,14 +197,11 @@
   "optReasoningDefault": {
     "message": "服务默认（不发送思考参数）"
   },
-  "optReasoningHint": {
-    "message": "以 reasoning_effort 发送，可能增加耗时和费用；接口不支持时选「服务默认」。"
-  },
   "optToolMode": {
     "message": "工具调用协议"
   },
   "optToolModeAuto": {
-    "message": "自动（默认）：原生工具调用，不支持时改用 JSON"
+    "message": "自动（默认）"
   },
   "optToolModeNative": {
     "message": "仅原生工具调用"
@@ -233,44 +209,29 @@
   "optToolModeJson": {
     "message": "仅 JSON 文本"
   },
-  "optToolModeHint": {
-    "message": "自动模式在原生工具调用失败时改用 JSON 文本；重新保存会再次尝试原生。"
-  },
   "optKey": {
-    "message": "API 密钥（本机服务可留空）"
+    "message": "API 密钥"
   },
   "optLanguage": {
-    "message": "默认回复语言"
+    "message": "回复语言"
   },
   "optConnectionHint": {
-    "message": "仅限 HTTPS 或本机 HTTP 地址；密钥只存本机、不同步，不交给网页。"
+    "message": "地址填到 /v1，不含 /chat/completions；密钥只存本机。"
   },
   "optMaxSteps": {
-    "message": "每次任务的执行轮数上限（默认 100，0 表示不限）"
-  },
-  "optMaxStepsHint": {
-    "message": "每轮调用一次模型，翻页后继续累计。"
+    "message": "每次任务最多轮数（0 = 不限）"
   },
   "optInputChars": {
-    "message": "侧栏输入框单次字符上限（默认 2000，范围 100–10000）"
-  },
-  "optInputCharsHint": {
-    "message": "补充指令总长上限取 12000 与单次上限 6 倍中的较大值。"
+    "message": "单条消息字符上限"
   },
   "optContextTokens": {
-    "message": "模型上下文窗口（token）"
+    "message": "上下文窗口（token）"
   },
   "optCompression": {
-    "message": "自动压缩阈值（可用输入预算的百分比）"
-  },
-  "optContextHint": {
-    "message": "填写模型实际支持的上下文窗口；预留 2000 token 输出，用量达到阈值后压缩历史。接口未返回用量时按估算。"
-  },
-  "optManagementTitle": {
-    "message": "网站与记忆管理"
+    "message": "压缩阈值（%）"
   },
   "optManagementHint": {
-    "message": "选择已打开的网页。修改或清空记忆会取消相关旧请求并暂停相关任务，请返回侧栏继续。"
+    "message": "修改或清空记忆会暂停相关任务，回侧栏继续即可。"
   },
   "optManagedTab": {
     "message": "目标网页"
@@ -283,9 +244,6 @@
   },
   "optSiteMemory": {
     "message": "网站长期记忆"
-  },
-  "optSiteMemoryHint": {
-    "message": "仅在本机保存，同一网站跨标签页和浏览器重启可用。模型按需维护；不会自动保存整段对话。切换登录账号时请检查笔记是否适用。"
   },
   "optNoteName": {
     "message": "笔记名称"
@@ -311,9 +269,6 @@
   "optGlobalMemory": {
     "message": "全局长期记忆"
   },
-  "optGlobalMemoryHint": {
-    "message": "保存跨网站适用的偏好和通用经验，仅限本机，跨标签页和浏览器重启可用。可查看、编辑或新增笔记；修改会暂停各网站相关任务。网站专用流程请保存在网站记忆中。"
-  },
   "optGlobalNotePlaceholder": {
     "message": "例如 output_preference"
   },
@@ -326,17 +281,11 @@
   "optTempMemory": {
     "message": "临时记忆"
   },
-  "optTempMemoryHint": {
-    "message": "模型自行判断保存、读取和清理。记忆仅限当前标签页和网站，关闭标签页后清除；你也可以随时清空。"
-  },
   "optMemoryRefresh": {
     "message": "刷新记忆"
   },
   "optMemoryClear": {
     "message": "清空临时记忆"
-  },
-  "optAppearanceHint": {
-    "message": "新对话中显示的图片；选择后立即保存，已打开的侧栏同步更新。"
   },
   "optImagePreview": {
     "message": "当前侧栏主图预览"
@@ -345,10 +294,7 @@
     "message": "PNG / JPG / WebP，不超过 5 MB；最长边缩至 1024 px，只存本机、不发给模型。"
   },
   "optImageReset": {
-    "message": "恢复默认主图"
-  },
-  "optFooter": {
-    "message": "自选模型 · 本机记忆 · 由你掌控"
+    "message": "恢复默认"
   },
   "commonMessagingFailed": {
     "message": "扩展通信失败"
@@ -803,32 +749,20 @@
   "spScriptWorldMain": {
     "message": "网页主环境（MAIN，可访问网页自身的 JavaScript 变量）"
   },
-  "optNavScripts": {
-    "message": "脚本执行"
-  },
   "optScriptsIntro": {
-    "message": "普通工具做不到时，助手可以编写 JavaScript 在当前网页运行（run_script）。每次运行前侧栏显示完整代码、目标网站和运行环境，须你批准才执行这一次；返回值会发送至你配置的模型服务。"
+    "message": "普通工具做不到时运行 JavaScript，每次须你批准。"
   },
   "optScriptsGrant": {
-    "message": "授权脚本执行"
+    "message": "允许"
   },
   "optScriptsRevoke": {
-    "message": "撤销脚本执行授权"
+    "message": "关闭"
   },
   "optScriptsDetails": {
-    "message": "打开扩展详情页"
-  },
-  "optScriptsToggle": {
-    "message": "Chrome 138+ 为「允许用户脚本」；Chrome 135–137 改开扩展管理页右上角的「开发者模式」；低于 135 不支持。"
-  },
-  "optScriptsReady": {
-    "message": "已开启：模型可以请求运行脚本，每次须你在侧栏批准。"
+    "message": "打开扩展详情"
   },
   "optScriptsNeedToggle": {
-    "message": "已授权，但浏览器尚未允许用户脚本：请打开扩展详情页的「允许用户脚本」（Chrome 135–137 为「开发者模式」），并确认 Chrome 版本不低于 135。"
-  },
-  "optScriptsOff": {
-    "message": "未开启：模型看不到脚本工具。"
+    "message": "还差一步：在扩展详情页打开「允许用户脚本」（Chrome 135–137 为「开发者模式」）。"
   },
   "optScriptsDenied": {
     "message": "未获得脚本执行授权。"
@@ -839,11 +773,8 @@
   "optScriptsDetailsFailed": {
     "message": "无法打开扩展详情页，请手动访问 chrome://extensions。"
   },
-  "optScriptsDevReady": {
-    "message": "开发版：已内置脚本权限，脚本不经确认直接执行。"
-  },
   "optScriptsDevToggle": {
-    "message": "开发版：已内置脚本权限，但浏览器尚未允许用户脚本，请打开扩展详情页的「允许用户脚本」。"
+    "message": "开发版：在扩展详情页打开「允许用户脚本」后可用。"
   },
   "optLanguageBrowser": {
     "message": "跟随浏览器（{1}）"
@@ -861,22 +792,13 @@
     "message": "高级"
   },
   "optPermissions": {
-    "message": "网站访问权限"
-  },
-  "optPermissionsHint": {
-    "message": "也可在侧栏只授权当前网站；助手只在你开始或继续任务时操作网页。"
+    "message": "网站访问"
   },
   "optSave": {
-    "message": "保存设置"
-  },
-  "optSaveHint": {
-    "message": "保存模型连接与执行预算，并授权 API 地址。"
+    "message": "保存"
   },
   "optSaved": {
     "message": "设置已保存，新任务或点击「继续任务」后生效；尚未调用模型。"
-  },
-  "optAutoSaved": {
-    "message": "自动保存"
   },
   "optImageChoose": {
     "message": "选择图片"
@@ -894,15 +816,24 @@
     "message": "已开启"
   },
   "optScriptsBadgeDev": {
-    "message": "开发版 · 免批准"
+    "message": "已自动批准（开发版）"
   },
-  "optScriptsStepGrant": {
-    "message": "授予扩展可选的「用户脚本」权限"
+  "optKeyPlaceholder": {
+    "message": "本机服务可留空"
   },
-  "optScriptsStepToggle": {
-    "message": "在扩展详情页打开「允许用户脚本」"
+  "optScriptsTitle": {
+    "message": "脚本执行"
   },
-  "optStepDone": {
-    "message": "已完成"
+  "optMore": {
+    "message": "更多设置"
+  },
+  "optBudget": {
+    "message": "执行预算"
+  },
+  "optImageTitle": {
+    "message": "侧栏主图"
+  },
+  "optManageMemory": {
+    "message": "管理记忆"
   }
 }

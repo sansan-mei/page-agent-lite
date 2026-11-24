@@ -1,18 +1,22 @@
 'use strict';
-// Settings page: one Save bar stores model connection + run budget together. The API host
-// permission is requested synchronously inside the submit handler to keep the user gesture.
+// Settings page: card 1 "Save" and the "More settings" Save both submit #config and store the
+// model connection + run budget together. The API host permission is requested synchronously
+// inside the submit handler to keep the user gesture.
 (() => {
   const C = PageAgentCore;
   const $ = id => document.getElementById(id), t = PageAgentI18n.t;
-  const status = $('status'), language = $('language'), choice = $('language-choice');
+  const language = $('language'), choice = $('language-choice');
   const browserLanguage = PageAgentI18n.defaultReplyLanguage();
   const presets = ['简体中文', 'English', '繁體中文', '日本語'];
-  let busy = true;
-  function controls() { $('save-settings').disabled = busy; }
+  let busy = true, status = $('status');
+  function controls() { for (const id of ['save-settings', 'save-more']) $(id).disabled = busy; }
+  // The result shows next to the Save button that was used; the other line is cleared.
   function report(text, error = false) {
-    status.textContent = text; status.hidden = !text;
-    status.classList.toggle('is-error', Boolean(text) && error);
-    $('save-hint').hidden = Boolean(text);
+    for (const element of [$('status'), $('status-more')]) {
+      const shown = element === status && Boolean(text);
+      element.textContent = shown ? text : ''; element.hidden = !shown;
+      element.classList.toggle('is-error', shown && error);
+    }
   }
   function select(element, value) {
     for (const option of element.querySelectorAll('option')) option.toggleAttribute('selected', option.value === value);
@@ -44,10 +48,11 @@
     try { await task(); } catch (error) { report(error.message || t('optFailed'), true); }
     finally { busy = false; controls(); }
   }
-  // Fields inside a collapsed "Advanced" block must be visible for the browser to point at them.
+  // Fields inside the collapsed "More settings" must be visible for the browser to point at them.
   $('config').addEventListener('invalid', event => { event.target.closest?.('details')?.setAttribute('open', ''); }, true);
   $('config').addEventListener('submit', event => {
     event.preventDefault();
+    status = event.submitter?.id === 'save-more' ? $('status-more') : $('status');
     // run invokes the callback synchronously up to the permission request, preserving user activation.
     void run(async () => {
       const config = {endpoint: C.endpoint($('endpoint').value.trim()), model: $('model').value.trim(), key: $('key').value.trim(), language: language.value.trim(), reasoningEffort: $('reasoningEffort').value, toolMode: $('toolMode').value};
@@ -59,12 +64,6 @@
       await send({type: 'setAgentPreferences', preferences});
       report(t('optSaved'));
     });
-  });
-  // Keep the extension document URL stable: backend trust checks use its exact URL.
-  for (const link of document.querySelectorAll('.settings-nav a')) link.addEventListener('click', event => {
-    event.preventDefault();
-    const target = document.getElementById(link.getAttribute('href').slice(1));
-    target?.scrollIntoView({block: 'start'});
   });
   choice.querySelector('option[value="browser"]').textContent = t('optLanguageBrowser', browserLanguage);
   showLanguage(browserLanguage, false);
