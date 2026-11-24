@@ -3,6 +3,21 @@ const assert=require('node:assert/strict');
 const {parseHTML}=require('linkedom');
 const C=require('../extension/core.js');
 
+test('snapshot tolerates non-string DOM reflections from list items, gauges and shadowed form properties',()=>{
+ const {document}=parseHTML('<html><body><form tabindex="0" id="resume"><ul role="listbox"><li role="option">本科</li><li onclick="1">硕士</li></ul><progress tabindex="0"></progress><meter tabindex="0"></meter><input name="name" value="张三"><input name="type" value="x"><input name="value" value="y"><input type="submit" value="保存简历"><input type="radio" name="edu" value="a"><input type="radio" name="edu" value="b"></form></body></html>');
+ // Browsers expose these as numbers or as the same-named child control; linkedom only models strings.
+ const form=document.querySelector('form');
+ for(const key of ['name','type','value'])Object.defineProperty(form,key,{configurable:true,get:()=>form.querySelector('[name="'+key+'"]')});
+ for(const n of document.querySelectorAll('li,progress,meter'))Object.defineProperty(n,'value',{configurable:true,get:()=>0});
+ const snap=C.agentSnapshot(document),items=snap.page.elements;
+ const byTag=tag=>items.filter(e=>e.tag===tag);
+ assert.equal(byTag('li').length,2);for(const e of [...byTag('li'),...byTag('progress'),...byTag('meter'),...byTag('form')])assert.equal(e.value,undefined);
+ const formItem=byTag('form')[0];assert.equal(formItem.name,undefined);assert.equal(formItem.type,null);
+ assert.equal(items.find(e=>e.name==='name').value,'张三');assert.equal(items.find(e=>e.type==='submit').label,'保存简历');
+ const radios=items.filter(e=>e.type==='radio');assert.equal(radios.length,2);assert.equal(radios[0].group,radios[1].group);
+ assert.doesNotThrow(()=>C.agentPlan(JSON.stringify({reply:'Pick',action:'click',id:byTag('li')[0].id}),snap));
+});
+
 test('hover reveals event-driven menus without a click and rejects stale or invented targets',()=>{
  const {document}=parseHTML('<html><body><button>Menu</button><div hidden>Options</div></body></html>');
  document.defaultView.MouseEvent=document.defaultView.Event;

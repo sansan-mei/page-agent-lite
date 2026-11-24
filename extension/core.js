@@ -105,6 +105,9 @@ function agentText(n){
  const copy=n.cloneNode(true);for(const child of copy.querySelectorAll(agentSensitiveSelector+',script,style,noscript,[hidden],[aria-hidden="true"],[data-page-agent]'))child.remove();
  return copy.textContent||'';
 }
+// DOM reflections are not always strings: li/progress/meter values are numbers, and a form's name/type/id/value
+// can be shadowed by a same-named control. Snapshot fields read through this so page markup cannot crash a read.
+function agentString(v){return typeof v==='string'?v:undefined;}
 // Agent targets are ephemeral references, never model-provided selectors or scripts.
 const agentNodeKeys=new WeakMap();let agentNodeCounter=0;
 function agentNodeKey(node){if(!agentNodeKeys.has(node))agentNodeKeys.set(node,'node'+(++agentNodeCounter));return agentNodeKeys.get(node);}
@@ -194,19 +197,20 @@ function agentSnapshot(doc, textOffset=0, policy={}){
   const id='t'+elements.length,editable=agentEditable(n);
   const associated=[...(n.labels||[])];
   if(n.closest('label'))associated.push(n.closest('label'));
-  if(n.id)for(const l of doc.querySelectorAll('label[for]'))if(l.htmlFor===n.id||l.getAttribute('for')===n.id)associated.push(l);
+  const nodeId=n.getAttribute('id'),type=agentString(n.type),name=agentString(n.name);
+  if(nodeId)for(const l of doc.querySelectorAll('label[for]'))if(l.getAttribute('for')===nodeId)associated.push(l);
   const labelled=n.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>agentText(doc.getElementById(id))).join(' ').trim();
-  const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>agentText(l)).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(n.type)?n.value:'')||(editable?'':agentText(n))||n.getAttribute('placeholder')||n.name||'').trim().slice(0,180);
-  if(reading.query&&!label.toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase())&&!(n.name||'').toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase()))continue;
+  const label=(n.getAttribute('aria-label')||labelled||[...new Set(associated)].map(l=>agentText(l)).join(' ').trim()||n.getAttribute('title')||(['submit','button','reset'].includes(type)?agentString(n.value):'')||(editable?'':agentText(n))||n.getAttribute('placeholder')||name||'').trim().slice(0,180);
+  if(reading.query&&!label.toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase())&&!(name||'').toLocaleLowerCase().includes(reading.query.trim().toLocaleLowerCase()))continue;
   if(matchedElements++<elementOffset)continue;
   if(elements.length>=120)continue;
   let container=n.closest('fieldset,[role="radiogroup"],[role="group"],form,dialog,[role="dialog"],[role="alertdialog"],[data-question-id],.question,.question-item,.ques-item');
   const popup=agentPopup(n);
   container=popup?.popup||n.closest(dialogSelector)||container;
-  if(!container&&['radio','checkbox'].includes(n.type)){
+  if(!container&&['radio','checkbox'].includes(type)){
    for(let p=n.parentElement,depth=0;p&&p!==doc.body&&depth<6;p=p.parentElement,depth++){
     const choices=[...p.querySelectorAll('input[type="radio"],input[type="checkbox"]')];
-    if(choices.length>=2&&choices.every(c=>!n.name||c.name===n.name)){container=p;break;}
+    if(choices.length>=2&&choices.every(c=>!name||c.name===name)){container=p;break;}
    }
   }
   let group;
@@ -222,7 +226,7 @@ function agentSnapshot(doc, textOffset=0, policy={}){
    group.optionIds.push(id);
   }
   const options=n.localName==='select'?[...n.options].filter(o=>!o.closest(sensitiveSelector)).map(o=>({value:o.value,label:agentText(o).slice(0,100)})).slice(0,40):undefined;
-  const role=n.getAttribute('role')||(editable?'textbox':null)||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(n.type)?n.type:n.localName==='input'?'textbox':'button');
+  const role=n.getAttribute('role')||(editable?'textbox':null)||(scrollables.has(n)?'region':null)||({button:'button',a:'link',select:'combobox',textarea:'textbox'}[n.localName])||(['radio','checkbox'].includes(type)?type:n.localName==='input'?'textbox':'button');
   const ariaChecked=n.getAttribute('aria-checked');
   const related=n.getAttribute('aria-controls')||n.getAttribute('aria-owns');
   const controlled=related?.split(/\s+/).slice(0,5).map(id=>doc.getElementById(id)).filter(Boolean);
@@ -230,7 +234,7 @@ function agentSnapshot(doc, textOffset=0, policy={}){
   const semantic=semanticBudget>0?agentContext(n):null;
   const context=semantic?{path:semantic.path.map(label=>{const part=label.slice(0,semanticBudget);semanticBudget-=part.length;return part;}).filter(Boolean),description:semantic.description.slice(0,semanticBudget)}:undefined;
   if(context)semanticBudget=Math.max(0,semanticBudget-context.description.length);
-  elements.push({context,inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:n.type||n.getAttribute('role'),name:n.name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
+  elements.push({context,inViewport:inViewport(n),expanded:['true','false'].includes(expanded)?expanded==='true':undefined,selected:['true','false'].includes(selected)?selected==='true':undefined,haspopup:n.getAttribute('aria-haspopup')||undefined,controlledLabels:controlled?.filter(visible).map(c=>{const copy=c.cloneNode(true);for(const x of copy.querySelectorAll(blocked))x.remove();return (c.getAttribute('aria-label')||copy.textContent||'').trim().slice(0,180);}),scroll:scrollables.has(n)?agentScrollInfo(n):undefined,id,key:agentNodeKey(n),tag:n.localName,role,type:type||n.getAttribute('role'),name:name?.slice(0,100),group:group?.id,label,visible:visible(n),disabled:!!n.disabled||!!n.closest('[aria-disabled="true"],fieldset[disabled]'),editable:editable?(editable.supported?'plain_text':'unsupported_structure'):undefined,value:agentString(editable?editable.value:n.value)?.slice(0,4000),checked:typeof n.checked==='boolean'?n.checked:ariaChecked==='true'?true:ariaChecked==='false'?false:undefined,options});
   nodes.set(id,{node:n,signature:agentSignature(n)});
  }
  const regionOffset=reading.regionOffset||0;let matchedRegions=0;
@@ -267,7 +271,7 @@ function agentVerify(plan,snap){
  const verified=actual===plan.value;
  return {verified,actual,message:verified?'已核对目标字段状态与本次指定值一致':'实际字段状态与指定值不一致，操作未生效；需重新读取并修正'};
 }
-function agentSignature(n){return JSON.stringify([n.localName,n.type,n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),n.name,n.value,n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),n.getAttribute('autocomplete'),agentEditable(n)]);}
+function agentSignature(n){return JSON.stringify([n.localName,agentString(n.type),n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),agentString(n.name),agentString(n.value),n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),n.getAttribute('autocomplete'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
  if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals'].includes(k)))throw new Error('模型操作格式无效');
