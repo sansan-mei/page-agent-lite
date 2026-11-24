@@ -9,6 +9,14 @@
 3. 修改后重新加载扩展并刷新测试页。不要使用真实账号提交不可撤销的测试数据。
 4. 执行 `npm test`、扩展脚本 `node --check` 和 `git diff --check`。浏览器检查见 [测试文档](docs/testing.md)。
 
+## 宣传页
+
+`site/` 是 GitHub Pages 宣传页：纯 HTML/CSS/JS，GSAP 从 jsDelivr 加载，不属于扩展包。图片不在 `site/` 里重复保存，部署时（`.github/workflows/pages.yml`）从 `extension/icons/` 与 `docs/assets/` 复制到 `site/assets/`。
+
+- 本地预览：先运行一次 `scripts/store-shots.cjs`（会复制图片），再直接打开 `site/index.html`；`?lang=en` 切英文，`?static` 关闭动画。
+- 商店截图：`PAGE_AGENT_CHROMIUM=<chrome 路径> node scripts/store-shots.cjs`，输出中英文 1280×800 截图和 440×280、1400×560 宣传图到 `dist/store/`；`?shot=<区块 class>` 单独渲染某个区块。
+- 上架后把 `site/main.js` 的 `STORE_URL` 改成商店地址，按钮会变成「免费添加到 Chrome」。
+
 ## 提交问题
 
 请提供浏览器版本、扩展版本、重现步骤、预期与实际结果。截图与日志先移除 API 密钥、Cookie、个人信息及站点敏感内容。安全漏洞不要公开提交，见 [SECURITY.md](SECURITY.md)。

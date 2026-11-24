@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page Agent Lite · 一句话，让网页开始行动</title>
+<meta name="description" content="开源、轻量的 Chrome / Edge 侧栏助手：用一句话让 AI 读取网页、填写表单、点击翻页，并逐步核对结果。自带模型，无遥测。">
+<meta property="og:title" content="Page Agent Lite · 一句话，让网页开始行动">
+<meta property="og:description" content="开源、轻量的浏览器侧栏助手：读网页、填表单、逐步核对。自带模型，无遥测。">
+<link rel="icon" href="assets/icon-128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="#top"><img src="assets/icon-48.png" alt="" width="28" height="28"><span>Page Agent Lite</span></a>
+  <nav>
+    <a href="#how" data-i18n="nav.how">怎么工作</a>
+    <a href="#verify" data-i18n="nav.verify">逐步核对</a>
+    <a href="#memory" data-i18n="nav.memory">记忆</a>
+    <a href="#privacy" data-i18n="nav.privacy">隐私</a>
+    <button class="lang" type="button" id="lang" aria-label="Switch language">EN</button>
+    <a class="btn small" href="https://github.com/sansan-mei/page-agent-lite" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+  <!-- Hero: headline + live demo -->
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow" data-i18n="hero.eyebrow">开源 · Chrome / Edge 侧栏助手</p>
+      <h1 class="display split" data-i18n="hero.title">一句话，<br>让网页开始行动。</h1>
+      <p class="lede" data-i18n="hero.lede">说出目标，它读取网页、填写表单、点击翻页，再拿页面上的证据核对每一步。用你自己的模型，数据不经过我们。</p>
+      <div class="cta">
+        <a class="btn primary store-link" href="https://github.com/sansan-mei/page-agent-lite#快速开始" target="_blank" rel="noopener" data-i18n="cta.store">即将上架 Chrome 应用商店</a>
+        <a class="btn ghost" href="https://github.com/sansan-mei/page-agent-lite" target="_blank" rel="noopener" data-i18n="cta.source">查看源码</a>
+      </div>
+      <ul class="facts">
+        <li><b>~0.2 MB</b><span data-i18n="facts.size">安装包</span></li>
+        <li><b>0</b><span data-i18n="facts.deps">运行时依赖</span></li>
+        <li><b>MIT</b><span data-i18n="facts.license">开源协议</span></li>
+      </ul>
+    </div>
+
+    <div class="stage" aria-label="示意动画" data-i18n-aria="demo.aria">
+      <img class="mascot" src="assets/welcome-assistant.webp" alt="" width="200" height="200">
+      <div class="window">
+        <div class="chrome-bar"><i></i><i></i><i></i><span class="url">https://example.com/signup</span></div>
+        <div class="window-body">
+          <form class="mock-page" onsubmit="return false">
+            <h3 data-i18n="demo.form">活动报名</h3>
+            <label><span data-i18n="demo.name">姓名</span><div class="field" data-field="name"><span class="typed"></span><i class="caret"></i></div></label>
+            <label><span data-i18n="demo.email">邮箱</span><div class="field" data-field="email"><span class="typed"></span><i class="caret"></i></div></label>
+            <label><span data-i18n="demo.city">城市</span><div class="field select" data-field="city"><span class="typed"></span></div></label>
+            <div class="mock-submit" data-i18n="demo.submit">提交报名</div>
+            <div class="target-box"></div>
+            <svg class="pointer" viewBox="0 0 14 20" width="18" height="26" aria-hidden="true"><path d="M0 0v20l5-6 3.5 6 2.5-1.5L7.5 12.5H14z"/></svg>
+          </form>
+          <aside class="mock-panel">
+            <div class="panel-top"><span>example.com</span><em data-i18n="demo.authorized">已授权</em></div>
+            <div class="bubble user" data-i18n="demo.goal">按我的资料填好报名表，提交前让我检查。</div>
+            <div class="msgs"></div>
+            <div class="panel-foot"><span class="round">0 / 50</span><span class="composer" data-i18n="demo.composer">补充要求…</span></div>
+          </aside>
+        </div>
+      </div>
+      <p class="caption" data-i18n="demo.caption">示意动画，不是真实模型的运行记录。</p>
+    </div>
+  </section>
+
+  <div class="marquee" aria-hidden="true"><div class="track">
+    <span data-i18n="mq.1">读取页面</span><span data-i18n="mq.2">填写表单</span><span data-i18n="mq.3">点击翻页</span><span data-i18n="mq.4">等待反馈</span><span data-i18n="mq.5">核对结果</span><span data-i18n="mq.6">记住偏好</span><span data-i18n="mq.7">随时接管</span>
+  </div></div>
+
+  <!-- How: pinned three steps -->
+  <section class="how" id="how">
+    <div class="how-pin">
+      <div class="how-left">
+        <p class="eyebrow" data-i18n="how.eyebrow">怎么工作</p>
+        <h2 class="display-2" data-i18n="how.title">三步，<br>一个循环。</h2>
+        <div class="progress"><i></i></div>
+      </div>
+      <ol class="steps">
+        <li class="step">
+          <span class="num">01</span>
+          <h3 data-i18n="how.s1">说出目标</h3>
+          <p data-i18n="how.s1p">在侧栏用自然语言描述要做的事。中途可以补充要求、纠正它，或者点「我来操作」亲自接手。</p>
+        </li>
+        <li class="step">
+          <span class="num">02</span>
+          <h3 data-i18n="how.s2">读懂网页</h3>
+          <p data-i18n="how.s2p">只在你授权的网站读取页面结构和文字，长页面分段读。密码、验证码等敏感字段默认屏蔽。</p>
+        </li>
+        <li class="step">
+          <span class="num">03</span>
+          <h3 data-i18n="how.s3">动手，再核对</h3>
+          <p data-i18n="how.s3p">每次只做一个动作，然后读取新的页面快照，确认字段值、提示文字或网址真的变了，再走下一步。</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Verify -->
+  <section class="verify" id="verify">
+    <p class="eyebrow light" data-i18n="verify.eyebrow">逐步核对</p>
+    <h2 class="display-2 split" data-i18n="verify.title">不盲点。<br>每一步都要证据。</h2>
+    <p class="lede light" data-i18n="verify.lede">AI 操作网页最常见的问题是点错了还以为成功，白烧 token。这里每个动作都带核对条件，结果不明的点击不会重复执行。</p>
+    <div class="log">
+      <div class="row"><code>fill</code><span data-i18n="verify.r1">填写「邮箱」</span><em class="ok">field_equals ✓</em></div>
+      <div class="row"><code>click</code><span data-i18n="verify.r2">点击「下一页」</span><em class="ok">url_changed ✓</em></div>
+      <div class="row"><code>wait</code><span data-i18n="verify.r3">等待「保存成功」出现</span><em class="ok">text_present ✓</em></div>
+      <div class="row"><code>click</code><span data-i18n="verify.r4">点击「提交」后无反馈</span><em class="warn" data-i18n="verify.r4e">结果不明 · 不重放</em></div>
+      <div class="row"><code>pause</code><span data-i18n="verify.r5">暂停，询问你下一步</span><em class="info" data-i18n="verify.r5e">等你决定</em></div>
+    </div>
+    <ul class="pills">
+      <li data-i18n="verify.p1">默认 50 轮上限</li>
+      <li data-i18n="verify.p2">随时停止</li>
+      <li data-i18n="verify.p3">「我来操作」后继续</li>
+      <li data-i18n="verify.p4">长任务自动压缩上下文</li>
+    </ul>
+  </section>
+
+  <!-- Memory -->
+  <section class="memory" id="memory">
+    <div class="memory-copy">
+      <p class="eyebrow" data-i18n="memory.eyebrow">记忆</p>
+      <h2 class="display-2" data-i18n="memory.title">纠正一次，<br>下次记得。</h2>
+      <p class="lede" data-i18n="memory.lede">三层记忆都存在你的浏览器里。模型每轮只看到目录，需要时再读正文；你可以在设置页查看、编辑、导出。</p>
+    </div>
+    <div class="layers">
+      <div class="layer l1"><b data-i18n="memory.l1">临时记忆</b><span data-i18n="memory.l1p">当前标签页 · 关闭即清空</span></div>
+      <div class="layer l2"><b data-i18n="memory.l2">网站记忆</b><span data-i18n="memory.l2p">按网站保存 · 跨标签和重启</span></div>
+      <div class="layer l3"><b data-i18n="memory.l3">全局记忆</b><span data-i18n="memory.l3p">所有网站通用的偏好</span></div>
+    </div>
+  </section>
+
+  <!-- Privacy / own model -->
+  <section class="privacy" id="privacy">
+    <h2 class="display-2 split" data-i18n="privacy.title">你的模型，<br>你的数据。</h2>
+    <div class="grid">
+      <article>
+        <h3 data-i18n="privacy.a1">自带 API</h3>
+        <p data-i18n="privacy.a1p">填入任意 OpenAI Chat Completions 兼容接口的地址、模型和密钥。页面内容直接发给你选的服务。</p>
+        <code>https://api.openai.com/v1</code>
+      </article>
+      <article>
+        <h3 data-i18n="privacy.a2">本机模型</h3>
+        <p data-i18n="privacy.a2p">支持 localhost 上的兼容服务，本机无鉴权服务可以不填密钥，网页内容不出你的电脑。</p>
+        <code>http://localhost:11434/v1</code>
+      </article>
+      <article>
+        <h3 data-i18n="privacy.a3">没有遥测</h3>
+        <p data-i18n="privacy.a3p">没有项目自己的服务器，不统计、不上报。密钥只在扩展后台使用，网站权限按需授权。</p>
+        <code>optional_host_permissions</code>
+      </article>
+    </div>
+  </section>
+
+  <!-- Limits -->
+  <section class="limits">
+    <h2 class="display-3" data-i18n="limits.title">说清楚它还做不到的</h2>
+    <ul>
+      <li data-i18n="limits.l1">不支持 iframe、Shadow DOM、图片和画布内容</li>
+      <li data-i18n="limits.l2">复杂富文本编辑器只支持简单纯文本替换</li>
+      <li data-i18n="limits.l3">合成事件不等于真实鼠标键盘，部分网站会忽略</li>
+      <li data-i18n="limits.l4">暂不支持多标签协作，任务不跨浏览器重启恢复</li>
+      <li data-i18n="limits.l5">模型会误判：提交、删除等操作后请按页面核对</li>
+    </ul>
+  </section>
+
+  <!-- Store promo tile; only rendered with ?shot=promo -->
+  <section class="promo" hidden>
+    <img src="assets/welcome-assistant.webp" alt="" width="200" height="200">
+    <div>
+      <p class="promo-name">Page Agent Lite</p>
+      <p class="promo-line" data-i18n="promo.line">一句话，让网页开始行动。</p>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="final">
+    <img src="assets/welcome-assistant.webp" alt="" width="200" height="200">
+    <h2 class="display-2" data-i18n="final.title">把重复的网页活交给它。</h2>
+    <div class="cta center">
+      <a class="btn primary store-link" href="https://github.com/sansan-mei/page-agent-lite#快速开始" target="_blank" rel="noopener" data-i18n="cta.store">即将上架 Chrome 应用商店</a>
+      <a class="btn ghost light" href="https://github.com/sansan-mei/page-agent-lite" target="_blank" rel="noopener" data-i18n="cta.source">查看源码</a>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>© 2026 Page Agent Lite · MIT</span>
+  <span><a href="https://github.com/sansan-mei/page-agent-lite/blob/main/PRIVACY.md" data-i18n="foot.privacy">隐私说明</a> · <a href="https://github.com/sansan-mei/page-agent-lite/issues" data-i18n="foot.issues">反馈问题</a></span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
+<script src="i18n.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

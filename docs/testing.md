@@ -40,7 +40,7 @@ git diff --check
 
 ## CI
 
-`.github/workflows/ci.yml`：`test` job 跑 `node --check extension/*.js` 和 `npm test`；`smoke` job 安装 Playwright Chromium 跑 `browser-smoke.cjs`，上传 `tests/browser-output/`。
+`.github/workflows/ci.yml`：`test` job 跑 `node --check extension/*.js` 和 `npm test`；`smoke` job 安装 Playwright Chromium 跑 `browser-smoke.cjs`，上传 `tests/browser-output/`。`.github/workflows/pages.yml` 只部署 `site/` 宣传页，不跑测试。
 
 ## 尚未验证
 

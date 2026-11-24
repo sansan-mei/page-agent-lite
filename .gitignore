@@ -6,3 +6,4 @@ dist/
 .env.*
 tests/browser-output/*.png
 tests/browser-output/report.json
+site/assets/
