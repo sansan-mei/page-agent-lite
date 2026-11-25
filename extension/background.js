@@ -112,7 +112,13 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; notes stay per tab.
       const taskTab=['task:get','task:sensitive-access','task:tab-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
-      if(m.type==='task:get')return runtime.get(taskTab);
+      if(m.type==='task:get'){
+        const task=await runtime.get(taskTab);
+        if(!task)return task;
+        // Display-only history: never write merged site content back into the runtime.
+        const conversation=await store.conversation(task.taskId);
+        return {...task,displayLog:{results:conversation?.results||task.results||[],events:conversation?.events||task.events||[]}};
+      }
       if(m.type==='task:sensitive-access')return runtime.sensitiveAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
       if(m.type==='task:tab-access'){
         if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean')throw new Error('标签页授权无效');

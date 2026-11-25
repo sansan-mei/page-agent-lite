@@ -11,12 +11,23 @@ async function fixture(registered=[],storeExtra={},runtimeExtra={},historyExtra=
  vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,URL,setTimeout,clearTimeout,importScripts(){},
   PageAgentCore:{},PageAgentSiteMemory:{createSiteMemory(){return {};}},PageAgentBackend:{createService(){return {async init(){},async handle(){return 'service';}};}},
   PageAgentHistoryStore:{createHistoryStore(){return {async list(){calls.push(['history-list']);return [{taskId:'saved'}];},async get(id){calls.push(['history-get',id]);return id==='saved'?{taskId:'saved'}:null;},async save(view){calls.push(['history-save',view.taskId]);},async remove(id){calls.push(['history-remove',id]);},async interrupt(ids){calls.push(['history-interrupt',[...ids]]);},...historyExtra};},snapshot:view=>({...view,snapshot:true})},
-  PageAgentTaskStore:{createTaskStore(){return {async migrate(){},...storeExtra};}},
+  PageAgentTaskStore:{createTaskStore(){return {async migrate(){},async conversation(){return null;},...storeExtra};}},
   PageAgentBrowserTools:{createBrowserTools(){return {async inject(){calls.push(['tools.inject']);}};}},
   PageAgentRuntime:{createRuntime(){return runtime;}}});await flush();
  return {calls,removed,permissionRemoved,updated,sessionChanged:(...args)=>sessionChanged(...args),send:(m,s)=>new Promise(r=>listener(m,s,r))};
 }
 const panel={id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0};
+test('live panel receives cross-origin logs without changing runtime context',async()=>{
+ const task={taskId:'t',origin:'https://new.test',results:[],events:[{time:2,text:'new site'}]};
+ const old={action:'observe',time:1,result:'old site'};
+ const f=await fixture([],{async conversation(){return {...task,results:[old]};}},{async get(){return task;}});
+ const response=await f.send({type:'task:get',tabId:1},panel);
+ assert.equal(response.ok,true);
+ assert.equal(response.value.results.length,0);
+ assert.equal(response.value.displayLog.results[0].result,'old site');
+ assert.equal(task.displayLog,undefined);
+ assert.equal(task.results.length,0);
+});
 test('only trusted sidepanel owns runtime commands; content cannot create/read/stop tasks',async()=>{
  const f=await fixture();
  for(const sender of [{...panel,id:'other'},{...panel,frameId:1},{id:'test',url:'https://example.test',frameId:0,tab:{id:1}}]){

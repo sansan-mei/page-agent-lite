@@ -166,7 +166,7 @@
       const missing=Math.max(0,timing.attempts-timing.completed-timing.failed);
       $('metrics').textContent+=t('spTiming',label,timing.attempts,t('spSeconds',(timing.totalMs/1000).toFixed(2)),timing.lastMs===null?t('spNotReported'):t('spSeconds',(timing.lastMs/1000).toFixed(2)),timing.failed)+(missing?t('spUnreported',missing):'');
     }
-    const records=task?.results||[];
+    const records=task?.displayLog?.results||task?.results||[];
     $('record-count').textContent=records.length?t('spRecordCount',records.length):'';
     const results=$('results'),signature=JSON.stringify([task?.taskId,task?.contextSummary?.through,records]);
     if(results.dataset.signature!==signature){
@@ -183,7 +183,7 @@
       }
       if(!records.length){const p=document.createElement('p');p.className='hint';p.textContent=task?t('spNoResults'):t('spResultsHint');results.append(p);}
     }
-    const timeline=$('timeline'),events=task?.events||[];
+    const timeline=$('timeline'),events=task?.displayLog?.events||task?.events||[];
     const messageSignature=JSON.stringify([task?.taskId,task?.goal,events,records,task?.pending,task?.check,task?.lastOutcome,task?.phase]);
     if(timeline.dataset.signature!==messageSignature){
       const expanded=new Set([...timeline.querySelectorAll('.tool-call[open]')].map(el=>el.dataset.callKey));

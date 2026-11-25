@@ -6,6 +6,15 @@ async function fixture(granted,hook=()=>undefined,management=false,contains=asyn
  runUi(management?'extension/management.js':'extension/sidepanel.js',{chrome,document,window,URL,Date,...extraGlobals});await flush();
  return {document,window,calls,updated,added,removed,storageChanged,async activate(tab){activeTab=tab;activated();await flush();}};
 }
+test('live timeline keeps archived site logs after an origin switch',async()=>{
+ const task={taskId:'cross',goal:'Compare',status:'running',phase:'thinking',steps:57,prefs:{maxSteps:200},results:[],events:[{time:2,text:'new site'}],displayLog:{results:[{time:1,action:'observe',result:'old page',outcome:{status:'success'}}],events:[{time:1,text:'old site reply'},{time:2,text:'new site'}]}};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:undefined);
+ assert.match(f.document.getElementById('timeline').textContent,/old site reply/);
+ assert.match(f.document.getElementById('timeline').textContent,/new site/);
+ assert.equal(f.document.querySelectorAll('#timeline .tool-call').length,1);
+ assert.match(f.document.getElementById('progress').textContent,/57/);
+});
+
 test('sidepanel requests only current origin directly from gesture, then connects',async()=>{
  const f=await fixture(true);assert.equal(f.document.getElementById('grant').disabled,false);
  assert.match(f.document.getElementById('target').textContent,/Homework/);
