@@ -33,7 +33,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `tool-protocol.js` | V2 工具结果、稳定 code、旧返回适配 | [网页工具](browser-tools.md) |
 | `page-pointer.js` | 页面内虚拟指针与高亮，无任务状态、无模型访问 | [网页工具](browser-tools.md) |
 | `sidepanel.*` | 对话、工具卡片、历史、任务范围、接管；没有执行循环 | [使用指南](usage.md) |
-| `options.*`、`management.js`、`global-management.js` | 设置页；网站/临时记忆管理；全局记忆管理 | [使用指南](usage.md) |
+| `options.*`、`management.js`、`global-management.js` | 设置页；网站记忆管理；全局记忆管理 | [使用指南](usage.md) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
 | `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
 | `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
@@ -44,7 +44,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 ## 消息入口
 
 - 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
-- 设置页 → 后台：`task:memory`、`task:memory-clear`、`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`。
+- 设置页 → 后台：`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`。
 - 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:document`（只读文档 ID 探测）、`agent:clear-pointer`。
 
 网页不能创建、停止或读取任务，拿不到密钥、配置或记忆。内容脚本只接受后台消息，不直接导航、不保存任务目标。

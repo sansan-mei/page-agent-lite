@@ -97,7 +97,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       return runtime.editGlobalMemory({action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
     }
     if(m.type.startsWith('task:')){
-      const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
+      const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; history and notes stay per tab.
       const taskTab=['task:get','task:sensitive-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
@@ -125,8 +125,6 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       }
       if(m.type==='task:site-memory')return runtime.getSiteMemory(m.tabId);
       if(m.type==='task:site-memory-change')return runtime.editSiteMemory(m.tabId,{origin:m.origin,action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
-      if(m.type==='task:memory')return runtime.getMemory(m.tabId);
-      if(m.type==='task:memory-clear')return runtime.clearMemory(m.tabId);
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
       if(m.type==='task:start'||m.type==='task:submit')return typeof m.goalMode==='boolean'?runtime.submit(m.tabId,m.goal,{goalMode:m.goalMode}):runtime.submit(m.tabId,m.goal);
       if(m.type==='task:goal-mode'){

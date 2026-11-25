@@ -29,7 +29,7 @@
       const {token,...view}=task;
       const ended={...view,status:'ended',reason:'member_closed',members:[],activeTabId:null,activeOrigin:null,nextObservation:null,updatedAt:intent.closedAt,archived:true};
       await area.set({['conversation:'+id+':'+task.taskId]:ended,[rootKey(task.taskId)]:ended});
-      await area.remove(key(id));await area.remove('memory:'+id);
+      await area.remove(key(id));
       const bindings={...registry.bindings};delete bindings[id];
       await area.set({taskRegistry:registryOf(registry.revision+1,bindings,releaseOwners(registry.tabOwners,task.taskId))});
       try{await area.remove(rootKey(task.taskId));}catch{ /* Archived unbound root is cleaned at startup. */ }
@@ -171,10 +171,6 @@
         await area.set({taskRegistry:{...registry,pending:{kind:'tab_switched',tabId:id,toTabId,binding:next,previousTaskId:taskId,nextOwners}}});
         await area.set({[rootKey(taskId)]:record});
         await area.set({taskRegistry:registryOf(revision,bindings,nextOwners)});
-        try{
-          const source=(await area.get('memory:'+id))['memory:'+id];
-          if(source){const target=(await area.get('memory:'+toTabId))['memory:'+toTabId]||{};await area.set({['memory:'+toTabId]:{...target,...source}});await area.remove('memory:'+id);}
-        }catch{ /* Notes are optional; the committed binding stays authoritative. */ }
         return record;
       });},
       async history(id,origin){
@@ -209,14 +205,6 @@
         if(binding)await area.remove(rootKey(binding.taskId));
       });},
       async list(){const registry=await readRegistry(),all=await area.get(null),ids=new Set([...Object.keys(registry.bindings),...Object.keys(all).filter(k=>k.startsWith('task:')).map(k=>k.slice(5))]);return Promise.all([...ids].map(id=>get(Number(id))));},
-      async getMemory(id,origin){return (await area.get('memory:'+id))['memory:'+id]?.[origin]||[];},
-      async setMemory(id,origin,entries){
-        const name='memory:'+id,all=(await area.get(name))[name]||{};
-        if(entries.length)all[origin]=entries;else delete all[origin];
-        if(Object.keys(all).length>10)throw new Error('临时记忆最多保存 10 个站点，请先清理不用的记忆');
-        await area.set({[name]:all});
-      },
-      async removeMemory(id){await area.remove('memory:'+id);},
       async reconcile(){return serial(async()=>{
         const registry=await readRegistry(),intent=registry.pending;if(!intent)return;
         if(intent.kind==='member_closed'){await finishMemberClose(registry);return;}

@@ -83,7 +83,7 @@ function options(locale,uiLanguage,config){
  const {document,window}=parseHTML(fs.readFileSync(path.join(ext,'options.html'),'utf8'));
  const listener={addListener(){}};
  const chrome={i18n:chromeI18n(locale,uiLanguage),tabs:{async query(){return [{id:1,url:'https://example.test/',title:'Example'}];},onUpdated:listener,onRemoved:listener},storage:{local:{async get(){return {};}},onChanged:listener},permissions:{async request(){return true;}},
-  runtime:{async sendMessage(m){return {ok:true,value:m.type==='settings'?config:m.type==='agentPreferences'?{maxSteps:100}:m.type==='task:memory'?[]:m.type==='task:site-memory'?{origin:'https://example.test',version:0,notes:[]}:m.type==='task:global-memory'?{scope:'global',version:0,notes:[]}:{}};}}};
+  runtime:{async sendMessage(m){return {ok:true,value:m.type==='settings'?config:m.type==='agentPreferences'?{maxSteps:100}:m.type==='task:site-memory'?{origin:'https://example.test',version:0,notes:[]}:m.type==='task:global-memory'?{scope:'global',version:0,notes:[]}:{}};}}};
  const core=require('../extension/core.js');
  for(const file of ['extension/options.js','extension/management.js','extension/global-management.js','extension/welcome-image.js'])runUi(file,{chrome,document,window,URL,Blob,setTimeout,PageAgentCore:core,Image:class{}});
  return document;

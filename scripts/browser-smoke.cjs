@@ -303,11 +303,10 @@ async function startServer() {
         }
         if(data.goal==='Cross origin smoke'){
           const current=new URL(data.page.url),text=JSON.stringify(data);let plan;
-          if(current.pathname==='/cross-a')plan=data.results.some(result=>result.action==='memory_read')?{reply:'Visit B',action:'navigate',value:secondaryOrigin+'/cross-b'}:{reply:'Read A temp note',action:'memory_read'};
+          if(current.pathname==='/cross-a'){assert.ok(text.includes('A_BODY_PRIVATE'));plan={reply:'Visit B',action:'navigate',value:secondaryOrigin+'/cross-b'};}
           else if(current.pathname==='/cross-b'){
             for(const marker of ['A_BODY_PRIVATE','A_PAGE_PRIVATE','A_SUMMARY_PRIVATE'])assert.equal(text.includes(marker),false,'B excludes '+marker);
-            assert.ok(data.memoryIndex.some(note=>note.id==='cross-b'));
-            plan=data.results.some(result=>result.action==='memory_read')?{reply:'Return to A',action:'navigate',value:'http://'+server.address().address+':'+server.address().port+'/cross-a-return'}:{reply:'Read B temp note',action:'memory_read'};
+            plan={reply:'Return to A B_BODY_PRIVATE',action:'navigate',value:'http://'+server.address().address+':'+server.address().port+'/cross-a-return'};
           }else{for(const marker of ['A_BODY_PRIVATE','B_BODY_PRIVATE','B_PAGE_PRIVATE','A_SUMMARY_PRIVATE'])assert.equal(text.includes(marker),false,'A return excludes cached '+marker);assert.deepEqual(data.historyIndex,[]);plan={reply:'Fresh A context confirmed',action:'done'};}
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
@@ -360,13 +359,6 @@ async function startServer() {
         if(data.goal==='Navigate smoke'){
           const target=new URL('/task-two',data.page.url).href;
           const plan=data.page.url===target?{reply:'URL verified',action:'done',expected:[{kind:'url_equals',value:target}]}:{reply:'Navigate within current origin',action:'navigate',value:target};
-          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
-        }
-        if(data.goal.startsWith('Memory smoke')){
-          let plan={reply:'临时记忆操作完成',action:'done'};
-          if(data.goal==='Memory smoke save'&&!data.memoryIndex.length)plan={reply:'保存用户更正',action:'memory_write',id:'answers',value:'用户更正：第一题对，第二题错'};
-          if(data.goal==='Memory smoke recall'&&!data.results.some(r=>r.action==='memory_read'))plan={reply:'按需读取',action:'memory_read'};
-          if(data.goal==='Memory smoke forget'&&data.memoryIndex.length)plan={reply:'清除已过期答案',action:'memory_clear'};
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
         if(data.page.text.includes('Judgment fixture')){
@@ -692,19 +684,6 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await optionsPage.locator('#managed-tab').selectOption(String(tabId));
   pass('repeated true/false labels map to question groups and real radio corrections verify their checked state');
   await command('task:clear');
-  for(const goal of ['Memory smoke save','Memory smoke recall','Memory smoke forget']){
-    assert.equal((await command('task:submit',{goal})).ok,true);
-    await poll(async()=>((await command('task:get')).value?.status)==='completed','memory tool task completes: '+goal,20000);
-    const notes=(await command('task:memory')).value;
-    if(goal==='Memory smoke save'){
-      assert.equal(notes[0].text,'用户更正：第一题对，第二题错');
-      await poll(async()=>(await optionsPage.locator('#memories').textContent()).includes('用户更正'),'memory viewer receives storage updates');
-    }
-    if(goal==='Memory smoke recall')assert.ok((await command('task:get')).value.results.some(r=>r.action==='memory_read'&&r.result.entries[0].id==='answers'));
-    if(goal==='Memory smoke forget')assert.equal(notes.length,0);
-  }
-  pass('model memory tools save, read across completed tasks, update settings viewer and clear temporary site notes');
-  await command('task:clear');
   await page.goto(origin+'/general');await page.bringToFront();
   await sw.evaluate(()=>{
     const send=chrome.tabs.sendMessage.bind(chrome.tabs);let dropped=false;
@@ -735,12 +714,11 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   await command('task:clear');await page.goto(origin+'/cross-a');await page.bringToFront();
   await panel.evaluate(async({tabId,origin,secondaryOrigin})=>{
     await import(chrome.runtime.getURL('task-store.js'));const store=PageAgentTaskStore.createTaskStore(chrome);
-    await store.set(tabId,{taskId:'cross-origin-smoke',token:'cross-seed',tabId,origin,goal:'Cross origin smoke',status:'paused',phase:'observe',steps:0,prefs:{maxSteps:50,contextTokens:100000},results:[],events:[],contextSummary:{content:{completed:[],remaining:[],facts:['A_SUMMARY_PRIVATE'],failed:[],uncertain:[]}},updatedAt:Date.now()});
-    await store.setMemory(tabId,origin,[{id:'cross-a',text:'A_BODY_PRIVATE'}]);await store.setMemory(tabId,secondaryOrigin,[{id:'cross-b',text:'B_BODY_PRIVATE'}]);
+    await store.set(tabId,{taskId:'cross-origin-smoke',token:'cross-seed',tabId,origin,goal:'Cross origin smoke',status:'paused',phase:'observe',steps:0,prefs:{maxSteps:50,contextTokens:100000},results:[{action:'observe',result:'A_BODY_PRIVATE'}],events:[],contextSummary:{content:{completed:[],remaining:[],facts:['A_SUMMARY_PRIVATE'],failed:[],uncertain:[]}},updatedAt:Date.now()});
   },{tabId,origin,secondaryOrigin});
   const scoped=(await command('task:get')).value;assert.equal((await command('task:scope-change',{taskId:scoped.taskId,expectedRevision:scoped.scopeRevision,action:'add',origin:secondaryOrigin})).ok,true);assert.equal((await command('task:resume')).ok,true);
   await poll(async()=>((await command('task:get')).value?.status)==='completed','cross-origin A B A isolated task',20000);
-  const crossed=(await command('task:get')).value;assert.equal(crossed.taskId,'cross-origin-smoke');assert.equal(crossed.initialOrigin,origin);assert.equal(crossed.origin,origin);assert.equal(crossed.steps,5);assert.equal(crossed.metrics.actions,2);assert.deepEqual(crossHits,{'/cross-a':1,'/cross-b':1,'/cross-a-return':1});
+  const crossed=(await command('task:get')).value;assert.equal(crossed.taskId,'cross-origin-smoke');assert.equal(crossed.initialOrigin,origin);assert.equal(crossed.origin,origin);assert.equal(crossed.steps,3);assert.equal(crossed.metrics.actions,2);assert.deepEqual(crossHits,{'/cross-a':1,'/cross-b':1,'/cross-a-return':1});
   const crossHistory=await panel.evaluate(async({tabId,origin,secondaryOrigin})=>{const store=PageAgentTaskStore.createTaskStore(chrome);return {a:await store.historyGet(tabId,origin,'cross-origin-smoke'),b:await store.historyGet(tabId,secondaryOrigin,'cross-origin-smoke')};},{tabId,origin,secondaryOrigin});
   assert.ok(JSON.stringify(crossHistory.a).includes('A_BODY_PRIVATE'));assert.equal(JSON.stringify(crossHistory.a).includes('B_BODY_PRIVATE'),false);assert.ok(JSON.stringify(crossHistory.b).includes('B_BODY_PRIVATE'));assert.equal(JSON.stringify(crossHistory.b).includes('A_BODY_PRIVATE'),false);
   pass('two real origins navigate A B A with one task and cumulative budget, fresh isolated model inputs, scoped notes and separate read-only history');
@@ -897,13 +875,12 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     const removedScope=await chrome.runtime.sendMessage({type:'task:scope-change',tabId:tab.id,taskId:beforeScope.taskId,expectedRevision:scope.value.scopeRevision,action:'remove',origin});
     const deniedResume=await chrome.runtime.sendMessage({type:'task:resume',tabId:tab.id});
     const restoredScope=await chrome.runtime.sendMessage({type:'task:scope-change',tabId:tab.id,taskId:beforeScope.taskId,expectedRevision:removedScope.value.scopeRevision,action:'add',origin});
-    await store.setMemory(tab.id,origin,[{text:'Temporary close fixture'}]);
     await chrome.alarms.create('task-id:history-second',{delayInMinutes:1});
     await chrome.tabs.remove(tab.id);
     for(let attempt=0;attempt<100;attempt++){const state=await chrome.storage.session.get('taskRegistry');if(!state.taskRegistry.bindings[tab.id]&&!state.taskRegistry.pending)break;if(attempt===99)throw new Error('Member close did not release ownership');await new Promise(resolve=>setTimeout(resolve,50));}
     const all=await chrome.storage.session.get(null),closed=all['conversation:'+tab.id+':history-second'],alarm=await chrome.alarms.get('task-id:history-second');
     const after=await store.get(other.id);await chrome.tabs.remove(other.id);
-    return {list,detail,currentId:current.taskId,scope,removedScope,deniedResume,restoredScope,closed,alarm:!!alarm,memory:!!all['memory:'+tab.id],independent,after};
+    return {list,detail,currentId:current.taskId,scope,removedScope,deniedResume,restoredScope,closed,alarm:!!alarm,independent,after};
   },origin);
   assert.equal(conversationCheck.list.ok,true);assert.equal(conversationCheck.list.value.length,2);
   assert.equal(conversationCheck.detail.value.goal,'First isolated conversation');
@@ -911,8 +888,8 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   pass('conversation history preserves separate tasks and reads old records through trusted messages without replacing the current task');
   assert.equal(conversationCheck.scope.value.status,'paused');assert.ok(conversationCheck.scope.value.allowedOrigins.includes('http://127.0.0.1:1'));assert.deepEqual(conversationCheck.removedScope.value.allowedOrigins,['http://127.0.0.1:1']);assert.equal(conversationCheck.deniedResume.ok,false);assert.equal(conversationCheck.restoredScope.value.check.deadline,12345);assert.equal(conversationCheck.restoredScope.value.steps,37);
   pass('trusted task scope changes remain separate from seeded browser grants and block a revoked current origin without dropping unknown checks');
-  assert.equal(conversationCheck.closed.status,'ended');assert.equal(conversationCheck.closed.reason,'member_closed');assert.equal(conversationCheck.closed.steps,37);assert.equal(conversationCheck.closed.check.deadline,12345);assert.equal(conversationCheck.closed.check.dispatch,'unknown');assert.deepEqual(conversationCheck.closed.members,[]);assert.equal(conversationCheck.closed.token,undefined);assert.equal(conversationCheck.alarm,false);assert.equal(conversationCheck.memory,false);assert.deepEqual(conversationCheck.after,conversationCheck.independent);
-  pass('real browser tab closure ends only its member task, clears alarms and temporary memory, and archives unknown operation evidence');
+  assert.equal(conversationCheck.closed.status,'ended');assert.equal(conversationCheck.closed.reason,'member_closed');assert.equal(conversationCheck.closed.steps,37);assert.equal(conversationCheck.closed.check.deadline,12345);assert.equal(conversationCheck.closed.check.dispatch,'unknown');assert.deepEqual(conversationCheck.closed.members,[]);assert.equal(conversationCheck.closed.token,undefined);assert.equal(conversationCheck.alarm,false);assert.deepEqual(conversationCheck.after,conversationCheck.independent);
+  pass('real browser tab closure ends only its member task, clears alarms and archives unknown operation evidence');
   await restartedPanel.close();
 
   // ── Finalize report ──────────────────────────────────────────────────

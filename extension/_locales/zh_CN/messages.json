@@ -284,15 +284,6 @@
   "optGlobalMemoryExport": {
     "message": "导出全局记忆"
   },
-  "optTempMemory": {
-    "message": "临时记忆"
-  },
-  "optMemoryRefresh": {
-    "message": "刷新记忆"
-  },
-  "optMemoryClear": {
-    "message": "清空临时记忆"
-  },
   "optImagePreview": {
     "message": "当前侧栏主图预览"
   },
@@ -670,12 +661,6 @@
   },
   "mgSiteUpdated": {
     "message": "网站长期记忆已更新，相关运行任务已暂停，可点击继续。"
-  },
-  "mgTempEmpty": {
-    "message": "暂无临时记忆"
-  },
-  "mgTempCleared": {
-    "message": "临时记忆已清空，相关任务已暂停。"
   },
   "mgNoTabs": {
     "message": "请先打开普通 HTTP/HTTPS 网页，再刷新列表。"

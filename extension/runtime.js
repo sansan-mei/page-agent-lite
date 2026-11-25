@@ -530,7 +530,6 @@
         if (!await live()) return;
         const observedTab=await tools.tab(tabId,true);
         if(observedTab.url!==snap.url||originOf(snap)!==task.origin){if(originOf(observedTab)!==task.origin)await adoptOrigin(task,observedTab);return;}
-        const memories=task.origin==='browser'?[]:await store.getMemory(tabId,task.origin);
         const durable=siteMemory&&task.origin!=='browser'?await siteMemory.read(task.origin):{version:0,notes:[]};
         if(task.siteMemoryVersion!==undefined&&task.siteMemoryVersion!==durable.version){
           task=await update(tabId,token,t=>{forgetSiteContext(t);t.siteMemoryVersion=durable.version;});
@@ -549,10 +548,9 @@
         if(task.scriptApproval&&scriptState?.permission!==true){task=await update(tabId,token,t=>{t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');});if(!task)return;}
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
-        const memoryIndex=memories.map(m=>({id:m.id,updatedAt:m.updatedAt}));
         const tabsView=(task.members||[]).length>1?await taskTabs(task):null;
         if(!await live())return;
-        const currentPayload=P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
+        const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,tabsView);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
@@ -572,7 +570,7 @@
           const archives=(task.contextArchive||[]).concat(archive);
           if(JSON.stringify(archives).length>1000000){await pause(task,'任务历史归档达到 100 万字符上限，请结束任务；原记录已保留','context');return;}
           const input=JSON.stringify({goal:task.goal,instructions:task.instructions||[],previousSummary:task.contextSummary?.content||null,archiveId:archive.id,olderResults:older.map(r=>{
-            if(['memory_read','site_memory_read','global_memory_read'].includes(r.action))return {action:r.action,result:'Memory bodies omitted; read again if needed'};
+            if(['site_memory_read','global_memory_read'].includes(r.action))return {action:r.action,result:'Memory bodies omitted; read again if needed'};
             const raw=JSON.stringify(r);return raw.length<=4000?r:{action:r.action,label:r.label,truncated:true,archiveId:archive.id,excerpt:raw.slice(0,2000)+' [middle omitted; recover with history_read] '+raw.slice(-1000)};
           })});
           if(input.length>1000000||P.estimateTokens(input)+P.estimateTokens(P.summarySystem('简体中文'))>pressure.budget*0.9){await pause(task,'待整理记录超过摘要预算，原始记录已保留；请增加上下文窗口或结束任务','context');return;}
@@ -596,7 +594,7 @@
         if(pressure.tokens>=pressure.trigger){await pause(task,'当前页面和受保护内容已接近上下文预算，无法压缩；请检查窗口设置或缩小页面','context');return;}
         task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
-        const payload = P.agentInput(task,page,memoryIndex,siteMemoryIndex,globalMemoryIndex,tabsView);
+        const payload = P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,tabsView);
         const sentEstimate=P.pressure(task,payload,null,modelProtocol,capabilities).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal,capabilities),live);
         if (!await live()) return;
@@ -653,7 +651,6 @@
         }
         if(plan.action.startsWith('global_memory_')){await globalMemoryAction(task,plan,shared.version,controller.signal);return;}
         if(plan.action.startsWith('site_memory_')){await siteMemoryAction(task,plan,durable.version,controller.signal);return;}
-        if(plan.action.startsWith('memory_')){await memoryAction(task,plan);return;}
         if(plan.action==='observe'){
           if(plan.value&&typeof plan.value==='object'){
             await update(tabId,token,t=>{t.phase='observe';t.nextObservation={value:plan.value,url:snap.url,documentId:snap.documentId};t.results=t.results.concat({...call,action:'observe',outcome:T.result({status:'success',scope:'dispatch',code:'READ_SCOPE_SET',message:'下一轮重新读取指定控件范围'})});});return;
@@ -869,26 +866,6 @@
         }
       });
     }
-    async function memoryAction(task,plan){
-      await serial(task.tabId,async()=>{
-        const t=await store.get(task.tabId);if(t?.token!==task.token||!ACTIVE.has(t.status))return;
-        let entries=await store.getMemory(t.tabId,t.origin),result;
-        if(plan.action==='memory_read')result={entries};
-        else if(plan.action==='memory_write'){
-          const next=entries.filter(m=>m.id!==plan.id).concat({id:plan.id,text:plan.value,updatedAt:Date.now()});
-          if(next.length>12||JSON.stringify(next).length>8000)result={error:'临时记忆容量已满，请先删除或压缩其他条目'};
-          else{await store.setMemory(t.tabId,t.origin,next);result={saved:plan.id};t.memoryReview=null;}
-        }else if(plan.action==='memory_delete'){
-          await store.setMemory(t.tabId,t.origin,entries.filter(m=>m.id!==plan.id));result={deleted:plan.id};
-          forgetPlanContext(t);t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
-        }else{
-          await store.setMemory(t.tabId,t.origin,[]);result={cleared:true};forgetPlanContext(t);t.contextSummary=null;t.contextUsage=null;t.compactionGuard=false;t.contextArchive=(t.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));t.results=t.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');
-        }
-        t.phase='observe';t.pending=null;t.retries=0;
-        t.results=t.results.concat({origin:t.origin,tabRef:refOf(t),action:plan.action,result});event(t,'临时记忆：'+plan.action+' · '+plan.reply);
-        await store.set(t.tabId,t);
-      });
-    }
     async function diagnostics(tabId,taskId){
       const tab=await tools.tab(tabId,true),task=await store.get(tabId);
       if(!task||task.taskId!==taskId||originOf(tab)!==task.origin)throw new Error('任务或网站已变化，请刷新后再导出');
@@ -908,20 +885,6 @@
       for(const archive of task.contextArchive||[])for(const entry of archive.results||[])tally(entry);
       for(const entry of task.results||[])tally(entry);
       return {schema:'page-agent-diagnostics',version:1,generatedAt:now(),scope:'current_task_statistics',status:pick(task.status,['running','waiting_page','waiting_confirmation','paused','stopped','failed','completed','ended']),phase:pick(task.phase,['observe','thinking','executing','verifying','compacting','idle','confirm','approved']),steps:count(task.steps),maxSteps:count(task.prefs?.maxSteps),counts:{observations:count(task.metrics?.observations),actions:count(task.metrics?.actions),verifications:count(task.metrics?.verifications)},timings,outcomes};
-    }
-    async function getMemory(tabId){const tab=await tools.tab(tabId);return store.getMemory(tabId,new URL(tab.url).origin);}
-    async function clearMemory(tabId){
-      const tab=await tools.tab(tabId),origin=new URL(tab.url).origin;
-      await serial(tabId,async()=>{
-        await store.setMemory(tabId,origin,[]);
-        const task=await store.get(tabId);
-        if(task?.origin===origin){
-          controllerForTab(tabId)?.abort();task.token=uuid();task.nextObservation=null;forgetPlanContext(task);task.memoryReview=null;task.check=null;task.waitDeadline=null;task.contextSummary=null;task.contextUsage=null;task.compactionGuard=false;task.contextArchive=(task.contextArchive||[]).map(a=>({...a,results:a.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read')}));task.results=task.results.filter(r=>!r.action?.startsWith('memory_')&&r.action!=='history_read');task.pending=null;
-          if(!['completed','ended','stopped','failed'].includes(task.status)){task.status='paused';task.reason='memory_cleared';}
-          task.phase='observe';event(task,'用户已清空临时记忆；继续任务将重新读取');await store.set(tabId,task);
-        }
-      });
-      return [];
     }
     async function execute(task, pending, live) {
       // Checkpoint BEFORE emitting a side effect. On worker restart this phase
@@ -983,13 +946,13 @@
       const owner=store.owner?await store.owner(tabId):null;
       if(owner?.role==='member'){
         // A joined, non-executing member only leaves the directory; the task keeps running.
-        await store.removeMemory(tabId);if(owner.taskTabId===null)return null;
+        if(owner.taskTabId===null)return null;
         return serial(owner.taskTabId,()=>store.changeMembers(owner.taskTabId,{taskId:owner.taskId,action:'closed',memberTabId:tabId,updatedAt:now()}));
       }
       return serial(tabId,async()=>{
         const task=await store.get(tabId);
         await cancelSchedule(tabId);
-        if(!task){await store.removeMemory(tabId);return null;}
+        if(!task)return null;
         controllers.get(task.taskId)?.abort();
         if(task.status!=='ended'&&store.switchTab)for(const member of (task.members||[]).filter(item=>item.tabId!==tabId)){
           try{await tools.tab(member.tabId,true);}catch{continue;}
@@ -999,7 +962,7 @@
         return store.closeMember(tabId,task.taskId,now());
       });
     }
-    async function remove(tabId) {controllerForTab(tabId)?.abort();await stop(tabId);await serial(tabId,async()=>{await store.remove(tabId);await store.removeMemory(tabId);});}
+    async function remove(tabId) {controllerForTab(tabId)?.abort();await stop(tabId);await serial(tabId,()=>store.remove(tabId));}
     async function recover() {
       // Missing tabs can have closed while the worker was unavailable. Query failure
       // propagates: absence must be proven, never inferred from a page access error.
@@ -1010,7 +973,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

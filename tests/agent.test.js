@@ -68,8 +68,9 @@ test('verification distinguishes a selected answer, unchanged wrong answer and r
 
 test('memory operations validate names and bounded text, never accept scripts as actions',()=>{
  const snap={nodes:new Map()};
- assert.equal(C.agentPlan('{"reply":"记住","action":"memory_write","id":"answers","value":"对错"}',snap).id,'answers');
- for(const p of [{reply:'x',action:'memory_write',id:'../key',value:'x'},{reply:'x',action:'memory_write',id:'ok',value:'x'.repeat(2001)},{reply:'x',action:'memory_delete',id:''}])assert.throws(()=>C.agentPlan(JSON.stringify(p),snap));
+ assert.equal(C.agentPlan('{"reply":"记住","action":"site_memory_write","id":"answers","value":"对错"}',snap).id,'answers');
+ for(const action of ['memory_read','memory_write','memory_delete','memory_clear'])assert.equal(C.agentTool(action),null);
+ for(const p of [{reply:'x',action:'site_memory_write',id:'../key',value:'x'},{reply:'x',action:'site_memory_write',id:'ok',value:'x'.repeat(2001)},{reply:'x',action:'site_memory_delete',id:''},{reply:'x',action:'memory_write',id:'ok',value:'x'}])assert.throws(()=>C.agentPlan(JSON.stringify(p),snap));
 });
 
 test('custom controls expose current IDs, accessible icon names and clickable handlers',()=>{
@@ -314,7 +315,7 @@ test('static tool policy cannot be mutated or expanded and backend tools never e
  for(const action of ['eval','constructor','__proto__','toString']){
   assert.equal(C.agentTool(action),null);assert.throws(()=>C.agentPlan(JSON.stringify({reply:'Unsupported',action,id:'t0',value:'changed'}),snap));
  }
- for(const action of ['memory_clear','site_memory_clear','verify','navigate','run_script'])assert.throws(()=>C.agentExecute({action,id:'t0',value:'changed'},snap,document),e=>e.beforeDispatch===true&&e.code==='UNSUPPORTED_ACTION');
+ for(const action of ['site_memory_clear','global_memory_clear','verify','navigate','run_script'])assert.throws(()=>C.agentExecute({action,id:'t0',value:'changed'},snap,document),e=>e.beforeDispatch===true&&e.code==='UNSUPPORTED_ACTION');
  assert.equal(document.querySelector('input').value,'untouched');
  const prompts=require('../extension/prompts.js'),prompt=prompts.agentSystem('English');
  // run_script is listed only on turns where script execution is available.

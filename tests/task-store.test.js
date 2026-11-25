@@ -26,12 +26,7 @@ test('legacy goals migrate once as paused tasks, with old records removed',async
  assert.equal(t.status,'paused');assert.equal(t.steps,17);assert.equal(t.goal,'继续');assert.equal(data['chat:4'],undefined);
  await store.migrate();assert.equal((await store.get(4)).taskId,t.taskId);assert.equal((await store.list()).length,1);
  assert.equal(data.other.secret,'untouched');
- await store.setMemory(4,'https://example.test',[{id:'answer',text:'用户更正'}]);
- assert.equal((await store.getMemory(4,'https://example.test'))[0].text,'用户更正');
- assert.equal((await store.getMemory(5,'https://example.test')).length,0);
- assert.equal((await store.getMemory(4,'https://other.test')).length,0);
  assert.equal((await store.list()).length,1);
- await store.removeMemory(4);assert.equal((await store.getMemory(4,'https://example.test')).length,0);
 });
 
 test('single-member task roots are authoritative and migration preserves unknown checkpoints and budget',async()=>{
@@ -81,20 +76,20 @@ test('new tasks and checkpoints store one payload and invalid roots retain legac
 test('last member close ends only its task, preserves unknown evidence, and never deletes independent history',async()=>{
  const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
  const store=createTaskStore({storage:{session:area}}),task={taskId:'closing',tabId:1,origin:'https://one.test',status:'waiting_page',phase:'verifying',steps:24,token:'private',pending:{plan:{action:'click'}},check:{kind:'action',deadline:123,dispatch:'unknown'},results:[]};
- await store.set(1,task);await store.set(2,{...task,taskId:'independent',tabId:2});await store.setMemory(1,task.origin,[{text:'temporary'}]);await store.setMemory(2,task.origin,[{text:'other'}]);
+ await store.set(1,task);await store.set(2,{...task,taskId:'independent',tabId:2});
  assert.equal(await store.closeMember(1,'obsolete',99),null);assert.equal((await store.get(1)).status,'waiting_page');
  const ended=await store.closeMember(1,'closing',100);assert.equal(ended.status,'ended');assert.equal(ended.reason,'member_closed');assert.deepEqual(ended.members,[]);assert.equal(ended.activeTabId,null);assert.equal(ended.token,undefined);assert.equal(ended.steps,24);assert.deepEqual(ended.check,task.check);
- assert.equal(await store.get(1),null);assert.equal(await store.getByTaskId('closing'),null);assert.equal(data.taskRegistry.bindings[1],undefined);assert.deepEqual(await store.getMemory(1,task.origin),[]);assert.equal((await store.getMemory(2,task.origin))[0].text,'other');assert.equal((await store.get(2)).taskId,'independent');
+ assert.equal(await store.get(1),null);assert.equal(await store.getByTaskId('closing'),null);assert.equal(data.taskRegistry.bindings[1],undefined);assert.equal((await store.get(2)).taskId,'independent');
  assert.equal((await store.history(1,task.origin))[0].status,'ended');assert.equal((await store.historyGet(1,task.origin,'closing')).pending,undefined);assert.equal(await store.closeMember(1,'closing',101),null);
 });
 
 test('interrupted close intent finishes only storage cleanup at startup without reopening a task',async()=>{
- for(const stage of ['archive','memory','commit']){
+ for(const stage of ['archive','commit']){
   const data={};let fail=false;
-  const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){if(fail&&(stage==='archive'&&Object.keys(v).some(k=>k.startsWith('conversation:'))||stage==='commit'&&v.taskRegistry&&!v.taskRegistry.pending))throw Error('interrupted');Object.assign(data,structuredClone(v));},async remove(k){if(fail&&stage==='memory'&&k==='memory:1')throw Error('interrupted');delete data[k];}};
+  const area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){if(fail&&(stage==='archive'&&Object.keys(v).some(k=>k.startsWith('conversation:'))||stage==='commit'&&v.taskRegistry&&!v.taskRegistry.pending))throw Error('interrupted');Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
   const store=createTaskStore({storage:{session:area}}),task={taskId:'closing',tabId:1,origin:'https://one.test',status:'running',phase:'executing',steps:49,token:'secret',pending:{plan:{action:'click'}},check:{kind:'action',deadline:9876,dispatch:'unknown'}};
-  await store.set(1,task);await store.setMemory(1,task.origin,[{text:'temporary'}]);fail=true;await assert.rejects(()=>store.closeMember(1,task.taskId,500),/interrupted/);await assert.rejects(()=>store.get(1),e=>e.code==='TASK_SCOPE_INCONSISTENT');
-  fail=false;const restarted=createTaskStore({storage:{session:area}});await restarted.migrate();assert.equal(await restarted.get(1),null);assert.deepEqual(await restarted.list(),[]);assert.equal(data.taskRegistry.pending,undefined);assert.equal(data['memory:1'],undefined);
+  await store.set(1,task);fail=true;await assert.rejects(()=>store.closeMember(1,task.taskId,500),/interrupted/);await assert.rejects(()=>store.get(1),e=>e.code==='TASK_SCOPE_INCONSISTENT');
+  fail=false;const restarted=createTaskStore({storage:{session:area}});await restarted.migrate();assert.equal(await restarted.get(1),null);assert.deepEqual(await restarted.list(),[]);assert.equal(data.taskRegistry.pending,undefined);
   const archive=data['conversation:1:closing'];assert.equal(archive.status,'ended');assert.equal(archive.updatedAt,500);assert.equal(archive.steps,49);assert.deepEqual(archive.check,task.check);assert.deepEqual(archive.pending,task.pending);assert.equal(archive.token,undefined);
  }
 });

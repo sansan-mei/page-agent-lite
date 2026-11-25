@@ -87,7 +87,7 @@
 - **发送**：只有无任务、completed、ended 时新建；否则追加补充指令（单条 ≤ `inputChars`，总长 ≤ max(12000, inputChars × 6)，超限拒绝），取消旧请求、轮换 token、清除 pending/check 并重新观察。当前页来源必须等于任务当前来源；`scope_changed`/`permission_denied` 下仍有未确定操作时，须先点继续核对。
 - **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
 - **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
-- **结束/清空**：结束后不能用继续复活；清空删除当前任务及其临时记忆和来源分区。
+- **结束/清空**：结束后不能用继续复活；清空删除当前任务及其来源分区。
 - **脚本批准**（`task:script-approval`、`task:script-revoke`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
 
 ## 脚本批准

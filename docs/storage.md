@@ -13,7 +13,6 @@
 | session `taskRegistry` | 标签 → 任务归属索引：`bindings`（执行标签页）与 `tabOwners`（其余成员标签页） | 浏览器会话 |
 | session `conversation:<tabId>:<taskId>` | 被替换或关闭的对话只读归档 | 浏览器会话 |
 | session `conversation-origin:<tabId>:<taskId>:<encodedOrigin>` | 离开某来源前的只读分段（tabId 为当时的执行标签页） | 清空当前任务时删除；替换/关闭后保留只读 |
-| session `memory:<tabId>` | 按 origin 分组的临时笔记；切换执行标签页时随任务移到新标签 | 清空任务或关标签删除 |
 | session `task:<tabId>` / `chat:<tabId>` | 旧版记录，仅作迁移输入 | 迁移成功后删除 |
 | IndexedDB `page-agent-memory`（v2）`sites` | 按 origin 的长期笔记 | 跨重启；卸载/清理存储后丢失 |
 | IndexedDB `page-agent-memory`（v2）`global` | 唯一记录 `scope:'global'` | 同上 |

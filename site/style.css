@@ -129,13 +129,12 @@ html[lang="en"] .split .w { display: inline-block; white-space: nowrap; }
 
 /* Memory */
 .memory { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; align-items: center; padding: clamp(100px, 12vw, 170px) var(--pad); }
-.layers { position: relative; height: 380px; }
+.layers { position: relative; height: 260px; }
 .layer { position: absolute; left: 0; right: 0; display: grid; gap: 4px; padding: 26px 30px; border: 1.5px solid var(--ink); border-radius: 22px; }
 .layer b { font: 900 26px/1.2 var(--display); }
 .layer span { color: var(--ink-2); }
-.layer.l1 { top: 0; background: #fff; }
-.layer.l2 { top: 120px; background: var(--mint); }
-.layer.l3 { top: 240px; background: var(--ink); color: var(--paper); }
+.layer.l2 { top: 0; background: var(--mint); }
+.layer.l3 { top: 120px; background: var(--ink); color: var(--paper); }
 .layer.l3 span { color: #b9c6be; }
 
 /* Privacy */

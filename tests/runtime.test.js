@@ -121,41 +121,6 @@ test('failed field verification pauses instead of claiming answer was applied',a
  const t=await f.runtime.get(1);assert.equal(t.status,'paused');assert.equal(t.reason,'verification');assert.equal(t.results[0].verification.verified,false);
 });
 
-test('model writes temporary notes, sees index only and chooses read across task boundaries',async()=>{
- let count=0,payload;const f=fixture({model:async text=>{
-  payload=JSON.parse(text);count++;
-  return {text:JSON.stringify(count===1?{reply:'保存更正',action:'memory_write',id:'answers',value:'用户指定第1题对、第2题错'}:count===3?{reply:'回顾答案',action:'memory_read'}:{reply:'完成',action:'done'})};
- }});
- await f.runtime.submit(1,'作答');await f.runtime.tick(1);await f.runtime.tick(1);
- const first=await f.runtime.get(1);assert.equal(first.status,'completed');
- assert.equal((await f.runtime.getMemory(1))[0].text,'用户指定第1题对、第2题错');
- await f.runtime.submit(1,'再检查一次');await f.runtime.tick(1);
- assert.notEqual((await f.runtime.get(1)).taskId,first.taskId);
- assert.equal(payload.memoryIndex[0].id,'answers');assert.equal(JSON.stringify(payload).includes('用户指定第1题'),false);
- await f.runtime.tick(1);assert.match(JSON.stringify(payload.results),/用户指定第1题/);
- assert.equal(f.executed.length,0);
-});
-
-test('model can delete notes or clear site memory; manual clear invalidates pending model',async()=>{
- const f=fixture({model:async()=>({text:'{"reply":"过期","action":"memory_delete","id":"old"}'})});
- await f.store.setMemory(1,'https://example.test',[{id:'old',text:'旧答案'},{id:'keep',text:'保留'}]);
- await f.runtime.submit(1,'清理');await f.runtime.tick(1);assert.deepEqual((await f.runtime.getMemory(1)).map(m=>m.id),['keep']);
- f.deps.model=async()=>({text:'{"reply":"清空","action":"memory_clear"}'});
- await createRuntime(f.deps).tick(1);assert.equal((await f.runtime.getMemory(1)).length,0);
- let resolve;const g=fixture({model:async()=>new Promise(r=>resolve=r)});await g.runtime.submit(1,'任务');const tick=g.runtime.tick(1);
- while(!resolve)await new Promise(r=>setImmediate(r));
- await g.runtime.clearMemory(1);resolve({text:'{"reply":"旧写入","action":"memory_write","id":"old","value":"不应写入"}'});await tick;
- assert.equal((await g.runtime.getMemory(1)).length,0);assert.equal((await g.runtime.get(1)).status,'paused');
-});
-
-test('memory capacity returns tool feedback so model can consolidate; tab close clears notes',async()=>{
- const f=fixture({model:async()=>({text:'{"reply":"保存","action":"memory_write","id":"extra","value":"more"}'})});
- await f.store.setMemory(1,'https://example.test',Array.from({length:12},(_,i)=>({id:'note'+i,text:'data'})));
- await f.runtime.submit(1,'任务');await f.runtime.tick(1);
- const t=await f.runtime.get(1);assert.equal(t.status,'running');assert.match(t.results.at(-1).result.error,/容量/);
- await f.runtime.remove(1);assert.equal((await f.runtime.getMemory(1)).length,0);
-});
-
 test('model reporting incomplete work pauses and preserves task identity for followups',async()=>{
  const f=fixture({model:async()=>({text:'{"reply":"仍有错题，请提供回顾页面","action":"pause","pauseReason":"user"}'})});
  const first=await f.runtime.submit(1,'订正所有错题');await f.runtime.tick(1);
@@ -310,7 +275,7 @@ test('archive can be recovered in bounded pages and disappears with task clear',
 test('stable task prefix survives appending results and volatile snapshot changes',()=>{
  const P=require('../extension/prompts.js');const t={goal:'task',results:[{action:'observe',result:'one'}],steps:1};
  const first=P.agentInput(t,{text:'old'});t.results.push({action:'observe',result:'two'});t.steps++;
- const second=P.agentInput(t,{text:'new'});const prefix=first.slice(0,first.indexOf('],"memoryIndex"'));
+ const second=P.agentInput(t,{text:'new'});const prefix=first.slice(0,first.indexOf('],"siteMemoryIndex"'));
  assert.ok(second.startsWith(prefix));
 });
 
@@ -318,14 +283,6 @@ test('oversized protected context pauses without repeated summary requests',asyn
  let summaries=0;const f=fixture({tools:{async observe(){return {url:'https://example.test/1',page:{text:'中'.repeat(26000),elements:[]}};}},summarize:async()=>{summaries++;return {text:summaryText};}});
  await f.runtime.start(1,'任务');let t=await f.runtime.get(1);t.results=oldHistory();await f.store.set(1,t);
  await f.runtime.tick(1);await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).reason,'context');assert.equal(summaries,1);assert.equal(f.executed.length,0);
-});
-
-
-test('manual memory clearing removes archived and recovered note bodies and invalidates usage',async()=>{
- const f=fixture();await f.runtime.start(1,'任务');let t=await f.runtime.get(1);
- t.contextArchive=[{id:'h1',from:1,to:3,results:[{action:'memory_read',result:'old note'},{action:'history_read',result:'old note'},{action:'click',result:'safe'}]}];
- t.contextSummary={content:{facts:['old note']},through:3};t.contextUsage={promptTokens:10};t.results=[{action:'history_read',result:'old note'}];await f.store.set(1,t);
- await f.runtime.clearMemory(1);t=await f.runtime.get(1);assert.equal(t.contextSummary,null);assert.equal(t.contextUsage,null);assert.equal(t.results.length,0);assert.deepEqual(t.contextArchive[0].results,[{action:'click',result:'safe'}]);
 });
 
 
@@ -691,7 +648,7 @@ test('same-origin navigation verifies after worker reconstruction without replay
 });
 
 test('memory changes invalidate task milestones and archived planning metadata without clearing checkpoint evidence',async()=>{
- for(const scope of ['global','site','temporary']){
+ for(const scope of ['global','site']){
   const globalMemory=durableFixture(),siteMemory=durableFixture(),f=fixture({globalMemory,siteMemory});
   await f.runtime.start(1,'Work');let t=await f.runtime.get(1);
   const subgoals=[{id:'old',title:'forgotten-plan-text',status:'active'}],request={reply:'Inspect',action:'observe',subgoals};
@@ -699,8 +656,7 @@ test('memory changes invalidate task milestones and archived planning metadata w
   t.phase='executing';t.pending={plan:{reply:'Click',action:'click',id:'t0',subgoals},url:'https://example.test/1'};t.check={kind:'action',deadline:12345,expected:[{kind:'url_equals',value:'https://example.test/next'}],dispatch:'unknown',request:{reply:'Click',action:'click',subgoals}};
   await f.store.set(1,t);
   if(scope==='global')await f.runtime.editGlobalMemory({action:'clear',expectedVersion:0});
-  else if(scope==='site')await f.runtime.editSiteMemory(1,{origin:'https://example.test',action:'clear',expectedVersion:0});
-  else await f.runtime.clearMemory(1);
+  else await f.runtime.editSiteMemory(1,{origin:'https://example.test',action:'clear',expectedVersion:0});
   t=await f.runtime.get(1);assert.equal(t.taskPlan,null);assert.doesNotMatch(JSON.stringify(t),/forgotten-plan-text/);assert.equal(t.results[0].request.action,'observe');
   if(scope==='global'){assert.equal(t.check.deadline,12345);assert.equal(t.check.dispatch,'unknown');assert.equal(t.pending.plan.action,'click');assert.equal(t.check.expected[0].kind,'url_equals');}
   await f.runtime.resume(1);
@@ -717,7 +673,7 @@ test('global memory edits discard late milestone replies as well as existing pla
 });
 
 test('model memory clear cannot reintroduce removed milestones in its request archive',async()=>{
- for(const action of ['global_memory_clear','site_memory_clear','memory_clear']){
+ for(const action of ['global_memory_clear','site_memory_clear']){
   const f=fixture({globalMemory:durableFixture(),siteMemory:durableFixture(),model:async()=>({text:JSON.stringify({reply:'Clear notes',action,subgoals:[{id:'old',title:'forgotten-plan-text',status:'active'}]})})});
   await f.runtime.start(1,'Clear');await f.runtime.tick(1);const task=await f.runtime.get(1);
   assert.equal(task.taskPlan,null);assert.doesNotMatch(JSON.stringify(task),/forgotten-plan-text/);
@@ -858,13 +814,13 @@ function crossFixture(options={}){
 test('authorized A to B to A navigation keeps one task and budget while each origin receives fresh isolated context',async()=>{
  let aCalls=0;const f=crossFixture({siteMemory:{async read(origin){return {version:0,notes:[{id:origin==='https://a.test'?'A_NOTE_ID':'B_NOTE_ID'}]};}},globalMemory:{async read(){return {version:0,notes:[{id:'GLOBAL_SHARED'}]};}},model:async data=>{
   if(data.page.url.startsWith('https://a.test')){aCalls++;if(aCalls===1){assert.ok(JSON.stringify(data).includes('A_BODY_SECRET'));return {text:'{"reply":"To B","action":"navigate","value":"https://b.test/next"}'};}assert.equal(JSON.stringify(data).includes('A_BODY_SECRET'),false);assert.equal(JSON.stringify(data).includes('B_BODY_SECRET'),false);return {text:'{"reply":"Finished","action":"done"}'};}
-  const text=JSON.stringify(data);for(const marker of ['A_BODY_SECRET','A_SUMMARY_SECRET','A_PLAN_SECRET','A_GUARD_PRIVATE','A_TEMP_ID','A_NOTE_ID'])assert.equal(text.includes(marker),false,marker);assert.ok(text.includes('B_NOTE_ID'));assert.ok(text.includes('B_TEMP_ID'));assert.ok(text.includes('GLOBAL_SHARED'));assert.ok(text.includes('USER_SHARED'));
+  const text=JSON.stringify(data);for(const marker of ['A_BODY_SECRET','A_SUMMARY_SECRET','A_PLAN_SECRET','A_GUARD_PRIVATE','A_NOTE_ID'])assert.equal(text.includes(marker),false,marker);assert.ok(text.includes('B_NOTE_ID'));assert.ok(text.includes('GLOBAL_SHARED'));assert.ok(text.includes('USER_SHARED'));
   return {text:'{"reply":"To A","action":"navigate","value":"https://a.test/back"}'};
  }});
  await f.runtime.start(1,'USER_SHARED visit the two authorized sites');let t=await f.store.get(1);await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'add',origin:'https://b.test'});await f.runtime.resume(1);t=await f.store.get(1);
- await f.store.set(1,{...t,steps:17,results:[{action:'site_memory_read',result:'A_BODY_SECRET'}],contextSummary:{content:{facts:['A_SUMMARY_SECRET']}},contextArchive:[{id:'h1',from:1,to:1,results:[{result:'A_BODY_SECRET'}]}],taskPlan:[{id:'p',title:'A_PLAN_SECRET'}],uncertainClicks:[{url:'https://a.test/start',documentId:'old-document',target:{category:'element',label:'A_GUARD_PRIVATE'}}]});await f.store.setMemory(1,'https://a.test',[{id:'A_TEMP_ID',text:'A_BODY_SECRET'}]);await f.store.setMemory(1,'https://b.test',[{id:'B_TEMP_ID',text:'B_BODY_SECRET'}]);
+ await f.store.set(1,{...t,steps:17,results:[{action:'site_memory_read',result:'A_BODY_SECRET'}],contextSummary:{content:{facts:['A_SUMMARY_SECRET']}},contextArchive:[{id:'h1',from:1,to:1,results:[{result:'A_BODY_SECRET'}]}],taskPlan:[{id:'p',title:'A_PLAN_SECRET'}],uncertainClicks:[{url:'https://a.test/start',documentId:'old-document',target:{category:'element',label:'A_GUARD_PRIVATE'}}]});
  await f.runtime.tick(1);const deadline=(await f.store.get(1)).check.deadline;await f.runtime.tick(1);let b=await f.store.get(1);assert.equal(b.origin,'https://b.test');assert.equal(b.initialOrigin,'https://a.test');assert.equal(b.steps,18);assert.equal(b.contextSummary,undefined);assert.deepEqual(b.contextArchive,[]);assert.deepEqual(b.results,[]);assert.equal(b.check,null);
- await f.store.set(1,{...b,results:[{action:'memory_read',result:'B_BODY_SECRET'}]});await f.runtime.tick(1);await f.runtime.tick(1);await f.runtime.tick(1);
+ await f.store.set(1,{...b,results:[{action:'site_memory_read',result:'B_BODY_SECRET'}]});await f.runtime.tick(1);await f.runtime.tick(1);await f.runtime.tick(1);
  const ended=await f.store.get(1);assert.equal(ended.taskId,t.taskId);assert.equal(ended.steps,20);assert.equal(ended.status,'completed');assert.equal(ended.origin,'https://a.test');assert.equal(ended.initialOrigin,'https://a.test');assert.equal(ended.uncertainClicks[0].target.label,'A_GUARD_PRIVATE');assert.equal(f.dispatches.length,2);assert.equal(f.payloads.length,3);assert.ok(deadline>0);
  const aHistory=await f.store.historyGet(1,'https://a.test',t.taskId),bHistory=await f.store.historyGet(1,'https://b.test',t.taskId);assert.ok(JSON.stringify(aHistory).includes('A_BODY_SECRET'));assert.equal(JSON.stringify(aHistory).includes('B_BODY_SECRET'),false);assert.ok(JSON.stringify(bHistory).includes('B_BODY_SECRET'));assert.equal(JSON.stringify(bHistory).includes('A_BODY_SECRET'),false);
 });

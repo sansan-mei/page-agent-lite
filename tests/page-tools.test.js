@@ -55,7 +55,7 @@ test('content endpoint rejects a runtime-only plan before any page mutation',asy
  vm.runInNewContext(fs.readFileSync('extension/content.js','utf8'),{PageAgentCore:C,PageAgentConditions:require('../extension/conditions.js'),PageAgentProtocol:require('../extension/tool-protocol.js'),chrome,document,location:{href:'https://example.test/'},crypto,Date,setTimeout});
  const send=m=>new Promise(r=>listener(m,{id:'test',url:'chrome-extension://test/background.js'},r));
  const snap=(await send({type:'agent:observe'})).value;
- const result=await send({type:'agent:execute',snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,plan:{reply:'Runtime only',action:'memory_clear',id:'t0'}});
+ const result=await send({type:'agent:execute',snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,plan:{reply:'Runtime only',action:'site_memory_clear',id:'t0'}});
  assert.equal(result.ok,false);assert.equal(result.code,'UNSUPPORTED_ACTION');assert.equal(result.result.dispatch,'not_sent');assert.equal(document.querySelector('input').value,'original');
 });
 

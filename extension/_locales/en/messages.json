@@ -284,15 +284,6 @@
   "optGlobalMemoryExport": {
     "message": "Export global memory"
   },
-  "optTempMemory": {
-    "message": "Temporary memory"
-  },
-  "optMemoryRefresh": {
-    "message": "Refresh memory"
-  },
-  "optMemoryClear": {
-    "message": "Clear temporary memory"
-  },
   "optImagePreview": {
     "message": "Current side panel image preview"
   },
@@ -670,12 +661,6 @@
   },
   "mgSiteUpdated": {
     "message": "Site memory updated; related running tasks are paused — click Continue to resume."
-  },
-  "mgTempEmpty": {
-    "message": "No temporary memory"
-  },
-  "mgTempCleared": {
-    "message": "Temporary memory cleared; related tasks are paused."
   },
   "mgNoTabs": {
     "message": "Open a regular HTTP/HTTPS page first, then refresh the list."

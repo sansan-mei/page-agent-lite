@@ -4,7 +4,7 @@
 
 `prompts.js` 组装稳定系统指令和每轮输入；`backend.js` 以非流式 Chat Completions 发送。每次请求无状态（系统指令 + 含历史的单条用户输入），不回传 tool 结果消息。
 
-- 每轮输入是一个 JSON，字段顺序为：`taskScope`（当前来源与授权集合，只读）、`goal`、`instructions`（按时间排序）、`taskPlan`、`taskSummary`、`historyIndex`、`results`、`memoryIndex`、`siteMemoryIndex`、`globalMemoryIndex`、`memoryReview`、`uncertainClicks`……最后是当前页面快照。稳定内容在前，变化内容在后，便于服务商前缀缓存。
+- 每轮输入是一个 JSON，字段顺序为：`taskScope`（当前来源与授权集合，只读）、`goal`、`instructions`（按时间排序）、`taskPlan`、`taskSummary`、`historyIndex`、`results`、`siteMemoryIndex`、`globalMemoryIndex`、`memoryReview`、`uncertainClicks`……最后是当前页面快照。稳定内容在前，变化内容在后，便于服务商前缀缓存。
 - 较新的用户纠正优先；网页、笔记、摘要都作为不可信资料。不设置服务商专用缓存参数，摘要更新时间不发给模型。
 - 仓库 `AGENTS.md` 只约束开发，扩展不读取。
 - 导航无需逐站申请任务授权，`taskScope.allowedOrigins` 记录任务来源，不是导航白名单。行动请求须返回实际动作，不能把“准备去做”当作完成；受阻时须说明未完成和具体原因。这是提示约束，不能保证模型始终遵守。
@@ -24,16 +24,14 @@ auto 回退：回复只有文本但文本本身是严格 JSON 动作时，本轮
 
 ## 记忆
 
-三层记忆都只在每轮提供目录，正文由模型用工具按需读取；工具由后台执行，不经网页，但每次请求仍计一轮。
+两层长期记忆都只在每轮提供目录，正文由模型用工具按需读取；工具由后台执行，不经网页，但每次请求仍计一轮。
 
 | 层 | 工具 | 目录 | 存储与范围 | 容量 |
 |---|---|---|---|---|
-| 临时 | `memory_read/write/delete/clear` | `memoryIndex`（名称、更新时间） | session `memory:<tabId>`，按标签页+origin；切换执行标签页时随任务移动 | 每站 12 条/8000 字符，单条 2000；每标签 10 站 |
 | 网站 | `site_memory_read/write/delete/clear` | `siteMemoryIndex`（id、updatedAt、source） | IndexedDB，按完整 origin，跨任务/标签/重启 | 32 条/64000 字符，单条 2000 |
 | 全局 | `global_memory_read/write/delete/clear` | `globalMemoryIndex` | IndexedDB 单一 global 记录 | 同网站 |
 
 - 容量满时返回工具错误，由模型删除或压缩，不静默丢弃。
-- 临时笔记独立于 taskId，模型完成或手动结束后仍保留；清空任务、关标签、会话结束时删除。
 - 提示词要求：网站笔记记本站稳定经验；全局只记用户明确的跨站偏好或适用范围清楚的通用经验，范围不清时留在本站或询问；不记凭据、验证码、临时 DOM ID 或整段网页。单站经验不会自动提升为全局。这些是提示约束，模型不一定遵守。
 - 写入携带本轮读取的版本（CAS）；模型写全局笔记会使其他在途请求失效。
 
@@ -41,7 +39,6 @@ auto 回退：回复只有文本但文本本身是严格 JSON 动作时，本轮
 
 | 变更 | 影响范围 | 处理 |
 |---|---|---|
-| 用户清空/删除临时笔记 | 当前标签页 | 取消旧请求、暂停；移除 memory_* 结果、可能含旧笔记的摘要 |
 | 用户修改网站笔记 | 同 origin 任务 | 取消同站请求、暂停；清理摘要、site_memory_* 与 history_read 结果 |
 | 用户修改全局笔记 | 所有任务 | 取消各站请求、暂停；清理全局读取结果、history_read 与摘要 |
 | 任意记忆变更 | 同上 | 清空 `taskPlan` 及请求中的 subgoals 元数据 |

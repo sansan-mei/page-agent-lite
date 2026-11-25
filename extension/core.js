@@ -94,7 +94,7 @@ const agentToolRegistry=(()=>{
  add(['navigate'],{route:'browser',effect:'page',timeout:true});
  // Task tabs: refs come only from the task member directory; handled by the runtime, never by the page.
  add(['tab_switch'],{});add(['tab_open','tab_close'],{route:'browser',effect:'tab'});
- for(const prefix of ['memory','site_memory','global_memory']){
+ for(const prefix of ['site_memory','global_memory']){
   add([prefix+'_read'],{});add([prefix+'_write',prefix+'_delete',prefix+'_clear'],{effect:'storage'});
  }
  // run_script: script-tools.js is loaded before core.js by the service worker only (content scripts
@@ -334,9 +334,9 @@ function agentPlan(raw,snap){
  if(p.action==='verify'&&!p.expected)throw new Error('验证需要明确条件');
  if(p.action==='wait'&&!p.expected&&p.timeoutMs===undefined)throw new Error('纯延时等待需要 timeoutMs');
  if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!agentTool(p.action).timeout))throw new Error('等待时间需为 100–30000 毫秒');
- if(['memory_write','memory_delete','site_memory_write','site_memory_delete','site_memory_read','global_memory_read','global_memory_write','global_memory_delete'].includes(p.action)&&(typeof p.id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(p.id)))throw new Error('记忆名称无效');
+ if(['site_memory_write','site_memory_delete','site_memory_read','global_memory_read','global_memory_write','global_memory_delete'].includes(p.action)&&(typeof p.id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(p.id)))throw new Error('记忆名称无效');
  if(p.action==='history_read'&&(typeof p.id!=='string'||!/^h[0-9]+$/.test(p.id)||(p.value!==undefined&&(!Number.isSafeInteger(p.value)||p.value<0))))throw new Error('历史记录读取参数无效');
- if(['memory_write','site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
+ if(['site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
  if(agentTool(p.action).target==='required'&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
  if(['tab_switch','tab_close'].includes(p.action)&&(typeof p.id!=='string'||!/^tab[0-9]{1,3}$/.test(p.id)||p.value!==undefined||p.expected!==undefined))throw new Error('标签页标识无效');
