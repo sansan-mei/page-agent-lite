@@ -74,6 +74,18 @@
   "spMemberAdd": {
     "message": "加入任务"
   },
+  "spTabAccessTitle": {
+    "message": "允许助手读取这个标签页？"
+  },
+  "spTabAccessText": {
+    "message": "允许后，该标签页加入本任务，助手可读取并操作其中的内容，内容会发送至你配置的模型服务。不会切换浏览器前台。"
+  },
+  "spTabAccessAllow": {
+    "message": "允许读取"
+  },
+  "spTabAccessDeny": {
+    "message": "不允许"
+  },
   "spSensitiveTitle": {
     "message": "授权本次对话操作敏感字段？"
   },

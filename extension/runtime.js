@@ -418,6 +418,7 @@
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
       if(task.sensitiveRequest&&task.reason==='sensitive_access')throw new Error('请先选择是否授权本次对话操作敏感字段');
       if(task.scriptRequest&&task.reason==='script_approval')throw new Error('请先在侧栏批准或拒绝待执行的脚本');
+      if(task.tabRequest&&task.reason==='tab_access')throw new Error('请先选择是否允许读取该标签页');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
       const page=await tools.tab(tabId,true);
       if(originOf(page)!==task.origin){const moved=await adoptOrigin(task,page);if(!moved)throw new Error('请核对任务范围和原站点未确定操作后再继续');schedule(tabId);return moved;}
@@ -548,9 +549,11 @@
         if(task.scriptApproval&&scriptState?.permission!==true){task=await update(tabId,token,t=>{t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');});if(!task)return;}
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
-        const tabsView=(task.members||[]).length>1?await taskTabs(task):null;
+        const tabsView=await taskTabs(task);
         if(!await live())return;
-        const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,tabsView);
+        if(JSON.stringify(task.tabCandidates||[])!==JSON.stringify(tabsView.candidates)){task=await update(tabId,token,t=>{t.tabCandidates=tabsView.candidates;});if(!task||!await live())return;}
+        const tabsArgs=[tabsView.members.length>1?tabsView.members:null,tabsView.others.length?tabsView.others:null];
+        const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
@@ -594,7 +597,7 @@
         if(pressure.tokens>=pressure.trigger){await pause(task,'当前页面和受保护内容已接近上下文预算，无法压缩；请检查窗口设置或缩小页面','context');return;}
         task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
-        const payload = P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,tabsView);
+        const payload = P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs);
         const sentEstimate=P.pressure(task,payload,null,modelProtocol,capabilities).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal,capabilities),live);
         if (!await live()) return;
@@ -613,7 +616,7 @@
         }
         if(!await live())return;
         const plan = C.agentPlan(result.text, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
-        if(task.origin==='browser'&&!['navigate','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
+        if(task.origin==='browser'&&!['navigate','tab_switch','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
         if(plan.subgoals!==undefined){
           const updates=plan.subgoals.map(g=>{
             const checks=g.checks?G.bind(g.checks,snap):[],verification=checks.length?G.evaluate(checks,snap):null;
@@ -738,14 +741,23 @@
         if(controllers.get(runningTaskId)===controller){controllers.delete(runningTaskId);if(controllerTasks.get(tabId)===runningTaskId)controllerTasks.delete(tabId);}
       }
     }
-    // Model-visible directory: only this task's open members, origin and a bounded untrusted title.
+    // Model-visible directory: this task's open members, plus other open web tabs owned by no task
+    // (origin and a bounded untrusted title only). Reading another tab needs a side-panel grant.
     async function taskTabs(task){
-      const list=[];
+      const members=[],others=[],candidates=[],known=new Set([task.tabId,...(task.members||[]).map(member=>member.tabId)]);
       for(const member of task.members||[]){
         let tab;try{tab=await tools.tab(member.tabId,true);}catch{continue;}
-        const origin=originOf(tab);list.push({tabRef:member.tabRef,kind:member.kind,active:member.tabId===task.tabId,origin:origin==='browser'?null:origin,title:String(tab.title||'').slice(0,80)});
+        const origin=originOf(tab);members.push({tabRef:member.tabRef,kind:member.kind,active:member.tabId===task.tabId,origin:origin==='browser'?null:origin,title:String(tab.title||'').slice(0,80)});
       }
-      return list;
+      const open=tools.listTabs?await tools.listTabs().catch(()=>[]):[];
+      for(const tab of open){
+        if(candidates.length>=20)break;
+        if(known.has(tab.id))continue;
+        const {origin,title}=tabView(tab,[]);if(!origin||await store.owner(tab.id))continue;
+        const tabRef='open'+(candidates.length+1);
+        candidates.push({tabRef,tabId:tab.id,url:tab.url});others.push({tabRef,origin,title});
+      }
+      return {members,others,candidates};
     }
     function tabResult(t,call,plan,data){
       const outcome=T.result({dispatch:'not_sent',scope:'dispatch',...data});
@@ -762,7 +774,49 @@
         return store.switchTab(task.tabId,{taskId:t.taskId,expectedRevision:t.scopeRevision,expectedToken:t.token,toTabId,token:uuid(),updatedAt:now(),patch:{results,events,status:'running',reason:null,phase:'observe',pending:null,check:null,waitDeadline:null,nextObservation:null,contextUsage:null,retries:0,lastOutcome:entry.outcome}});
       });
     }
+    // A tab outside the task is never read before the user grants it in the side panel.
+    async function candidateTab(task,tabRef){
+      const candidate=(task.tabCandidates||[]).find(item=>item.tabRef===tabRef);
+      if(!candidate)return {code:'TAB_NOT_LISTED',message:tabRef+' 不在最新的 otherTabs 列表中'};
+      let tab;try{tab=await tools.tab(candidate.tabId,true);}catch{return {code:'TAB_CLOSED',message:tabRef+' 已关闭'};}
+      if(tab.url!==candidate.url)return {code:'TAB_CHANGED',message:tabRef+' 的网页已变化；请按下一轮的列表重新选择'};
+      const view=tabView(tab,[]);if(!view.origin)return {code:'UNSUPPORTED_PAGE',message:tabRef+' 不是普通网页'};
+      if(await store.owner(candidate.tabId))return {code:'TAB_OWNED',message:tabRef+' 正被其他任务使用'};
+      if((task.members||[]).length>=8)return {code:'TAB_LIMIT',message:'每个任务最多 8 个标签页，请先在侧栏移出不需要的标签页'};
+      return {candidate,view};
+    }
+    async function requestTabAccess(task,plan,call){
+      const checked=await candidateTab(task,plan.id);
+      if(checked.code)return tabReject(task,call,plan,checked.code,checked.message);
+      const saved=await update(task.tabId,task.token,t=>{t.status='paused';t.reason='tab_access';t.phase='observe';t.pending=null;t.check=null;t.nextObservation=null;
+        t.tabRequest={id:uuid(),tabRef:plan.id,tabId:checked.candidate.tabId,url:checked.candidate.url,origin:checked.view.origin,title:checked.view.title,text:plan.reply,plan,time:call.time};
+        event(t,'请求读取标签页：'+(checked.view.title||checked.view.origin)+'，等待你在侧栏确认');});
+      if(saved)await cancelSchedule(task.tabId);
+    }
+    // Trusted side-panel decision: allow joins the tab as user_joined and switches execution to it.
+    async function tabAccess(tabId,{taskId,requestId,allow}){
+      const task=await store.get(tabId),request=task?.tabRequest;
+      if(!task||task.taskId!==taskId||task.status!=='paused'||task.reason!=='tab_access'||!request||request.id!==requestId||typeof allow!=='boolean')throw new Error('标签页授权已过期');
+      controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
+      const call={request:request.plan,time:request.time},plan=request.plan;
+      const settle=async(code,message,status='error')=>{
+        const saved=await update(tabId,task.token,t=>{t.tabRequest=null;t.status='running';t.reason=null;tabResult(t,call,plan,{status,code,recovery:'replan',message});});
+        if(saved)schedule(tabId);return saved;
+      };
+      if(!allow)return settle('TAB_ACCESS_DENIED','用户未允许读取 '+request.tabRef+'；不要再请求该标签页，改用其他方式或说明限制');
+      const checked=await candidateTab({...task,tabCandidates:[{tabRef:request.tabRef,tabId:request.tabId,url:request.url}]},request.tabRef);
+      if(checked.code)return settle(checked.code,checked.message);
+      let joined;
+      try{joined=await serial(tabId,()=>store.changeMembers(tabId,{taskId,action:'join',memberTabId:request.tabId,updatedAt:now()}));}
+      catch(error){return settle(error.code||'TAB_JOIN_FAILED',error.message);}
+      const ref=joined.members.find(member=>member.tabId===request.tabId)?.tabRef;
+      const outcome=T.result({status:'success',dispatch:'not_sent',scope:'dispatch',code:'TAB_SWITCHED',recovery:'observe',message:'用户已允许，'+request.tabRef+' 加入任务为 '+ref+'，执行目标已切换（未切换浏览器前台）；重新观察'});
+      const moved=await switchTo(joined,request.tabId,{...call,action:'tab_switch',outcome,result:outcome.message});
+      if(!moved)throw new Error('任务已变化，请刷新后重试');
+      await tools.clearPointer?.(tabId);schedule(request.tabId);return moved;
+    }
     async function switchAction(task,plan,call){
+      if(plan.id.startsWith('open'))return requestTabAccess(task,plan,call);
       const member=(task.members||[]).find(item=>item.tabRef===plan.id);
       if(!member)return tabReject(task,call,plan,'TAB_NOT_MEMBER','只能切换到任务标签页目录中的成员');
       if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ALREADY_ACTIVE',member.tabRef+' 已是执行标签页');
@@ -973,7 +1027,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

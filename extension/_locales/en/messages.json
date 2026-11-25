@@ -74,6 +74,18 @@
   "spMemberAdd": {
     "message": "Add to task"
   },
+  "spTabAccessTitle": {
+    "message": "Let the assistant read this tab?"
+  },
+  "spTabAccessText": {
+    "message": "If allowed, the tab joins this task and the assistant can read and operate its content, which is sent to your configured model service. The browser does not switch to it."
+  },
+  "spTabAccessAllow": {
+    "message": "Allow"
+  },
+  "spTabAccessDeny": {
+    "message": "Don't allow"
+  },
   "spSensitiveTitle": {
     "message": "Allow sensitive fields in this conversation?"
   },

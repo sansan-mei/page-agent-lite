@@ -339,7 +339,7 @@ function agentPlan(raw,snap){
  if(['site_memory_write','global_memory_write'].includes(p.action)&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>2000))throw new Error('记忆内容无效或超过 2000 字符');
  if(agentTool(p.action).target==='required'&&!snap.nodes.has(p.id))throw new Error('操作目标无效');
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
- if(['tab_switch','tab_close'].includes(p.action)&&(typeof p.id!=='string'||!/^tab[0-9]{1,3}$/.test(p.id)||p.value!==undefined||p.expected!==undefined))throw new Error('标签页标识无效');
+ if(['tab_switch','tab_close'].includes(p.action)&&(typeof p.id!=='string'||!(p.action==='tab_switch'?/^(tab[0-9]{1,3}|open[0-9]{1,2})$/:/^tab[0-9]{1,3}$/).test(p.id)||p.value!==undefined||p.expected!==undefined))throw new Error('标签页标识无效');
  if(p.action==='tab_open'&&p.expected!==undefined)throw new Error('打开标签页不支持预期条件');
  if(p.action==='navigate'||p.action==='tab_open'){
   let url;try{url=new URL(p.value);}catch{throw new Error('导航 URL 无效');}

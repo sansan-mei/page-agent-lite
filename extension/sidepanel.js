@@ -81,6 +81,11 @@
     $('browser-target').hidden=historyOpen||!current?.browserTarget||current?.reason!=='browser_target';
     $('browser-target-url').textContent=current?.browserTarget?t('spOpenSite',current.browserTarget):'';
     $('browser-target-open').disabled=busy;
+    const tabRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='tab_access'?current.tabRequest:null;
+    $('tab-access').hidden=!tabRequest;
+    $('tab-access-reason').textContent=tabRequest?.text||'';
+    $('tab-access-target').textContent=tabRequest?[tabRequest.title,tabRequest.origin].filter(Boolean).join(' · '):'';
+    $('tab-access-allow').disabled=busy||!tabRequest;$('tab-access-deny').disabled=busy||!tabRequest;
     const sensitiveRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='sensitive_access'?current.sensitiveRequest:null;
     $('sensitive-confirmation').hidden=!sensitiveRequest;
     $('sensitive-reason').textContent=sensitiveRequest?.text||'';
@@ -247,7 +252,7 @@
     $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
     // A decision card can appear while the conversation is scrolled elsewhere; bring each new one into view once.
-    const prompt=[['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
+    const prompt=[['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
     const promptKey=prompt?prompt[0]+':'+prompt[1]:'';
     if(promptKey!==shownPrompt){shownPrompt=promptKey;if(prompt)$(prompt[0]).scrollIntoView?.({block:'end'});}
   }
@@ -288,6 +293,7 @@
   }
   for(const [id,allow,scope] of [['script-approve',true,'once'],['script-approve-task',true,'task'],['script-reject',false,'once']])$(id).addEventListener('click',()=>{if(task?.scriptRequest)void action('task:script-approval',{taskId:task.taskId,requestId:task.scriptRequest.id,allow,scope});});
   $('script-revoke').addEventListener('click',()=>{if(task?.scriptApproval)void action('task:script-revoke',{taskId:task.taskId});});
+  for(const [id,allow] of [['tab-access-allow',true],['tab-access-deny',false]])$(id).addEventListener('click',()=>{if(task?.tabRequest)void action('task:tab-access',{taskId:task.taskId,requestId:task.tabRequest.id,allow});});
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
   function editScope(action,origin,continueTask=false){
     if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;

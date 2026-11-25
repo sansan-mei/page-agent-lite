@@ -9,7 +9,7 @@
 | running | 可继续推进 |
 | waiting_page | 等待页面就绪，由事件或 alarm 重试 |
 | waiting_confirmation | 旧版兼容；继续时丢弃待确认动作并重新规划 |
-| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`script_stale`（待批准脚本因页面变化作废） |
+| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`tab_access`（待确认读取其他标签页）、`script_stale`（待批准脚本因页面变化作废） |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
 | completed | 模型返回 done（有完成条件时已核实） |
@@ -137,6 +137,8 @@
 任务同一时间只有一个执行标签页（`tabId` = `activeTabId`，即 binding 所在标签）；观察、动作、核对、指针都只作用于它，其他成员不读取、不注入。
 
 - 模型输入：成员多于 1 个时附 `tabs`（仅本任务仍打开的成员：tabRef、kind、active、origin、≤ 80 字符标题），放在 page 前；标题按不可信网页数据处理。
+- 其他标签：每轮附 `otherTabs`（`listTabs` 中不属于任何任务的 HTTP/HTTPS 标签，≤ 20：`open1`…、origin、≤ 80 字符标题），不含 tabId、URL 和正文；映射写入 `tabCandidates` 后才请求模型。
+- `tab_switch` 到 `openN`：核对映射存在、标签仍打开且 URL 未变、为 HTTP/HTTPS、未被占用、成员未满 8 个（`TAB_NOT_LISTED` / `TAB_CLOSED` / `TAB_CHANGED` / `UNSUPPORTED_PAGE` / `TAB_OWNED` / `TAB_LIMIT`），通过后暂停为 `tab_access`（`tabRequest`），不读取目标。侧栏 `task:tab-access` → `runtime.tabAccess`：允许时重新核对，`changeMembers` join（user_joined）后 `switchTo`；拒绝记 `TAB_ACCESS_DENIED` 并重新规划。`resume` 在待确认时拒绝；停止、接管、补充指令使请求失效。
 - `tab_switch`：tabRef 必须在目录中、不是当前执行标签、浏览器确认仍打开且为 HTTP/HTTPS，否则返回 not_sent 错误结果（`TAB_NOT_MEMBER` / `TAB_ALREADY_ACTIVE` / `TAB_CLOSED` / `UNSUPPORTED_PAGE`）交给模型重新规划。通过后在队列内 abort 旧请求，`store.switchTab` 轮换 token 与 scopeRevision，清 pending/check/读取范围，不重置轮数，不激活浏览器前台。迟到回复因 token 与 binding 均已变化而丢弃。
 - 目标标签来源不同：下一轮照常走 [跨来源切换](#跨来源切换)（主机权限、来源分区、上下文清空）；缺少权限则暂停为 `permission_denied`，不读取目标页。
 - `tab_open`：先查目标主机权限（缺少则暂停为 `browser_target`，不创建），成员已满 8 个则拒绝；写 executing 创建意图后调用一次 `tabs.create`（后台、opener 所在窗口）。用浏览器返回的 tabId 登记为 task_created 成员（停止后仍登记，避免无主标签），再切换执行目标到新标签。`tabs.create` 失败或回执不明 → 暂停 `uncertain`；worker 在执行中重启 → 按现有 executing 规则暂停。从不重试、不按 URL 或标题认领。

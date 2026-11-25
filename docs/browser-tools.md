@@ -101,7 +101,7 @@ observe 的 value：
 
 ## 任务标签页
 
-- tabRef（`tab0`…`tab999`）只取自模型输入的 `tabs` 目录，校验器拒绝数字 tabId、value 和 expected；运行器再核对目录与 `tabOwners`。规则见 [运行器](agent-runtime.md#多标签执行)。
+- tabRef（`tab0`…`tab999`）只取自模型输入的 `tabs` 目录；`tab_switch` 另接受 `otherTabs` 的 `open1`…`open99`。校验器拒绝数字 tabId、value 和 expected；运行器再核对目录与 `tabOwners`。规则见 [运行器](agent-runtime.md#多标签执行)。
 - `browser-tools.openTab(url, {openerTabId})`：拒绝凭据与非 HTTP/HTTPS，要求目标主机权限；`tabs.create({active:false, windowId: opener 窗口, openerTabId})`，只返回浏览器给出的 tabId。
 - `closeTab(tabId)`：一次 `tabs.remove`，结果由运行器向浏览器确认。
 - 内容脚本不处理这三个动作（路由不是 content）。

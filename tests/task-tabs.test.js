@@ -174,3 +174,40 @@ test('an interrupted tab switch reconciles to exactly one binding and pauses',as
   const other=bound[0]===1?4:1;assert.equal(f.data.taskRegistry.tabOwners[other].taskId,before.taskId,stage);assert.equal(f.data.taskRegistry.tabOwners[bound[0]],undefined,stage);
  }
 });
+
+test('other open tabs are listed by title and origin only; reading one waits for a side-panel grant',async()=>{
+ const f=fixture({tabs:{3:{id:3,url:'chrome://settings',title:'Settings',windowId:1}},plans:[{reply:'Need the other tab',action:'tab_switch',id:'open1'},{reply:'Read',action:'done'}]});
+ await f.runtime.start(1,'Compare both tabs');
+ await f.runtime.tick(1);
+ const input=JSON.parse(f.inputs[0]);
+ assert.deepEqual(input.otherTabs,[{tabRef:'open1',origin:'https://b.test',title:'B page'},{tabRef:'open2',origin:'https://a.test',title:'A four'}]);
+ assert.equal(input.tabs,undefined);assert.equal(f.inputs[0].includes('b.test/x'),false,'urls and tab ids stay out of the model input');
+ let task=await f.store.get(1);
+ assert.equal(task.status,'paused');assert.equal(task.reason,'tab_access');assert.equal(task.tabRequest.origin,'https://b.test');assert.equal(task.tabRequest.title,'B page');
+ assert.deepEqual(f.observed,[1]);assert.equal(f.data.taskRegistry.tabOwners[2],undefined,'nothing joins before the grant');
+ await assert.rejects(()=>f.runtime.resume(1),/是否允许读取/);
+ await assert.rejects(()=>f.runtime.tabAccess(1,{taskId:task.taskId,requestId:'stale',allow:true}),/已过期/);
+ const moved=await f.runtime.tabAccess(1,{taskId:task.taskId,requestId:task.tabRequest.id,allow:true});
+ assert.equal(moved.tabId,2);assert.equal(moved.status,'running');assert.equal(moved.tabRequest,null);
+ assert.equal(moved.members.find(m=>m.tabId===2).kind,'user_joined');assert.equal(moved.results.at(-1).outcome.code,'TAB_SWITCHED');
+ assert.ok(f.scheduled.includes(2));
+ await f.runtime.tick(2);task=await f.store.get(2);assert.equal(task.origin,'https://b.test');
+ await f.runtime.tick(2);assert.equal(f.observed.at(-1),2);assert.equal(f.inputs[1].includes('Page 1'),false,'the old site is not carried into the new origin');
+});
+
+test('a denied, changed or claimed tab is never read and the model replans',async()=>{
+ const f=fixture({plans:[{reply:'s',action:'tab_switch',id:'open1'},{reply:'s',action:'tab_switch',id:'open1'},{reply:'s',action:'tab_switch',id:'open9'}]});
+ await f.runtime.start(1,'Work');await f.runtime.tick(1);
+ let task=await f.store.get(1);
+ task=await f.runtime.tabAccess(1,{taskId:task.taskId,requestId:task.tabRequest.id,allow:false});
+ assert.equal(task.status,'running');assert.equal(task.results.at(-1).outcome.code,'TAB_ACCESS_DENIED');assert.equal(task.results.at(-1).outcome.dispatch,'not_sent');
+ await f.runtime.tick(1);task=await f.store.get(1);assert.equal(task.reason,'tab_access');
+ f.tabs[2].url='https://b.test/elsewhere';
+ task=await f.runtime.tabAccess(1,{taskId:task.taskId,requestId:task.tabRequest.id,allow:true});
+ assert.equal(task.tabId,1);assert.equal(task.results.at(-1).outcome.code,'TAB_CHANGED');assert.equal(f.data.taskRegistry.tabOwners[2],undefined);
+ await f.runtime.tick(1);task=await f.store.get(1);assert.equal(task.results.at(-1).outcome.code,'TAB_NOT_LISTED');
+ assert.deepEqual(f.observed,[1,1,1]);
+ // A tab owned by another task is not offered.
+ const g=fixture();await g.runtime.start(1,'One');await g.runtime.start(2,'Two');await g.runtime.tick(1);
+ assert.deepEqual(JSON.parse(g.inputs[0]).otherTabs.map(t=>t.origin),['https://a.test']);
+});
