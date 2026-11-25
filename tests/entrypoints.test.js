@@ -18,7 +18,7 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   // run_script needs userScripts; it is optional so installing shows no extra warning.
   assert.deepEqual(manifest.optional_permissions, ['userScripts']);assert.ok(!manifest.permissions.includes('userScripts'));
-  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'article-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js']) {
+  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js']) {
     assert.ok(fs.statSync(path.join(dir, file)).isFile(), file);
   }
 });
@@ -44,7 +44,6 @@ test('options requests API permission from submit gesture and refuses unsafe end
   assert.deepEqual({...sent.find(m => m.type === 'setAgentPreferences').preferences}, {maxSteps: 100, contextTokens: 100000, compressionThreshold: 80, inputChars: 2000});
   assert.equal(document.getElementById('status').hidden, false);
   assert.equal(sent.find(m => m.type === 'configure').config.endpoint, 'https://api.test/v1');
-  assert.equal(sent.some(m => m.type === 'enableSite'), false);
 });
 
 test('options script section requests the optional userScripts permission from the click and shows status',async()=>{

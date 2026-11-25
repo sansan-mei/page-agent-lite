@@ -8,7 +8,7 @@
 | local `nativeToolsUnsupported` | auto 下回退到 JSON 的 modelIdentity 哈希（最多 8 个） | 保存 API 设置时清空 |
 | local `agentPreferences` | maxSteps / contextTokens / compressionThreshold / inputChars，默认 100 / 100000 / 80 / 2000 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
 | local `welcomeImage` | 侧栏主图 PNG data URL；null 或缺省为内置图 | 本机保留 |
-| local `sites`、`savedPages` | 已退役文章工具的站点与记录（origin+pathname+search） | 保留，无界面入口 |
+| local `sites`、`savedPages` | 已删除的文章工具遗留数据 | 代码不再读写，未主动清理 |
 | session `taskRoot:<taskId>` | 任务主记录（version 3） | 浏览器会话 |
 | session `taskRegistry` | 标签 → 任务归属索引：`bindings`（执行标签页）与 `tabOwners`（其余成员标签页） | 浏览器会话 |
 | session `conversation:<tabId>:<taskId>` | 被替换或关闭的对话只读归档 | 浏览器会话 |

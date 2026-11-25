@@ -40,7 +40,6 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
 | `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
 | `script-settings.js` | 设置页「脚本执行」：点击申请可选 `userScripts` 权限、显示状态 | [使用指南](usage.md#脚本执行) |
-| `article-tools.js` | 已退役文章面板的兼容源码，无入口、不自动注入 | — |
 
 ## 消息入口
 
