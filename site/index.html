@@ -115,20 +115,23 @@
   <section class="verify" id="verify">
     <p class="eyebrow light" data-i18n="verify.eyebrow">逐步核对</p>
     <h2 class="display-2 split" data-i18n="verify.title">不盲点。<br>每一步都要证据。</h2>
-    <p class="lede light" data-i18n="verify.lede">AI 操作网页最常见的问题是点错了还以为成功，白烧 token。这里每个动作都带核对条件，结果不明的点击不会重复执行。</p>
+    <p class="lede light" data-i18n="verify.lede">AI 操作网页最常见的问题是点错了还以为成功，白烧 token。先看结果，再走下一步。遇到页面变化会重新观察、调整计划，默认拦截结果不明的重复点击。</p>
     <div class="log">
       <div class="row"><code>fill</code><span data-i18n="verify.r1">填写「邮箱」</span><em class="ok">field_equals ✓</em></div>
       <div class="row"><code>click</code><span data-i18n="verify.r2">点击「下一页」</span><em class="ok">url_changed ✓</em></div>
       <div class="row"><code>wait</code><span data-i18n="verify.r3">等待「保存成功」出现</span><em class="ok">text_present ✓</em></div>
-      <div class="row"><code>click</code><span data-i18n="verify.r4">点击「提交」后无反馈</span><em class="warn" data-i18n="verify.r4e">结果不明 · 不重放</em></div>
-      <div class="row"><code>pause</code><span data-i18n="verify.r5">暂停，询问你下一步</span><em class="info" data-i18n="verify.r5e">等你决定</em></div>
+      <div class="row"><code>click</code><span data-i18n="verify.r4">点击「提交」后无反馈</span><em class="warn" data-i18n="verify.r4e">结果待核对</em></div>
+      <div class="row"><code>pause</code><span data-i18n="verify.r5">重新观察，调整下一步</span><em class="info" data-i18n="verify.r5e">等你决定</em></div>
     </div>
     <ul class="pills">
       <li data-i18n="verify.p1">默认 100 轮上限</li>
       <li data-i18n="verify.p2">随时停止</li>
       <li data-i18n="verify.p3">「我来操作」后继续</li>
       <li data-i18n="verify.p4">长任务自动压缩上下文</li>
-      <li data-i18n="verify.p5">可选脚本执行，每次由你批准</li>
+      <li data-i18n="verify.p5">脚本加持，代码与批准权在你手中</li>
+      <li data-i18n="verify.p6">做完接着聊，继续追问或安排下一步</li>
+      <li data-i18n="verify.p7">对话历史留在本机，随时回看</li>
+      <li data-i18n="verify.p8">开启目标模式，遇到阻碍多试几步</li>
     </ul>
   </section>
 
@@ -136,8 +139,8 @@
   <section class="memory" id="memory">
     <div class="memory-copy">
       <p class="eyebrow" data-i18n="memory.eyebrow">记忆</p>
-      <h2 class="display-2" data-i18n="memory.title">纠正一次，<br>下次记得。</h2>
-      <p class="lede" data-i18n="memory.lede">两层记忆都存在你的浏览器里。模型每轮只看到目录，需要时再读正文；你可以在设置页查看、编辑、导出。</p>
+      <h2 class="display-2" data-i18n="memory.title">记下偏好，<br>少说几遍。</h2>
+      <p class="lede" data-i18n="memory.lede">常用网站的规则、跨网站的偏好，都可以交给助手记在本机。需要时按需读取，你也能随时查看、编辑和导出。</p>
     </div>
     <div class="layers">
       <div class="layer l2"><b data-i18n="memory.l2">网站记忆</b><span data-i18n="memory.l2p">按网站保存 · 跨标签和重启</span></div>
@@ -176,6 +179,7 @@
       <li data-i18n="limits.l3">合成事件不等于真实鼠标键盘，部分网站会忽略</li>
       <li data-i18n="limits.l4">可在任务内切换、打开、关闭标签页，但同一时刻只操作一个；任务不跨浏览器重启恢复</li>
       <li data-i18n="limits.l5">模型会误判：提交、删除等操作后请按页面核对</li>
+      <li data-i18n="limits.l6">目标模式会更积极地尝试，也可能重复操作；提交、付款类任务请关闭</li>
     </ul>
   </section>
 
