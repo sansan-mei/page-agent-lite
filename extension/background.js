@@ -100,7 +100,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:memory','task:memory-clear'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; history and notes stay per tab.
-      const taskTab=['task:get','task:sensitive-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
+      const taskTab=['task:get','task:sensitive-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
       if(m.type==='task:get')return runtime.get(taskTab);
       if(m.type==='task:sensitive-access')return runtime.sensitiveAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
       if(m.type==='task:script-approval'){
@@ -128,7 +128,11 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:memory')return runtime.getMemory(m.tabId);
       if(m.type==='task:memory-clear')return runtime.clearMemory(m.tabId);
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
-      if(m.type==='task:start'||m.type==='task:submit')return runtime.submit(m.tabId,m.goal);
+      if(m.type==='task:start'||m.type==='task:submit')return typeof m.goalMode==='boolean'?runtime.submit(m.tabId,m.goal,{goalMode:m.goalMode}):runtime.submit(m.tabId,m.goal);
+      if(m.type==='task:goal-mode'){
+        if(typeof m.taskId!=='string'||typeof m.enabled!=='boolean')throw new Error('目标模式参数无效');
+        return runtime.setGoalMode(taskTab,m.taskId,m.enabled);
+      }
       if(m.type==='task:finish')return runtime.finish(taskTab);
       if(m.type==='task:resume')return runtime.resume(taskTab);
       if(m.type==='task:stop')return runtime.stop(taskTab);

@@ -158,6 +158,12 @@
   "spSend": {
     "message": "发送"
   },
+  "spGoalMode": {
+    "message": "目标模式"
+  },
+  "spGoalModeTitle": {
+    "message": "开启后，核对未通过、目标失效或遇到阻碍时自动重新规划，直到完成、停止或用完轮数"
+  },
   "spComposerHint": {
     "message": "Enter 发送，Shift + Enter 换行"
   },

@@ -158,6 +158,12 @@
   "spSend": {
     "message": "Send"
   },
+  "spGoalMode": {
+    "message": "Goal"
+  },
+  "spGoalModeTitle": {
+    "message": "When on, unverified results, stale targets and obstacles are replanned automatically until the task is done, stopped or out of steps"
+  },
   "spComposerHint": {
     "message": "Enter to send, Shift + Enter for a new line"
   },

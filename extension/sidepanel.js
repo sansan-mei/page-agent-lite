@@ -2,7 +2,9 @@
 (() => {
   const $=id=>document.getElementById(id),t=PageAgentI18n.t;
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
-  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false;
+  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalDraft=false;
+  const ongoingTask=()=>!!task&&!['completed','ended'].includes(task.status);
+  const goalOn=()=>ongoingTask()?task.goalMode===true:goalDraft;
   const switchTab=$('use-current');switchTab.textContent=t('spSwitchTab');switchTab.title=t('spUseCurrentTab');document.querySelector('.app-header').prepend(switchTab);
   async function refreshTask(){
     const target=tabId,view=selection,version=++taskRefresh;if(target===null)return;
@@ -224,6 +226,7 @@
     $('start').disabled=busy||tabId===null;
     for(const id of ['grant','grant-all'])$(id).disabled=busy||tabId===null||!tabOrigin;
     const ongoing=task&&!['completed','ended'].includes(task.status);
+    $('goal-mode').setAttribute('aria-pressed',String(goalOn()));$('goal-mode').disabled=busy||tabId===null;
     $('start').textContent=t('spSend');
     $('start').title=ongoing?t('spSendContinue'):t('spSendStart');
     $('instruction').placeholder=ongoing?t('spPlaceholderOngoing'):t('spPlaceholderNew');
@@ -336,7 +339,11 @@
   $('members-refresh').addEventListener('click',()=>void loadMembers());
   $('member-form').addEventListener('submit',event=>{event.preventDefault();const id=Number($('member-candidate').value);if(Number.isInteger(id))void editMembers({action:'join',memberTabId:id},t('spMemberJoined'));});
   $('member-list').addEventListener('click',event=>{const ref=event.target.dataset?.tabRef;if(ref)void editMembers({action:'remove',tabRef:ref},t('spMemberRemoved'));});
-  $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim()},draft);});
+  $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim(),goalMode:goalOn()},draft);});
+  $('goal-mode').addEventListener('click',()=>{
+    if(busy)return;goalDraft=!goalOn();
+    if(ongoingTask())void action('task:goal-mode',{taskId:task.taskId,enabled:goalDraft});else render();
+  });
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
   $('instruction').addEventListener('compositionend',()=>{composing=false;});
   $('instruction').addEventListener('keydown',e=>{

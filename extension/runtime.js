@@ -336,18 +336,18 @@
     }
     // Side-panel tab that is a non-executing member: route to its task, or release it if that task is finished.
     async function resolve(tabId){const owner=store.owner?await store.owner(tabId):null;return owner?.role==='member'&&Number.isInteger(owner.taskTabId)?owner.taskTabId:tabId;}
-    async function submit(tabId,text){
+    async function submit(tabId,text,options={}){
       const limit=inputLimit(await preferences());
       if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
       const owner=store.owner?await store.owner(tabId):null;
-      if(owner?.role!=='member')return submitHere(tabId,text);
+      if(owner?.role!=='member')return submitHere(tabId,text,options);
       const owning=Number.isInteger(owner.taskTabId)?await store.get(owner.taskTabId):null;
       if(owning?.taskId!==owner.taskId)throw new Error('该标签页已加入其他任务，请到任务所在标签页操作或先移出');
-      if(owning.status!=='ended'&&(owning.origin==='browser'||owning.status!=='completed'))return submitHere(owner.taskTabId,text);
+      if(owning.status!=='ended'&&(owning.origin==='browser'||owning.status!=='completed'))return submitHere(owner.taskTabId,text,options);
       await serial(owner.taskTabId,()=>store.changeMembers(owner.taskTabId,{taskId:owner.taskId,action:'release',memberTabId:tabId,updatedAt:now()}));
-      return submitHere(tabId,text);
+      return submitHere(tabId,text,options);
     }
-    async function submitHere(tabId, text) {
+    async function submitHere(tabId, text, options={}) {
       const prefs=await preferences(),limit=inputLimit(prefs);
       if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
       const page=await tools.tab(tabId,true);
@@ -361,12 +361,13 @@
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
-          task.question=null;task.helpAttempts=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          task.question=null;task.helpAttempts=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
           event(task,'你（补充指令）：'+text.trim());
         }else{
           controllerForTab(tabId)?.abort();
-          task={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
-          event(task,'你：'+text.trim());event(task,'任务已开始');
+          task={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],goalMode:options.goalMode===true,status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
+          event(task,'你：'+text.trim());event(task,task.goalMode?'任务已开始（目标模式）':'任务已开始');
         }
         task.updatedAt=Date.now();await store.set(tabId,task);return task;
       });
@@ -381,7 +382,7 @@
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
         if(JSON.stringify(instructions).length>instructionLimit(t.prefs))throw new Error('补充指令已达上下文上限');
-        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
@@ -429,7 +430,7 @@
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
         const recovery=['global_memory_changed','scope_reconciled','scope_changed','permission_denied','origin','origin_verification','origin_storage'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
-        t.question=null;t.helpAttempts=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
+        t.question=null;t.helpAttempts=0;t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
@@ -443,6 +444,19 @@
       if (!task || task.taskId !== taskId || task.status !== 'waiting_confirmation') throw new Error('没有匹配的待确认操作');
       const saved = await update(tabId, task.token, t => {t.status='running';t.phase='approved';event(t,'用户已确认操作');});
       schedule(tabId); return saved;
+    }
+    // Goal mode trades pauses for more autonomous replanning; the step budget still bounds it.
+    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:8,noChange:6}:{verify:2,recovery:2,help:3,noChange:3};
+    async function setGoalMode(tabId,taskId,enabled){
+      if(typeof enabled!=='boolean')throw new Error('目标模式参数无效');
+      return serial(tabId,async()=>{
+        const t=await store.get(tabId);
+        if(!t||t.taskId!==taskId||['ended','completed'].includes(t.status))throw new Error('任务已变化，请刷新后重试');
+        if(t.goalMode===enabled)return t;
+        t.goalMode=enabled;t.updatedAt=now();
+        event(t,enabled?'已开启目标模式：核对未通过、目标失效或遇到阻碍时自动重新规划，直到完成、停止或用完轮数':'已关闭目标模式');
+        await store.set(tabId,t);return t;
+      });
     }
     async function pause(task, text, reason = 'error') {
       await update(task.tabId, task.token, t => {t.status=reason==='error'?'failed':'paused';t.reason=reason;t.pending=null;t.check=null;t.waitDeadline=null;event(t,text);});
@@ -622,8 +636,9 @@
         }
         if(plan.action==='pause'){
           if(plan.choices){await update(tabId,token,t=>{t.status='paused';t.reason='question';t.pending=null;t.check=null;t.waitDeadline=null;t.question={id:uuid(),text:plan.reply,options:plan.choices};event(t,plan.reply);});return;}
-          if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<3){
-            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索；禁止重复结果不确定的操作。自主恢复 '+t.helpAttempts+'/3'});event(t,'正在尝试其他方法（'+t.helpAttempts+'/3）');});return;
+          const helpCap=caps(task).help;
+          if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<helpCap){
+            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索'+(t.goalMode?'；先核对当前页面再决定是否重做':'；禁止重复结果不确定的操作')+'。自主恢复 '+t.helpAttempts+'/'+helpCap});event(t,'正在尝试其他方法（'+t.helpAttempts+'/'+helpCap+'）');});return;
           }
           await pause(task,plan.reply,'model');return;
         }
@@ -674,7 +689,8 @@
           if(destination!==task.origin&&combined.some(condition=>!condition.kind.startsWith('url_')))throw Object.assign(new Error('跨站导航只支持 URL 条件核对，不能使用旧站点 DOM 条件'),{code:'NAVIGATION_DENIED'});
         }
         const expected=G.bind(combined,snap,plan.action==='navigate'?{allowedOrigins:[...(task.allowedOrigins||[task.origin]),new URL(plan.value).origin]}:null);
-        for(const guard of C.agentTool(plan.action).guard?(task.uncertainClicks||[]):[]){
+        // Goal mode lets the model redo an uncertain target after re-reading the page; the runtime itself never replays.
+        for(const guard of C.agentTool(plan.action).guard&&!task.goalMode?(task.uncertainClicks||[]):[]){
           const sameTarget=target&&(guard.key?guard.key===target.key:JSON.stringify(guard.target)===JSON.stringify(G.descriptor(target,snap.page)));
           if(guard.url===snap.url&&guard.documentId===snap.documentId&&sameTarget){
             await pause(task,'该点击的结果仍不确定，已阻止重复点击同一目标；请核实当前状态或选择新的确认控件','uncertain');return;
@@ -706,7 +722,7 @@
         await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error,call?{}:{dispatch:'not_sent'});if(call)t.results=t.results.concat({...call,action:call.request.action,label:t.pending?.label,outcome:t.lastOutcome,result:t.lastOutcome.message});});
         if(!await live())return;
         if (['STALE','TARGET_BLOCKED'].includes(error.code)) {
-          if((task.recoveryCount||0)>=2){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}
+          if((task.recoveryCount||0)>=caps(task).recovery){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}
           await update(tabId,token,t=>{t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.check=null;event(t,error.code==='TARGET_BLOCKED'?'目标被遮挡，重新读取后先处理遮挡层':'目标已变化，重新读取后规划');});
         } else if (['NAVIGATION','PAGE_BUSY'].includes(error.code)) {
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
@@ -828,7 +844,9 @@
       await update(task.tabId,task.token,t=>{
         const expired=now()>=check.deadline;
         const pending=outcome.status!=='success'&&!expired;
-        const reobserve=expired&&outcome.status==='unknown'&&check.kind==='action'&&check.action==='click'&&(t.verificationRecoveries||0)<2;
+        // Unverified effects go back to the model with fresh evidence instead of pausing; nothing is re-sent here.
+        const replannable=expired&&outcome.status!=='success'&&(check.kind==='action'||t.goalMode===true&&['wait','completion'].includes(check.kind));
+        const verifyCap=caps(t).verify,reobserve=replannable&&(t.verificationRecoveries||0)<verifyCap;
         const finalOutcome=T.result({...outcome,operationId:check.operationId,dispatch:check.kind==='action'?(check.dispatch||'unknown'):outcome.dispatch,status:pending?'pending':outcome.status,recovery:pending?'wait':outcome.status==='success'?'none':reobserve?'replan':'pause',
           code:pending?'WAITING_CONDITIONS':outcome.status==='success'?'CONDITIONS_MATCH':expired&&!['verify','completion'].includes(check.kind)?'CONDITION_TIMEOUT':outcome.code});
         t.lastOutcome=finalOutcome;
@@ -837,8 +855,9 @@
         t.results=t.results.concat({action:check.action||check.kind,origin:t.origin,tabRef:refOf(t),request:check.request,time:check.time||Date.now(),outcome:finalOutcome,result:finalOutcome.message});
         if(reobserve){
           t.verificationRecoveries=(t.verificationRecoveries||0)+1;
-          t.uncertainClicks=(t.uncertainClicks||[]).concat({url:check.url,documentId:check.documentId,key:check.key,target:check.target}).slice(-2);
-          t.status='running';event(t,'原预期目标无法核对，重新读取当前页面规划（'+t.verificationRecoveries+'/2）；不重发原点击');
+          // Field writes are idempotent: an observed mismatch may be rewritten, so only unknown or non-field effects are guarded.
+          if(check.kind==='action'&&(outcome.status==='unknown'||!['fill','check','select'].includes(check.action)))t.uncertainClicks=(t.uncertainClicks||[]).concat({url:check.url,documentId:check.documentId,key:check.key,target:check.target}).slice(-2);
+          t.status='running';event(t,(check.kind==='completion'?'完成条件尚未核实，继续推进':outcome.status==='not_satisfied'?'预期结果与页面不符，重新读取当前页面规划':'预期结果无法核对，重新读取当前页面规划')+'（'+t.verificationRecoveries+'/'+verifyCap+'）；未自动重发原操作');
         }else if(outcome.status==='success'){
           t.verificationRecoveries=0;
           if(check.kind==='completion'){t.status='completed';t.phase='idle';t.completionEvidence='verified';event(t,check.reply);}
@@ -921,8 +940,9 @@
         const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
         t.results=t.results.concat(entry);event(t,entry.result);
         if(result.legacy&&result.verification?.verified===false){t.status='paused';t.reason='verification';t.check=null;event(t,'字段结果尚未核实，已暂停，不能声称按指定答案完成');}
-        if(t.results.length>=3&&t.results.slice(-3).every(r=>r.outcome?.code==='NO_CHANGE'&&r.label===entry.label&&r.action===entry.action)){
-          t.status='paused';t.reason='no_progress';event(t,'连续三次未观察到进展，已暂停，请检查页面');
+        const noChange=caps(t).noChange;
+        if(t.results.length>=noChange&&t.results.slice(-noChange).every(r=>r.outcome?.code==='NO_CHANGE'&&r.label===entry.label&&r.action===entry.action)){
+          t.status='paused';t.reason='no_progress';event(t,'连续 '+noChange+' 次未观察到进展，已暂停，请检查页面');
         }
       });
     }
@@ -990,7 +1010,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getMemory,clearMemory,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

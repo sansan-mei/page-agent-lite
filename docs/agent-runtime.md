@@ -38,10 +38,24 @@
 - 预算耗尽或已完成后「继续」开启新预算；停止/一般失败后继续保留剩余预算。补充指令不重置预算。
 - 条件等待每 tick 只读检查一次，不消耗模型轮数。`metrics` 分别统计观察、核对、动作次数。
 
+## 目标模式
+
+任务字段 `goalMode`（缺省 false）。新建任务时由侧栏「目标模式」开关经 `task:submit` 的 `goalMode` 带入；补充指令带布尔值时同步；进行中用 `task:goal-mode {taskId, enabled}`（仅可信侧栏，已完成/已结束拒绝）切换，不自动继续。跨来源切换保留。
+
+| 项 | 默认 | 目标模式 |
+|---|---|---|
+| 核对未通过后重新规划（`verificationRecoveries`） | 动作 2 次 | 动作、wait、完成条件共 5 次 |
+| 目标过期/遮挡重新定位（`recoveryCount`） | 2 次 | 5 次 |
+| 普通阻碍重新规划（`helpAttempts`） | 3 次 | 8 次 |
+| 同动作同目标连续 `NO_CHANGE` 暂停 | 3 条 | 6 条 |
+| `uncertainClicks` | 运行时拦截同文档同目标 | 不拦截，只作为提示交给模型 |
+
+模型输入带 `goalMode=true`，提示模型优先重新规划、只在页面显示效果缺失时重做，且不重复可能已发生的提交/删除/支付/发送。不变的边界：轮数预算、`executing` 中断只读核对或暂停（运行时从不重放）、脚本批准、浏览器权限、敏感字段授权、`pauseReason=user` 的提问。
+
 ## 等待与核对
 
 - `check` 保存 operationId、expected、deadline、kind、dispatch 和完成说明。deadline 是绝对时间，恢复后不延长；停止、补充指令、清空记忆会作废旧检查。
-- 字段动作（fill/check/select）自动添加值/勾选条件；期限内不符或未知则暂停。
+- 字段动作（fill/check/select）自动添加值/勾选条件。`field_equals` 与 `text_present` 先精确比较，不符时再忽略编辑器改写的空白（NBSP、CRLF、连续空格、空行）比较。
 - 纯延时：kind=delay、expected 为空；到期记 `DELAY_ELAPSED` 后必须重新观察，不检查网页条件。
 - `check.dispatch` 在执行前为 unknown，拿到回执后更新；只读核对不覆盖它。旧检查点缺省按 unknown。
 
@@ -54,16 +68,19 @@
 | 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_TOOL_CALL_MULTIPLE`、`MODEL_TOOL_CALL_INVALID`、`MODEL_TOOL_ARGUMENTS_INVALID`、`MODEL_TOOL_CALL_MISSING`（native 模式）、`MODEL_TOOLS_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |
 | 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划；模型按回执中的遮挡层 `key` 先关闭或完成遮挡层 |
-| 点击核对到期仍 unknown | 最多两次回到 observe（`recovery=replan`），结果仍记 unknown；同一文档不重发该点击 |
+| 动作核对到期仍未核实（not_satisfied 或 unknown） | 最多两次回到 observe（`recovery=replan`，`CONDITION_TIMEOUT`），结果照实记录，运行时不重发；成功核对后计数清零，继续/补充指令/选择也清零。unknown 或非字段动作记入 `uncertainClicks`；字段值明确不符时模型可重写 |
+| 完成条件或 wait 条件未核实 | 暂停；目标模式下按上一行重新规划 |
 | 页面加载/忙碌 | 最多等 30 秒或沿用更早 deadline；地址一致、无 pendingUrl、readyState 为 interactive/complete 即可只读核对 |
-| 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停 |
+| 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停（目标模式 6 条） |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
 | run_script | 本轮不可用则暂停为 access；商店包暂停为 script_approval，见 [脚本批准](#脚本批准)；开发版直接执行 |
 | request_sensitive_access | 暂停为 sensitive_access，等待可信侧栏确认；确认后轮换代次，重新观察；拒绝保留屏蔽并暂停，不占自主恢复次数 |
 | 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
-未确定动作按原文档 + 节点 key（缺失时用语义描述）记入 `uncertainClicks`（最多 2 条），覆盖点击、键鼠输入和 fill/check/select，防止重新规划后重复执行。
+以上次数在 [目标模式](#目标模式) 下放宽。
+
+未确定动作按原文档 + 节点 key（缺失时用语义描述）记入 `uncertainClicks`（最多 2 条），覆盖点击、键鼠输入和 fill/check/select，防止重新规划后重复执行；目标模式下不拦截。
 
 ## 用户命令
 

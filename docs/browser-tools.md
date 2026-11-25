@@ -122,11 +122,11 @@ observe 的 value：
 
 | kind | 核对 |
 |---|---|
-| field_equals | 字段实际值（含 contenteditable 纯文本） |
+| field_equals | 字段实际值（含 contenteditable 纯文本）；不等时忽略空白改写再比较 |
 | checked_equals | 勾选状态 |
 | selected_equals / expanded_equals | 显式 aria-selected / aria-expanded；缺失或非法为 unknown |
 | element_visible / element_absent | 存在且可见 / 在完整观察范围内不存在 |
-| text_present | 指定区域内出现文字（必须指向具体区域） |
+| text_present | 指定区域内出现文字（必须指向具体区域）；同样忽略空白改写 |
 | url_changed / url_equals | URL；普通 wait/verify/done 限当前来源 |
 
 - 动作后约 600ms 短暂稳定观察，再按 expected 检查；未满足保存检查点，后续 tick 只读核对，不重复动作。

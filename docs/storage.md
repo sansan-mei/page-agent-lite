@@ -35,10 +35,11 @@
 | allowedOrigins、scopeRevision | 已记录的任务来源及版本；切换来源自动加入，不作为导航白名单。旧侧栏范围修改接口保留兼容 |
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的初始标签页，其余为 kind=user_joined 或 task_created；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
 | goal、instructions | 原目标与每条补充指令 ≤ inputChars；带时间的补充指令总长 ≤ max(12000, inputChars × 6) |
+| goalMode | 目标模式开关，见 [任务运行器](agent-runtime.md#目标模式)；来源切换保留 |
 | status、reason、phase、steps、prefs、retries | 运行状态与累计轮数 |
 | pending | 待执行计划与快照标识，不含 DOM 引用；navigate 时 value 为受限绝对 URL |
 | check、waitDeadline | 等待/核对检查点（含 dispatch、原来源/标签/范围版本、deadline） |
-| completionChecks、completionEvidence、lastOutcome、recoveryCount | 完成条件与恢复 |
+| completionChecks、completionEvidence、lastOutcome、recoveryCount、verificationRecoveries、helpAttempts | 完成条件与恢复计数 |
 | uncertainClicks | 最多 2 条未确定动作的文档/节点 key 或语义描述 |
 | nextObservation | 一次性读取范围 `{value, url, documentId}`，value 键见 [网页工具](browser-tools.md#分段读取) |
 | taskPlan | 公开子目标及核对证据（历史数据，不是待执行动作） |

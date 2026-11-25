@@ -42,6 +42,8 @@
       return next;
     });
   }
+  // Editors rewrite layout whitespace (NBSP, CRLF, repeated spaces, empty paragraphs); compare text modulo that.
+  const loose=v=>String(v).replace(/\r\n?/g,'\n').replace(/[\u200b\ufeff]/g,'').replace(/[\u00a0\u2007\u202f\t ]+/g,' ').replace(/ *\n[\n ]*/g,'\n').trim();
   function evaluate(list,snapshot){
     validate(list);
     const evidence=list.map(c=>{
@@ -70,11 +72,11 @@
       const item=matches[0];
       if(c.kind==='element_visible')return answer(item.visible!==false,'VISIBILITY_OBSERVED',item.visible!==false);
       if(c.kind==='element_absent')return answer(false,'ELEMENT_PRESENT');
-      if(c.kind==='field_equals')return answer(item.value===undefined?null:item.value===c.value,'FIELD_OBSERVED',item.value??null);
+      if(c.kind==='field_equals')return answer(item.value===undefined?null:item.value===c.value||loose(item.value)===loose(c.value),'FIELD_OBSERVED',item.value??null);
       if(c.kind==='checked_equals')return answer(typeof item.checked!=='boolean'?null:item.checked===c.value,'CHECKED_OBSERVED',item.checked??null);
       if(['selected_equals','expanded_equals'].includes(c.kind)){const key=c.kind==='selected_equals'?'selected':'expanded';return answer(typeof item[key]!=='boolean'?null:item[key]===c.value,key==='selected'?'SELECTED_OBSERVED':'EXPANDED_OBSERVED',item[key]??null);}
       if(item.text===undefined)return answer(null,'TEXT_SCOPE_UNAVAILABLE');
-      const matched=item.text.includes(c.value);
+      const wanted=loose(c.value),matched=item.text.includes(c.value)||!!wanted&&loose(item.text).includes(wanted);
       return answer(!matched&&item.textTruncated?null:matched,matched?'TEXT_FOUND':item.textTruncated?'TRUNCATED_SCOPE':'TEXT_NOT_FOUND',item.text.slice(0,500));
     });
     return {status:evidence.some(e=>e.matched===false)?'not_satisfied':evidence.some(e=>e.matched===null)?'unknown':'success',evidence};
