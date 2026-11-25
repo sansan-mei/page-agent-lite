@@ -37,6 +37,7 @@
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的初始标签页，其余为 kind=user_joined 或 task_created；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
 | goal、instructions | 原目标与每条补充指令 ≤ inputChars；带时间的补充指令总长 ≤ max(12000, inputChars × 6) |
 | goalMode | 目标模式开关，见 [任务运行器](agent-runtime.md#目标模式)；来源切换保留 |
+| tabTrail / handoffs / tabHops | 标签切换轨迹（≤ 12）、模型交接笔记（最近 3 条，各 ≤ 2000 字符）、连续切换计数，见 [多标签执行](agent-runtime.md#多标签执行)；来源切换保留 |
 | status、reason、phase、steps、prefs、retries | 运行状态与累计轮数 |
 | pending | 待执行计划与快照标识，不含 DOM 引用；navigate 时 value 为受限绝对 URL |
 | check、waitDeadline | 等待/核对检查点（含 dispatch、原来源/标签/范围版本、deadline） |

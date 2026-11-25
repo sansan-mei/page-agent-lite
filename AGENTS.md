@@ -26,7 +26,7 @@ Page Agent Lite：Chrome / Edge MV3 扩展，用自然语言在浏览器内读�
 - 模型生成的脚本只能经 `run_script` 由 `chrome.userScripts.execute` 运行：`userScripts` 在商店包中只是可选权限；商店包执行前必须在侧栏显示完整代码，由用户按次或按任务批准（per-run or per-task approval by the user in the side panel, full code always visible；按任务批准仅限同一标签页与来源、可随时撤销，无跨任务的「始终允许」），拒绝、过期、作废都不执行。唯一例外是本地开发版：`npm run build:dev` 叠加 `dev/`（`dev-flags.js` 设置免批准、`userScripts` 改为必需权限），只在 `dist/extension-dev/` 生效；商店包不得包含 `dev/` 文件或该 flag。见 [网页工具](docs/browser-tools.md#run_script)。
 - 密钥只在可信后台使用，不进内容脚本、仓库、日志或测试产物。API 授权、浏览器主机权限、任务站点范围三者独立。
 - 副作用前写 `executing` 检查点；中断后只读核对或暂停，不重放结果不确定的动作，等待沿用原 deadline。停止/替换/接管轮换运行代次并丢弃迟到回复；模型请求必须可取消。
-- 页面或来源变化后重新观察，不复用旧快照目标；跨来源不携带旧站点正文、笔记、摘要或计划。
+- 页面或来源变化后重新观察，不复用旧快照目标；跨来源不携带旧站点正文、笔记、摘要或计划。唯一例外：`tab_switch`/`tab_open` 时模型自己写的交接笔记（`handoff`，≤ 2000 字符，最近 3 条）和运行时切换轨迹（`tabTrail`，只有 tabRef、来源、时间）跨来源保留，交接笔记按不可信数据处理。
 - 存储职责固定：配置在 `storage.local`；任务在 `storage.session`（不跨浏览器重启）；长期笔记与对话历史在 IndexedDB。不用一种存储模拟另一种。
 - 默认 100 轮（每次模型请求计一轮，0 不限），已有用户配置保留；改默认值时同步后台、设置页、测试和文档。
 - 填写与点击统一自动执行，没有 autoFill/autoClick 开关；改变此类产品行为须同步界面、实现与验证，不只改提示词。

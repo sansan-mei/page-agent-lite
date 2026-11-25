@@ -48,6 +48,7 @@
 | 目标过期/遮挡重新定位（`recoveryCount`） | 2 次 | 5 次 |
 | 普通阻碍重新规划（`helpAttempts`） | 3 次 | 8 次 |
 | 同动作同目标连续 `NO_CHANGE` 暂停 | 3 条 | 6 条 |
+| 连续切换标签页而无网页动作（`tabHops`）暂停 | 6 次 | 10 次 |
 | `uncertainClicks` | 运行时拦截同文档同目标 | 不拦截，只作为提示交给模型 |
 
 模型输入带 `goalMode=true`，提示模型优先重新规划、只在页面显示效果缺失时重做，且不重复可能已发生的提交/删除/支付/发送。不变的边界：轮数预算、`executing` 中断只读核对或暂停（运行时从不重放）、脚本批准、浏览器权限、敏感字段授权、`pauseReason=user` 的提问。
@@ -124,7 +125,7 @@
 
 - 原操作只有 URL 条件且实际 URL 满足：只读核对后切换。无条件的 executing、旧 DOM 条件或未预期重定向：暂停并保留 check/deadline/dispatch，不在新站点评估旧字段。
 - URL 变化或主文档开始加载触发 `navigationChanged`：取消旧模型/摘要请求并轮换 token。
-- 切换由 `task-store.switchOrigin` 单独发布：新根只保留用户目标与补充、taskId、预算与累计统计、授权目录；结果、摘要、归档、计划、完成条件、笔记读取全部重新开始。旧来源内容存入只读来源分区，模型看不到；返回旧来源也不恢复，只恢复该来源的未确定点击约束。
+- 切换由 `task-store.switchOrigin` 单独发布：新根只保留用户目标与补充、taskId、预算与累计统计、授权目录；结果、摘要、归档、计划、完成条件、笔记读取全部重新开始；只有 `tabTrail`、`handoffs`、`tabHops` 原样保留（见 [多标签执行](#多标签执行)）。旧来源内容存入只读来源分区，模型看不到；返回旧来源也不恢复，只恢复该来源的未确定点击约束。
 
 ## 记忆版本
 
@@ -140,6 +141,8 @@
 - 其他标签：每轮附 `otherTabs`（`listTabs` 中不属于任何任务的 HTTP/HTTPS 标签，≤ 20：`open1`…、origin、≤ 80 字符标题），不含 tabId、URL 和正文；映射写入 `tabCandidates` 后才请求模型。
 - `tab_switch` 到 `openN`：核对映射存在、标签仍打开且 URL 未变、为 HTTP/HTTPS、未被占用、成员未满 8 个（`TAB_NOT_LISTED` / `TAB_CLOSED` / `TAB_CHANGED` / `UNSUPPORTED_PAGE` / `TAB_OWNED` / `TAB_LIMIT`），通过后暂停为 `tab_access`（`tabRequest`），不读取目标。侧栏 `task:tab-access` → `runtime.tabAccess`：允许时重新核对，`changeMembers` join（user_joined）后 `switchTo`；拒绝记 `TAB_ACCESS_DENIED` 并重新规划。`resume` 在待确认时拒绝；停止、接管、补充指令使请求失效。
 - `tab_switch`：tabRef 必须在目录中、不是当前执行标签、浏览器确认仍打开且为 HTTP/HTTPS，否则返回 not_sent 错误结果（`TAB_NOT_MEMBER` / `TAB_ALREADY_ACTIVE` / `TAB_CLOSED` / `UNSUPPORTED_PAGE`）交给模型重新规划。通过后在队列内 abort 旧请求，`store.switchTab` 轮换 token 与 scopeRevision，清 pending/check/读取范围，不重置轮数，不激活浏览器前台。迟到回复因 token 与 binding 均已变化而丢弃。
+- 切换轨迹与交接：`switchTo`（tab_switch、侧栏允许后的切换、tab_open）在任务记录追加 `tabTrail`（≤ 12 条 `{action, from, fromOrigin, to, time}`），计划带 `handoff`（≤ 2000 字符，只允许 tab_switch/tab_open）时追加到 `handoffs`（最近 3 条 `{from, origin, text, time}`）。两者经 switchTab/switchOrigin 保留并作为模型输入，交接笔记是模型自己写的不可信数据。
+- 防循环：`tabHops` 每次切换 +1，网页动作结果写回、继续、补充指令、回答选择时清零；达到上限（6，目标模式 10）时 tab_switch 到成员或 tab_open 不执行，暂停为 `no_progress`。请求读取 `openN` 由用户确认，不受限。
 - 目标标签来源不同：下一轮照常走 [跨来源切换](#跨来源切换)（主机权限、来源分区、上下文清空）；缺少权限则暂停为 `permission_denied`，不读取目标页。
 - `tab_open`：先查目标主机权限（缺少则暂停为 `browser_target`，不创建），成员已满 8 个则拒绝；写 executing 创建意图后调用一次 `tabs.create`（后台、opener 所在窗口）。用浏览器返回的 tabId 登记为 task_created 成员（停止后仍登记，避免无主标签），再切换执行目标到新标签。`tabs.create` 失败或回执不明 → 暂停 `uncertain`；worker 在执行中重启 → 按现有 executing 规则暂停。从不重试、不按 URL 或标题认领。
 - `tab_close`：只接受非执行中的 task_created 成员，且其当前来源仍在 `allowedOrigins`（被用户导航到别处的不关）；写 executing 后调用一次 `tabs.remove`，再向浏览器确认已不存在才移出目录，仍存在则返回 `TAB_STILL_OPEN`，不重试。

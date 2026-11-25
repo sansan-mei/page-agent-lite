@@ -364,7 +364,7 @@
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
-          task.question=null;task.helpAttempts=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          task.question=null;task.helpAttempts=0;task.tabHops=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           if(wasCompleted)task.steps=0;
           if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
           event(task,'你（补充指令）：'+text.trim());
@@ -386,7 +386,7 @@
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
         if(JSON.stringify(instructions).length>instructionLimit(t.prefs))throw new Error('补充指令已达上下文上限');
-        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.tabHops=0;t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
@@ -435,7 +435,7 @@
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
         const recovery=['global_memory_changed','scope_reconciled','scope_changed','permission_denied','origin','origin_verification','origin_storage'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
-        t.question=null;t.helpAttempts=0;t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
+        t.question=null;t.helpAttempts=0;t.tabHops=0;t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
@@ -451,7 +451,7 @@
       schedule(tabId); return saved;
     }
     // Goal mode trades pauses for more autonomous replanning; the step budget still bounds it.
-    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:8,noChange:6}:{verify:2,recovery:2,help:3,noChange:3};
+    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:8,noChange:6,hops:10}:{verify:2,recovery:2,help:3,noChange:3,hops:6};
     async function setGoalMode(tabId,taskId,enabled){
       if(typeof enabled!=='boolean')throw new Error('目标模式参数无效');
       return serial(tabId,async()=>{
@@ -775,7 +775,11 @@
         controllerForTab(task.tabId)?.abort();
         const results=(t.results||[]).concat({origin:t.origin,tabRef:refOf(t),...entry});
         const events=recent((t.events||[]).concat({time:now(),text:entry.result}),40,16000);
-        return store.switchTab(task.tabId,{taskId:t.taskId,expectedRevision:t.scopeRevision,expectedToken:t.token,toTabId,token:uuid(),updatedAt:now(),patch:{results,events,status:'running',reason:null,phase:'observe',pending:null,check:null,waitDeadline:null,nextObservation:null,contextUsage:null,retries:0,lastOutcome:entry.outcome}});
+        // Trusted move history and model handoff notes survive switchOrigin, so a cross-origin switch is not forgotten.
+        const to=(t.members||[]).find(member=>member.tabId===toTabId)?.tabRef||null,handoff=entry.request?.handoff;
+        const tabTrail=(t.tabTrail||[]).concat({action:entry.action,from:refOf(t),fromOrigin:t.origin,to,time:now()}).slice(-12);
+        const handoffs=handoff?(t.handoffs||[]).concat({from:refOf(t),origin:t.origin,text:handoff,time:now()}).slice(-3):t.handoffs;
+        return store.switchTab(task.tabId,{taskId:t.taskId,expectedRevision:t.scopeRevision,expectedToken:t.token,toTabId,token:uuid(),updatedAt:now(),patch:{results,events,tabTrail,handoffs,tabHops:(t.tabHops||0)+1,status:'running',reason:null,phase:'observe',pending:null,check:null,waitDeadline:null,nextObservation:null,contextUsage:null,retries:0,lastOutcome:entry.outcome}});
       });
     }
     // A tab outside the task is never read before the user grants it in the side panel.
@@ -819,8 +823,15 @@
       if(!moved)throw new Error('任务已变化，请刷新后重试');
       await tools.clearPointer?.(tabId);schedule(request.tabId);return moved;
     }
+    // Bouncing between tabs without page work is a loop, even when every switch succeeds.
+    async function hopLimit(task){
+      const cap=caps(task).hops;if((task.tabHops||0)<cap)return false;
+      await update(task.tabId,task.token,t=>{t.status='paused';t.reason='no_progress';t.phase='observe';t.pending=null;event(t,'连续 '+cap+' 次切换标签页而没有网页操作，已暂停；请检查任务或补充说明');});
+      return true;
+    }
     async function switchAction(task,plan,call){
       if(plan.id.startsWith('open'))return requestTabAccess(task,plan,call);
+      if(await hopLimit(task))return;
       const member=(task.members||[]).find(item=>item.tabRef===plan.id);
       if(!member)return tabReject(task,call,plan,'TAB_NOT_MEMBER','只能切换到任务标签页目录中的成员');
       if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ALREADY_ACTIVE',member.tabRef+' 已是执行标签页');
@@ -832,6 +843,7 @@
     }
     async function openTabAction(task,plan,call,live){
       if(!tools.openTab)return tabReject(task,call,plan,'UNSUPPORTED_ACTION','当前环境不能打开标签页');
+      if(await hopLimit(task))return;
       if((task.members||[]).length>=8)return tabReject(task,call,plan,'TAB_LIMIT','每个任务最多 8 个标签页，请先关闭任务创建的标签页');
       if(tools.hasOriginAccess&&!await tools.hasOriginAccess(new URL(plan.value).origin)){await update(task.tabId,task.token,t=>{t.status='paused';t.reason='browser_target';t.phase='observe';t.browserTarget=plan.value;event(t,'任务未完成：尚未打开新标签页，缺少目标网站的浏览器权限，请授权后继续。');});return;}
       // Create intent: a worker restart while executing pauses as uncertain and never opens a second tab.
@@ -954,7 +966,7 @@
       const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,policyFor(task),live),live),{operationId:pending.operationId,documentId:pending.documentId});
       if (!await live()) return;
       await update(task.tabId,task.token,t=>{
-        t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;
+        t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;t.tabHops=0;
         if(t.check)t.check.dispatch=result.dispatch;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
         else if(t.check){t.phase='verifying';t.status='waiting_page';}

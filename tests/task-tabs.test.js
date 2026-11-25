@@ -214,3 +214,41 @@ test('a denied, changed or claimed tab is never read and the model replans',asyn
  const g=fixture();await g.runtime.start(1,'One');await g.runtime.start(2,'Two');await g.runtime.tick(1);
  assert.deepEqual(JSON.parse(g.inputs[0]).otherTabs.map(t=>t.origin),['https://a.test']);
 });
+
+const activeTab=f=>Number(Object.keys(f.data.taskRegistry.bindings)[0]);
+test('handoff is accepted only on tab_switch/tab_open as nonempty text up to 2000 characters',()=>{
+ const snap={nodes:new Map([['t0',true]])};
+ assert.equal(C.agentPlan(JSON.stringify({reply:'r',action:'tab_switch',id:'tab1',handoff:'price=12'}),snap).handoff,'price=12');
+ assert.equal(C.agentPlan(JSON.stringify({reply:'r',action:'tab_open',value:'https://c.test/',handoff:'n'}),snap).handoff,'n');
+ for(const plan of [{reply:'r',action:'click',id:'t0',handoff:'x'},{reply:'r',action:'tab_switch',id:'tab1',handoff:''},{reply:'r',action:'tab_switch',id:'tab1',handoff:'x'.repeat(2001)},{reply:'r',action:'tab_switch',id:'tab1',handoff:3}])
+  assert.throws(()=>C.agentPlan(JSON.stringify(plan),snap),JSON.stringify(plan).slice(0,60));
+});
+
+test('a cross-origin switch keeps the move trail and handoff for the model, but not the old page text',async()=>{
+ const secret='SECRET-A-MARKER';
+ const f=fixture({secret,plans:[{reply:'Read',action:'observe'},{reply:'Switch',action:'tab_switch',id:'tab1',handoff:'A price is 12'},{reply:'Look',action:'done'}]});
+ await f.runtime.start(1,'Copy A price into B');await joinTab(f,1,2);
+ await f.runtime.tick(1);await f.runtime.tick(1);await f.runtime.tick(2);await f.runtime.tick(2);
+ const task=await f.store.get(2);assert.equal(task.origin,'https://b.test');assert.equal(task.tabHops,1);
+ const input=JSON.parse(f.inputs.at(-1));
+ assert.equal(input.results.length,0,'old-origin results are still cleared');
+ assert.deepEqual(input.tabTrail.map(({action,from,fromOrigin,to})=>({action,from,fromOrigin,to})),[{action:'tab_switch',from:'tab0',fromOrigin:'https://a.test',to:'tab1'}]);
+ assert.deepEqual(input.handoffs.map(({from,origin,text})=>({from,origin,text})),[{from:'tab0',origin:'https://a.test',text:'A price is 12'}]);
+ assert.equal(f.inputs.at(-1).includes(secret),false);assert.equal(f.inputs.at(-1).includes('Page 1'),false);
+});
+
+test('bouncing between tabs without page actions pauses as no_progress; a page action resets the count',async()=>{
+ const bounce=()=>({reply:'Switch',action:'tab_switch',id:'tab'}),plans=[];
+ const f=fixture({plans});
+ await f.runtime.start(1,'Compare');await joinTab(f,1,2);
+ const next=async plan=>{const id=activeTab(f);const t=await f.store.get(id);f.plans.push(typeof plan==='function'?{...plan(),id:t.tabId===1?'tab1':'tab0'}:plan);await f.runtime.tick(id);};
+ // One click on tab0, then switches only.
+ await next({reply:'Click',action:'click',id:'t0'});assert.equal((await f.store.get(1)).tabHops,0);
+ for(let i=0;i<6;i++){await next(bounce);await f.runtime.tick(activeTab(f));f.plans.length=0;}
+ let task=await f.store.get(activeTab(f));assert.equal(task.tabHops,6);assert.equal(task.status,'running');
+ const before=f.observed.length;await next(bounce);
+ task=await f.store.get(activeTab(f));assert.equal(task.status,'paused');assert.equal(task.reason,'no_progress');assert.equal(task.tabHops,6);
+ assert.equal(f.observed.length,before+1,'the blocked switch did not move or observe another tab');
+ // Continuing resets the count.
+ await f.runtime.resume(activeTab(f));assert.equal((await f.store.get(activeTab(f))).tabHops,0);
+});

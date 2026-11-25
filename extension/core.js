@@ -318,7 +318,7 @@ function agentVerify(plan,snap){
 function agentSignature(n){return JSON.stringify([n.localName,agentString(n.type),n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),agentString(n.name),agentString(n.value),n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),n.getAttribute('autocomplete'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals','handoff'].includes(k)))throw new Error('模型操作格式无效');
  if(p.subgoals!==undefined){
   if(!Array.isArray(p.subgoals)||p.subgoals.length>8||new Set(p.subgoals.map(g=>g?.id)).size!==p.subgoals.length)throw new Error('子目标列表无效');
   for(const g of p.subgoals){
@@ -341,6 +341,7 @@ function agentPlan(raw,snap){
  if(['fill','select'].includes(p.action)&&(typeof p.value!=='string'||p.value.length>4000))throw new Error('填写内容无效');
  if(['tab_switch','tab_close'].includes(p.action)&&(typeof p.id!=='string'||!(p.action==='tab_switch'?/^(tab[0-9]{1,3}|open[0-9]{1,2})$/:/^tab[0-9]{1,3}$/).test(p.id)||p.value!==undefined||p.expected!==undefined))throw new Error('标签页标识无效');
  if(p.action==='tab_open'&&p.expected!==undefined)throw new Error('打开标签页不支持预期条件');
+ if(p.handoff!==undefined&&(!['tab_switch','tab_open'].includes(p.action)||typeof p.handoff!=='string'||!p.handoff.trim()||p.handoff.length>2000))throw new Error('交接笔记无效或超过 2000 字符');
  if(p.action==='navigate'||p.action==='tab_open'){
   let url;try{url=new URL(p.value);}catch{throw new Error('导航 URL 无效');}
   if(typeof p.value!=='string'||p.value.length>2000||!['http:','https:'].includes(url.protocol)||url.username||url.password||p.id!==undefined)throw new Error('导航仅支持不含凭据的 HTTP/HTTPS URL');
