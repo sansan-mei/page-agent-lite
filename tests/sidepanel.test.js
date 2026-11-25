@@ -353,6 +353,21 @@ test('script approval shows the full code as text with site and world, hides res
  }
 });
 
+test('decision cards sit below the conversation and each new request scrolls into view once',async()=>{
+ const base={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'running',phase:'observe',steps:1,prefs:{},results:[],events:[{time:1,text:'第一步'},{time:2,text:'第二步'}]};
+ let current=base;const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:current}:undefined);
+ const conversation=f.document.getElementById('conversation'),order=[...conversation.children].map(el=>el.id),timeline=order.indexOf('timeline');
+ for(const id of ['choice-form','confirmation','sensitive-confirmation','script-approval','script-grant','browser-target'])assert.ok(order.indexOf(id)>timeline,id+' is below the timeline');
+ const scrolled=[];for(const id of ['script-approval','sensitive-confirmation','choice-form'])f.document.getElementById(id).scrollIntoView=function(){scrolled.push(this.id);};
+ const paused=request=>({...base,status:'paused',reason:'script_approval',scriptRequest:{id:request,code:'return 1;',world:'USER_SCRIPT',url:'https://example.test/task',reply:'Need state'},events:base.events.concat({time:3,text:'等待你在侧栏批准脚本'})});
+ current=paused('r1');f.updated(9,{status:'complete'});await flush();
+ assert.equal(f.document.getElementById('script-approval').hidden,false);assert.deepEqual(scrolled,['script-approval']);
+ f.updated(9,{status:'complete'});await flush();assert.deepEqual(scrolled,['script-approval'],'same request does not scroll again');
+ current=paused('r2');f.updated(9,{status:'complete'});await flush();assert.deepEqual(scrolled,['script-approval','script-approval']);
+ current={...base,status:'paused',reason:'sensitive_access',sensitiveRequest:{id:'s1',text:'Need card'}};f.updated(9,{status:'complete'});await flush();
+ assert.deepEqual(scrolled,['script-approval','script-approval','sensitive-confirmation']);
+});
+
 test('task-scoped script approval shows a compact indicator with an always-available revoke',async()=>{
  const grant={scope:'task',origin:'https://example.test',tabId:9,grantedAt:1};
  const task={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'paused',reason:'user_takeover',phase:'observe',steps:1,prefs:{},results:[],events:[],scriptApproval:grant};

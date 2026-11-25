@@ -2,7 +2,7 @@
 (() => {
   const $=id=>document.getElementById(id),t=PageAgentI18n.t;
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
-  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalDraft=false;
+  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalDraft=false,shownPrompt='';
   const ongoingTask=()=>!!task&&!['completed','ended'].includes(task.status);
   const goalOn=()=>ongoingTask()?task.goalMode===true:goalDraft;
   const switchTab=$('use-current');switchTab.textContent=t('spSwitchTab');switchTab.title=t('spUseCurrentTab');document.querySelector('.app-header').prepend(switchTab);
@@ -117,7 +117,7 @@
     $('history-empty').hidden=!!items.length;$('history-goal').textContent=historyTask?.goal||'';
     const messageList=$('timeline');
     if(historyOpen&&historyTask)$('history-messages').append(messageList);
-    else $('conversation').insertBefore(messageList,$('confirmation'));
+    else $('conversation').insertBefore(messageList,$('important-notice'));
     $('history-messages').hidden=!historyTask;
     const fresh=!task||task.status==='ended';
     $('empty-state').hidden=!fresh;$('task').hidden=fresh;$('timeline').hidden=historyOpen?!historyTask:fresh;$('run-details').hidden=historyOpen?!historyTask:!task;
@@ -240,6 +240,10 @@
     $('finish').disabled=busy||!current||current.status==='ended';
     $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
+    // A decision card can appear while the conversation is scrolled elsewhere; bring each new one into view once.
+    const prompt=[['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
+    const promptKey=prompt?prompt[0]+':'+prompt[1]:'';
+    if(promptKey!==shownPrompt){shownPrompt=promptKey;if(prompt)$(prompt[0]).scrollIntoView?.({block:'end'});}
   }
   async function selectTab(useCurrent=false){
     const version=++selection,refreshVersion=++taskRefresh;

@@ -43,6 +43,7 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 #event-log time { display: block; color: #8a929f; font-size: 10px; }
 #confirmation, #sensitive-confirmation, #script-approval, #browser-target { padding: 12px; margin: 15px 0; background: #fffbf2; border: 1px solid #ecd8ad; border-radius: 8px; }
 #browser-target-url { overflow-wrap: anywhere; }
+#confirmation button, #sensitive-confirmation button, #script-approval button, #browser-target button, #choice-submit { margin: 6px 8px 0 0; }
 #confirmation h2, #sensitive-confirmation h2, #script-approval h2 { font-size: 13px; margin: 0 0 8px; }
 .composer { padding: 0 12px 9px; background: white; flex-shrink: 0; }
 .activity { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 3px; min-height: 32px; }
