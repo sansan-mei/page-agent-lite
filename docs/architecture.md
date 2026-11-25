@@ -41,7 +41,6 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
 | `script-settings.js` | 设置页「脚本执行」：点击申请可选 `userScripts` 权限、显示状态 | [使用指南](usage.md#脚本执行) |
 | `article-tools.js` | 已退役文章面板的兼容源码，无入口、不自动注入 | — |
-| `dev/`（不在 `extension/`） | 开发版叠加：`dev-flags.js`（run_script 免批准）、`background-dev.js`，由 `npm run build:dev` 生成 `dist/extension-dev/` | [网页工具](browser-tools.md#run_script) |
 
 ## 消息入口
 
@@ -53,7 +52,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）；本地开发版改为必需权限。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。
@@ -61,7 +60,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 生命周期
 
-- 原生 JS，商店包无构建（开发版只做复制叠加）。worker 会被浏览器终止：短定时器驱动连续 tick，30 秒周期 alarm 兜底唤醒，必要状态都写 session。
+- 原生 JS，无构建。worker 会被浏览器终止：短定时器驱动连续 tick，30 秒周期 alarm 兜底唤醒，必要状态都写 session。
 - 任务不属于某个 DOM 文档：翻页只替换内容脚本，后台按检查点重新观察。
 - 侧栏关闭后任务继续；浏览器关闭后不运行，session 可能被清空。
 

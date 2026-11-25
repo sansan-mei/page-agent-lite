@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "node --max-old-space-size=256 --test --test-concurrency=1 tests/*.test.js",
-    "build:dev": "node scripts/build-dev.cjs"
+    "test": "node --max-old-space-size=256 --test --test-concurrency=1 tests/*.test.js"
   },
   "devDependencies": {
     "linkedom": "0.18.12"

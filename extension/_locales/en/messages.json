@@ -794,9 +794,6 @@
   "optScriptsDetailsFailed": {
     "message": "Could not open the extension details page. Visit chrome://extensions manually."
   },
-  "optScriptsDevToggle": {
-    "message": "Developer build: turn on \"Allow User Scripts\" in extension details to use it."
-  },
   "optLanguageBrowser": {
     "message": "Follow browser ({1})"
   },
@@ -835,9 +832,6 @@
   },
   "optScriptsBadgeOn": {
     "message": "On"
-  },
-  "optScriptsBadgeDev": {
-    "message": "Auto-approved (dev build)"
   },
   "optKeyPlaceholder": {
     "message": "Optional for local services"

@@ -6,9 +6,8 @@
 
 1. 安装 Node.js 22+，执行 `npm ci --ignore-scripts --no-audit --no-fund`。
 2. 在 Chrome / Edge 开发者模式加载 `extension/`。
-3. 调试 `run_script` 时可运行 `npm run build:dev`，改为加载 `dist/extension-dev/`（可与商店版共存），并在扩展详情页打开「允许用户脚本」；开发版内置脚本权限、脚本不经批准直接执行，说明见 [run_script](docs/browser-tools.md#run_script)。开发版只供本地使用，不上传商店。
-4. 修改后重新加载扩展并刷新测试页。不要使用真实账号提交不可撤销的测试数据。
-5. 执行 `npm test`、扩展脚本 `node --check` 和 `git diff --check`。浏览器检查见 [测试文档](docs/testing.md)。
+3. 修改后重新加载扩展并刷新测试页。不要使用真实账号提交不可撤销的测试数据。
+4. 执行 `npm test`、扩展脚本 `node --check` 和 `git diff --check`。浏览器检查见 [测试文档](docs/testing.md)。
 
 ## 宣传页
 

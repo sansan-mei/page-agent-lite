@@ -1,10 +1,8 @@
 // run_script: model-written JavaScript in the task tab through chrome.userScripts.execute.
 // Loaded by the service worker (before core.js) and the options page, never by content scripts,
-// so the page-side executor keeps refusing the action. The store build pauses each run for
-// side-panel approval (runtime.scriptApproval) unless the user allowed scripts for this task on
-// the same tab and origin (task.scriptApproval); only the local developer build sets
-// PageAgentDevFlags.autoApproveScripts. userScripts is an optional permission in the store
-// manifest; running also needs Chrome 135+ and the "Allow User Scripts" toggle (Chrome 138+).
+// so the page-side executor keeps refusing the action. Each run pauses for side-panel approval
+// (runtime.scriptApproval) unless the user allowed scripts for this task on the same tab and
+// origin (task.scriptApproval). userScripts is an optional permission; running also needs Chrome 135+ and the "Allow User Scripts" toggle (Chrome 138+).
 (function(root){
   'use strict';
   const MAX_CODE=20000,MAX_RESULT=4000,TIMEOUT_MS=30000,PERMISSION='userScripts';

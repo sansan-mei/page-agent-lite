@@ -81,22 +81,6 @@ test('lite options hide power tools by default and both saves use the same form'
  assert.equal(document.querySelectorAll('form form').length,0);
 });
 
-test('developer script row shows auto-approval without store permission actions',async()=>{
- const {document,window}=parseHTML(fs.readFileSync(path.join(dir,'options.html'),'utf8'));
- let api=true;
- const chrome={runtime:{getManifest:()=>({permissions:['userScripts']})},permissions:{async contains(){return true;},onAdded:{addListener(){}},onRemoved:{addListener(){}}}};
- Object.defineProperty(chrome,'userScripts',{get(){return api?{getScripts:async()=>[],execute:async()=>[]}:undefined;}});
- runUi('extension/script-settings.js',{document,window,chrome,PageAgentScriptTools:require('../extension/script-tools.js')});
- await flush();await flush();
- assert.equal(document.getElementById('script-badge').getAttribute('data-state'),'dev');
- assert.match(document.getElementById('script-badge').textContent,/开发版/);
- for(const id of ['script-grant','script-details','script-revoke'])assert.equal(document.getElementById(id).hidden,true);
- api=false;document.dispatchEvent(new window.Event('visibilitychange'));await flush();await flush();
- assert.equal(document.getElementById('script-details').hidden,false);
- assert.equal(document.getElementById('script-grant').hidden,true);
- assert.match(document.getElementById('script-status').textContent,/允许用户脚本/);
-});
-
 // ── Sender semantics under realistic MV3 conditions ──────────────────────
 const extDir = require('node:path').join(__dirname, '..', 'extension');
 const optionsJs = require('node:fs').readFileSync(path.join(extDir, 'options.js'), 'utf8');

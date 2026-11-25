@@ -1,6 +1,6 @@
 # 任务运行器
 
-`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler、scriptAccess（每轮 run_script 是否可用）和 autoApproveScripts（仅开发版为 true），不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
+`runtime.js` 通过依赖注入使用 store、tools、siteMemory、model、summarize、identity、preferences、scheduler、scriptAccess（每轮 run_script 是否可用），不访问 DOM。`taskId` 标识任务；`token` 是运行代次，停止/替换/接管/记忆变更时轮换，旧请求的迟到结果一律丢弃。
 
 ## 状态
 
@@ -75,7 +75,7 @@
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停（目标模式 6 条） |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
-| run_script | 本轮不可用则暂停为 access；商店包暂停为 script_approval，见 [脚本批准](#脚本批准)；开发版直接执行 |
+| run_script | 本轮不可用则暂停为 access；否则暂停为 script_approval，见 [脚本批准](#脚本批准) |
 | request_sensitive_access | 暂停为 sensitive_access，等待可信侧栏确认；确认后轮换代次，重新观察；拒绝保留屏蔽并暂停，不占自主恢复次数 |
 | 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
@@ -93,7 +93,7 @@
 
 ## 脚本批准
 
-商店包中模型返回 run_script 时不执行，任务暂停为 `script_approval` 并保存 `scriptRequest`：`{id, code, world, url, origin, documentId, snapshotId, reply, time, pending}`（pending 为执行所需的完整待执行记录）。
+模型返回 run_script 时不执行，任务暂停为 `script_approval` 并保存 `scriptRequest`：`{id, code, world, url, origin, documentId, snapshotId, reply, time, pending}`（pending 为执行所需的完整待执行记录）。
 
 - 消息：`{taskId, requestId, allow, scope}`，scope 为 `once`（缺省）或 `task`，`task` 只能与 allow=true 同用；后台先校验字段类型与枚举（否则「脚本确认无效」），只接受可信侧栏发送者。
 - 校验与 `task:sensitive-access` 相同：taskId、requestId 匹配，任务仍为 paused/script_approval，allow 为布尔值，否则「脚本确认已过期」。通过后取消旧请求、轮换 token、清除 `scriptRequest`。
@@ -102,7 +102,6 @@
 - 本任务内允许（scope=task）：另在任务记录写 `scriptApproval={scope:'task', origin, tabId, grantedAt}`。之后模型返回 run_script 时，在存储写入的同一步核对授权仍在且 `tabId`、`origin` 与当前执行标签和快照来源一致，一致则不暂停，直接按普通路径（pending → executing 检查点 → 文档 ID 核对 → 执行一次）运行，请求连同完整代码记入结果；不一致则丢弃授权并照常暂停批准。同来源的新文档（刷新、站内跳转）保留授权。
 - 授权清除：侧栏「撤销」（`task:script-revoke {taskId}`）、结束任务、清空、新建任务、切换来源（`switchOrigin` 重建记录）、切换执行标签（`switchTab` 置空）、`userScripts` 权限被移除（`permissions.onRemoved` → `reviewPermissions`，以及每轮检测到无权限时）。停止、接管、补充指令不清除授权（任务仍可继续，侧栏一直显示撤销入口）。撤销不影响已写入 pending 的这一次执行。
 - 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准执行，结果记 `SCRIPT_DISCARDED`（not_sent）。
-- 开发版（`PageAgentDevFlags.autoApproveScripts`）跳过本节，直接走普通执行路径，不显示批准卡片。
 
 ## 子目标
 

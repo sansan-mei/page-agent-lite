@@ -65,9 +65,7 @@ const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemor
   identity:()=>service.identity(),
   protocol:()=>service.agentProtocol(),
   // run_script is offered to the model only on turns where the optional permission and API are usable.
-  scriptAccess:()=>PageAgentScriptTools.status(chrome),
-  // Set only by dev/dev-flags.js in the local developer build; the store package never contains it.
-  autoApproveScripts:globalThis.PageAgentDevFlags?.autoApproveScripts===true
+  scriptAccess:()=>PageAgentScriptTools.status(chrome)
 });
 const ready=(async()=>{
   await service.init();await store.migrate();
