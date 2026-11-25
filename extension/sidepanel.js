@@ -120,7 +120,9 @@
       const goal=(item.goal||t('spUntitledChat')).slice(0,100);
       button.textContent=goal+' · '+siteLabel(item)+' · '+(labels[item.status]||item.status)+' · '+new Date(item.updatedAt||0).toLocaleString();
       button.addEventListener('click',()=>void openConversation(item.taskId));
-      const remove=document.createElement('button');remove.type='button';remove.className='conversation-delete';remove.textContent=t('commonDelete');remove.setAttribute('aria-label',t('spHistoryDelete',goal));
+      const remove=document.createElement('button');remove.type='button';remove.className='conversation-delete';remove.setAttribute('aria-label',t('spHistoryDelete',goal));remove.title=t('spHistoryDelete',goal);
+      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','16');icon.setAttribute('height','16');icon.setAttribute('fill','none');icon.setAttribute('stroke','currentColor');icon.setAttribute('stroke-width','1.6');icon.setAttribute('stroke-linecap','round');icon.setAttribute('stroke-linejoin','round');icon.setAttribute('aria-hidden','true');
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6');icon.append(path);remove.append(icon);
       remove.disabled=busy||['running','waiting_page','waiting_confirmation','paused'].includes(item.status);
       remove.addEventListener('click',()=>void deleteConversation(item.taskId));
       row.append(button,remove);list.append(row);

@@ -78,9 +78,10 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 .tool-call h4 { font-size: 11px; font-weight: 500; margin: 12px 0 5px; }
 .tool-call pre { margin: 0; font: 11px/1.7 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 
-.conversation-row { display:flex; gap:6px; align-items:stretch; margin:8px 0; }
-.conversation-item { display:block; flex:1; min-width:0; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; margin:0; padding:10px; border:1px solid var(--line); border-radius:8px; }
-.conversation-delete { flex-shrink:0; margin:0; padding:0 10px; font-size:11px; border:1px solid var(--line); border-radius:8px; }
+.conversation-row { position:relative; display:flex; margin:8px 0; }
+.conversation-item { display:block; flex:1; min-width:0; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; margin:0; padding:10px 40px 10px 10px; border:1px solid var(--line); border-radius:8px; }
+.conversation-delete { position:absolute; top:5px; right:5px; display:flex; align-items:center; justify-content:center; width:30px; height:30px; margin:0; padding:0; color:var(--muted); border:0; border-radius:6px; }
+.conversation-delete:hover:not(:disabled) { color:#b42318; background:#fef2f2; }
 .conversation-item[aria-pressed="true"] { border-color:var(--accent); background:#eff6ff; }
 #history-messages { margin-top:16px; }
 
