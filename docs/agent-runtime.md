@@ -12,7 +12,7 @@
 | paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`tab_access`（待确认读取其他标签页）、`script_stale`（待批准脚本因页面变化作废） |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
-| completed | 模型返回 done（有完成条件时已核实） |
+| completed | 模型返回 done（有完成条件时已核实）；回复记入结果，发送即在同一任务继续 |
 | ended | 用户结束或成员关闭（`reason=member_closed`）；下次发送新建任务 |
 
 `phase`：observe、thinking、compacting、confirm、approved、executing、verifying、idle，用于中断恢复。verifying 阶段不调用模型、不重复动作。
@@ -35,12 +35,12 @@
 ## 预算
 
 - 默认 100 轮，0 不限；每次模型请求（含失败重试、摘要请求）计一轮。翻页、跨来源、worker 恢复都保留累计轮数。
-- 预算耗尽或已完成后「继续」开启新预算；停止/一般失败后继续保留剩余预算。补充指令不重置预算。
+- 预算耗尽或已完成后「继续」开启新预算，已完成后发送补充指令同样开启新预算；停止/一般失败后继续保留剩余预算。其他补充指令不重置预算。
 - 条件等待每 tick 只读检查一次，不消耗模型轮数。`metrics` 分别统计观察、核对、动作次数。
 
 ## 目标模式
 
-任务字段 `goalMode`（缺省 false）。新建任务时由侧栏「目标模式」开关经 `task:submit` 的 `goalMode` 带入；补充指令带布尔值时同步；进行中用 `task:goal-mode {taskId, enabled}`（仅可信侧栏，已完成/已结束拒绝）切换，不自动继续。跨来源切换保留。
+任务字段 `goalMode`（缺省 false）。新建任务时由侧栏「目标模式」开关经 `task:submit` 的 `goalMode` 带入；补充指令带布尔值时同步；进行中用 `task:goal-mode {taskId, enabled}`（仅可信侧栏，已结束拒绝）切换，不自动继续。跨来源切换保留。
 
 | 项 | 默认 | 目标模式 |
 |---|---|---|
@@ -84,7 +84,7 @@
 
 ## 用户命令
 
-- **发送**：只有无任务、completed、ended 时新建；否则追加补充指令（单条 ≤ `inputChars`，总长 ≤ max(12000, inputChars × 6)，超限拒绝），取消旧请求、轮换 token、清除 pending/check 并重新观察。当前页来源必须等于任务当前来源；`scope_changed`/`permission_denied` 下仍有未确定操作时，须先点继续核对。
+- **发送**：只有无任务或 ended（「新对话」、结束、执行标签关闭）时新建；否则追加补充指令（单条 ≤ `inputChars`，总长 ≤ max(12000, inputChars × 6)，超限拒绝），取消旧请求、轮换 token、清除 pending/check 并重新观察。未完成任务要求当前页来源等于任务当前来源；completed 任务没有未确定检查点，换站点发送后下一 tick 走 [跨来源切换](#跨来源切换)，只带目标与补充指令；`scope_changed`/`permission_denied` 下仍有未确定操作时，须先点继续核对。
 - **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
 - **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
 - **结束/清空**：结束后不能用继续复活；清空删除当前任务及其来源分区。
@@ -157,7 +157,7 @@
 
 - `members(tabId, taskId)`（仅可信侧栏）：返回成员目录（tabRef、类型、是否执行中、是否打开、当前 origin、≤ 80 字符标题、是否在任务范围）和可加入的 HTTP/HTTPS 标签页（≤ 50，标记是否被占用）。
 - `changeMembers`：核对 taskId 与 membersRevision；加入前向浏览器确认标签仍打开且为 HTTP/HTTPS；可移出除执行标签页外的任意成员，移出不关闭网页。
-- 侧栏命令（get/stop/takeover/resume/finish/choose/approve/成员/范围/诊断/清空）从非执行成员标签发出时，后台经 `runtime.resolve` 作用于其任务的执行标签页；记忆仍按发出标签，历史为全局列表。发送：所属任务未结束时作为补充指令；已结束（或非浏览器对话已完成）时先释放该标签（`release`），再在此标签新建任务。
+- 侧栏命令（get/stop/takeover/resume/finish/choose/approve/成员/范围/诊断/清空）从非执行成员标签发出时，后台经 `runtime.resolve` 作用于其任务的执行标签页；记忆仍按发出标签，历史为全局列表。发送：所属任务未 ended 时作为补充指令；已 ended 时先释放该标签（`release`），再在此标签新建任务。
 
 ## 诊断
 

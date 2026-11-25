@@ -94,7 +94,22 @@ test('supplement interrupts old thinking, preserves task ID, goal, progress and 
  resolve({text:'{"reply":"旧结果","action":"fill","id":"t0","value":"bad"}'});await tick;
  assert.equal(f.executed.length,0);await f.runtime.tick(1);
  assert.equal(payload.instructions[0].text,'先处理第二题');assert.equal((await f.runtime.get(1)).status,'completed');
- const next=await f.runtime.submit(1,'新的工作');assert.notEqual(next.taskId,original.taskId);assert.equal(next.steps,0);
+ const followup=await f.runtime.submit(1,'新的工作');assert.equal(followup.taskId,original.taskId);assert.equal(followup.status,'running');assert.equal(followup.steps,0);assert.equal(followup.instructions.at(-1).text,'新的工作');
+ await f.runtime.finish(1);const next=await f.runtime.submit(1,'另一项工作');assert.notEqual(next.taskId,original.taskId);assert.equal(next.goal,'另一项工作');assert.equal(next.steps,0);
+});
+
+test('a completed web task keeps the conversation: follow-ups see the previous answer until a new conversation',async()=>{
+ let calls=0;const payloads=[];
+ const f=fixture({model:async text=>{payloads.push(JSON.parse(text));return {text:JSON.stringify({reply:++calls===1?'ANSWER_ONE':'ANSWER_TWO',action:'done'})};}});
+ const first=await f.runtime.submit(1,'Read the page');await f.runtime.tick(1);
+ let t=await f.runtime.get(1);assert.equal(t.status,'completed');assert.equal(t.results.at(-1).result,'ANSWER_ONE');
+ assert.equal((await f.runtime.setGoalMode(1,first.taskId,true)).goalMode,true);
+ t=await f.runtime.submit(1,'And then?');assert.equal(t.taskId,first.taskId);assert.equal(t.goal,'Read the page');
+ await f.runtime.tick(1);
+ assert.ok(payloads[1].results.some(r=>r.result==='ANSWER_ONE'));assert.equal(payloads[1].instructions.at(-1).text,'And then?');assert.equal(payloads[1].goalMode,true);
+ assert.equal((await f.runtime.get(1)).status,'completed');
+ await f.runtime.finish(1);await assert.rejects(()=>f.runtime.setGoalMode(1,first.taskId,false),/任务已变化/);
+ assert.notEqual((await f.runtime.submit(1,'Fresh')).taskId,first.taskId);
 });
 
 test('stopped, paused, failed and pending tasks all receive followups; explicit finish starts new identity',async()=>{
@@ -150,6 +165,17 @@ test('unmet completion is paused and cannot be labeled completed',async()=>{
   model:async()=>({text:'{"reply":"已保存","action":"done","expected":[{"kind":"field_equals","id":"t0","value":"Alice"}]}'})});
  await f.runtime.submit(1,'保存');await f.runtime.tick(1);
  const t=await f.runtime.get(1);assert.equal(t.status,'paused');assert.equal(t.lastOutcome.status,'not_satisfied');assert.equal(t.completionEvidence,undefined);
+});
+
+test('verified completion preserves its answer for the next turn without repeating the old conditions',async()=>{
+ const payloads=[];
+ const f=fixture({tools:{async verify(){return {version:2,status:'success',dispatch:'not_sent',scope:'page',code:'CONDITIONS_MATCH'};}},
+  model:async text=>{payloads.push(JSON.parse(text));return {text:JSON.stringify(payloads.length===1?{reply:'VERIFIED_ANSWER',action:'done',expected:[{kind:'field_equals',id:'t0',value:'Alice'}]}:{reply:'FOLLOWUP_ANSWER',action:'done'})};}});
+ await f.runtime.submit(1,'Save');await f.runtime.tick(1);
+ const completed=await f.runtime.get(1);assert.equal(completed.completionEvidence,'verified');assert.equal(completed.results.at(-1).result,'VERIFIED_ANSWER');
+ await f.runtime.submit(1,'Explain');await f.runtime.tick(1);
+ assert.ok(payloads[1].results.some(r=>r.result==='VERIFIED_ANSWER'));
+ const final=await f.runtime.get(1);assert.equal(final.taskId,completed.taskId);assert.equal(final.completionEvidence,'model_reported');assert.equal(final.steps,1);assert.equal(f.executed.length,0);
 });
 
 test('wait deadline survives restart and a loading page cannot extend it indefinitely',async()=>{
@@ -875,6 +901,17 @@ test('browser conversation runs without DOM/site permission and keeps answer con
  const f=fixture({tools:{async tab(){return {url:'chrome://newtab/',status:'complete'};},async observe(){throw Error('must not read internal DOM');},async hasOriginAccess(){throw Error('must not request internal host access');}},model:async text=>{const data=JSON.parse(text);assert.equal(data.page.browser,true);assert.deepEqual(data.taskScope.allowedOrigins,[]);if(calls++)assert.equal(data.results[0].result,'First answer');return {text:JSON.stringify({action:'done',reply:'First answer'})};}});
  await f.runtime.start(1,'Help');const first=await f.runtime.get(1);await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).status,'completed');
  await f.runtime.submit(1,'Follow up');assert.equal((await f.runtime.get(1)).taskId,first.taskId);await f.runtime.tick(1);assert.equal(calls,2);assert.equal(f.executed.length,0);
+});
+
+test('a follow-up on another site after completion continues the task through origin isolation',async()=>{
+ const f=crossFixture({model:async data=>({text:JSON.stringify({action:'done',reply:data.page.url.startsWith('https://a.test')?'A_ANSWER':'B_ANSWER'})})});
+ const first=await f.runtime.submit(1,'USER_GOAL');await f.runtime.tick(1);assert.equal((await f.store.get(1)).status,'completed');
+ f.state.url='https://b.test/other';
+ let t=await f.runtime.submit(1,'USER_FOLLOWUP');assert.equal(t.taskId,first.taskId);assert.equal(t.status,'running');
+ await f.runtime.tick(1);t=await f.store.get(1);assert.equal(t.taskId,first.taskId);assert.equal(t.origin,'https://b.test');assert.equal(t.status,'running');
+ await f.runtime.tick(1);t=await f.store.get(1);assert.equal(t.status,'completed');
+ const last=JSON.stringify(f.payloads.at(-1));assert.ok(last.includes('USER_GOAL'));assert.ok(last.includes('USER_FOLLOWUP'));assert.equal(last.includes('A_ANSWER'),false);
+ assert.equal(f.dispatches.length,0);
 });
 
 test('browser navigation requests only missing host permission then enters normal execution',async()=>{

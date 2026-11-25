@@ -92,14 +92,19 @@ test('Enter submits while Shift Enter and composing Chinese text do not',async()
  input.dispatchEvent(new f.window.Event('compositionend'));assert.equal(key().defaultPrevented,true);assert.equal(submissions,1);
 });
 
-test('paused tasks expose continuation while completed tasks keep new task input available',async()=>{
- for(const status of ['paused','completed']){
-  const task={taskId:'one',goal:'Work',status,steps:2,prefs:{maxSteps:50},events:[{time:1,text:'Explain current outcome'}]};
+test('paused and completed tasks both keep the conversation open; only ended invites a new task',async()=>{
+ const placeholders={};
+ for(const status of ['paused','completed','ended']){
+  const task={taskId:'one',goal:'Work',status,steps:2,prefs:{maxSteps:50},events:[{time:1,text:'FINAL_ANSWER'}],results:[{action:'done',result:'FINAL_ANSWER'}]};
   const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:undefined),d=f.document;
-  assert.equal(d.getElementById('stop').hidden,true);assert.equal(d.getElementById('resume').hidden,false);
+  placeholders[status]=d.getElementById('instruction').placeholder;
+  assert.equal(d.querySelectorAll('.tool-call').length,0);
   assert.equal(d.getElementById('start').disabled,false);
+  if(status==='ended')continue;
+  assert.equal(d.getElementById('stop').hidden,true);assert.equal(d.getElementById('resume').hidden,false);
   assert.equal(d.getElementById('run-details').hasAttribute('open'),false);
  }
+ assert.equal(placeholders.completed,placeholders.paused);assert.notEqual(placeholders.ended,placeholders.completed);
 });
 
 

@@ -155,6 +155,9 @@ test('member-tab side panel: supplements reach the running task; after it ends t
  await f.runtime.start(1,'Work');await joinTab(f,1,4);await f.runtime.tick(1);
  assert.equal(await f.runtime.resolve(1),4);assert.equal(await f.runtime.resolve(2),2);
  const supplemented=await f.runtime.submit(1,'More detail');assert.equal(supplemented.tabId,4);assert.equal(supplemented.instructions.at(-1).text,'More detail');
+ await f.runtime.tick(4);assert.equal((await f.runtime.get(4)).status,'completed');
+ const continued=await f.runtime.submit(1,'Follow up');assert.equal(continued.taskId,supplemented.taskId);assert.equal(continued.tabId,4);assert.equal(continued.steps,0);
+ await f.runtime.tick(4);assert.ok(JSON.parse(f.inputs.at(-1)).results.some(r=>r.action==='done'));
  await f.runtime.finish(4);
  const fresh=await f.runtime.submit(1,'New job');assert.equal(fresh.tabId,1);assert.notEqual(fresh.taskId,supplemented.taskId);
  assert.equal((await f.store.get(4)).members.some(m=>m.tabId===1),false);assert.equal((await f.store.get(1)).goal,'New job');

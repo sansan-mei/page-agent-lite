@@ -343,7 +343,7 @@
       if(owner?.role!=='member')return submitHere(tabId,text,options);
       const owning=Number.isInteger(owner.taskTabId)?await store.get(owner.taskTabId):null;
       if(owning?.taskId!==owner.taskId)throw new Error('该标签页已加入其他任务，请到任务所在标签页操作或先移出');
-      if(owning.status!=='ended'&&(owning.origin==='browser'||owning.status!=='completed'))return submitHere(owner.taskTabId,text,options);
+      if(owning.status!=='ended')return submitHere(owner.taskTabId,text,options);
       await serial(owner.taskTabId,()=>store.changeMembers(owner.taskTabId,{taskId:owner.taskId,action:'release',memberTabId:tabId,updatedAt:now()}));
       return submitHere(tabId,text,options);
     }
@@ -353,15 +353,19 @@
       const page=await tools.tab(tabId,true);
       const saved=await serial(tabId,async()=>{
         let task=await store.get(tabId);
-        if(task&&task.status!=='ended'&&(task.origin==='browser'||task.status!=='completed')){
+        // Only an explicit new conversation (ended) starts a new task; a completed task keeps the conversation going.
+        if(task&&task.status!=='ended'){
+          const wasCompleted=task.status==='completed';
           if(!inScope(task))throw new Error('当前网站不在任务授权范围，请先添加后继续');
           if(['scope_changed','permission_denied'].includes(task.reason)&&(task.phase==='executing'||task.check))throw new Error('请先点击继续核对未确定操作，再补充指令');
-          if(originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
+          // A completed task has no unresolved checkpoint, so the next turn may adopt the new origin through the usual isolation path.
+          if(!wasCompleted&&originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
           task.question=null;task.helpAttempts=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          if(wasCompleted)task.steps=0;
           if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
           event(task,'你（补充指令）：'+text.trim());
         }else{
@@ -452,7 +456,7 @@
       if(typeof enabled!=='boolean')throw new Error('目标模式参数无效');
       return serial(tabId,async()=>{
         const t=await store.get(tabId);
-        if(!t||t.taskId!==taskId||['ended','completed'].includes(t.status))throw new Error('任务已变化，请刷新后重试');
+        if(!t||t.taskId!==taskId||t.status==='ended')throw new Error('任务已变化，请刷新后重试');
         if(t.goalMode===enabled)return t;
         t.goalMode=enabled;t.updatedAt=now();
         event(t,enabled?'已开启目标模式：核对未通过、目标失效或遇到阻碍时自动重新规划，直到完成、停止或用完轮数':'已关闭目标模式');
@@ -678,7 +682,7 @@
             task=await update(tabId,token,t=>{t.completionChecks=expected;t.phase='verifying';t.check={operationId:uuid(),expected,deadline:now(),kind:'completion',reply:plan.reply};});
             if(task&&await live())await verifyCheck(task,live);return;
           }
-          await update(tabId,token,t=>{t.status='completed';t.phase='idle';t.completionEvidence='model_reported';if(t.origin==='browser')t.results=t.results.concat({action:'done',result:plan.reply});event(t,plan.reply);event(t,'模型报告完成；未提供可执行的任务完成条件');});return;
+          await update(tabId,token,t=>{t.status='completed';t.phase='idle';t.completionEvidence='model_reported';t.results=t.results.concat({action:'done',result:plan.reply,time:now()});event(t,plan.reply);event(t,'模型报告完成；未提供可执行的任务完成条件');});return;
         }
         const target = snap.page.elements.find(e=>e.id===plan.id);
         const combined=[...plan.expected||[]];
@@ -911,7 +915,7 @@
           t.status='running';event(t,(check.kind==='completion'?'完成条件尚未核实，继续推进':outcome.status==='not_satisfied'?'预期结果与页面不符，重新读取当前页面规划':'预期结果无法核对，重新读取当前页面规划')+'（'+t.verificationRecoveries+'/'+verifyCap+'）；未自动重发原操作');
         }else if(outcome.status==='success'){
           t.verificationRecoveries=0;
-          if(check.kind==='completion'){t.status='completed';t.phase='idle';t.completionEvidence='verified';event(t,check.reply);}
+          if(check.kind==='completion'){t.status='completed';t.phase='idle';t.completionEvidence='verified';if(check.reply)t.results=t.results.concat({action:'done',result:check.reply,time:now()});event(t,check.reply);}
           else{t.status='running';event(t,'预期条件已核实，继续任务');}
         }else if(check.kind==='verify'){
           t.status='running';event(t,'验证未满足或结果未知，交给模型重新规划');

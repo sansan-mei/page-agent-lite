@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id),t=PageAgentI18n.t;
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
   let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalDraft=false,shownPrompt='';
-  const ongoingTask=()=>!!task&&!['completed','ended'].includes(task.status);
+  const ongoingTask=()=>!!task&&task.status!=='ended';
   const goalOn=()=>ongoingTask()?task.goalMode===true:goalDraft;
   const switchTab=$('use-current');switchTab.textContent=t('spSwitchTab');switchTab.title=t('spUseCurrentTab');document.querySelector('.app-header').prepend(switchTab);
   async function refreshTask(){
@@ -192,6 +192,8 @@
       const shown=[];
       for(let i=0;i<records.length;i++){
         const record=records[i],id=record.outcome?.operationId,previous=id?shown.find(r=>r.entry.outcome?.operationId===id):null;
+        // The final answer is already a chat message; its result record exists only as model-visible history.
+        if(record.action==='done')continue;
         if(previous)previous.entry={...previous.entry,...record,action:previous.entry.action,request:record.request||previous.entry.request,time:previous.entry.time};
         else shown.push({entry:record,index:i});
       }
@@ -236,7 +238,7 @@
     $('operation').textContent=pending?`${pending.plan.action} → ${pending.label}${pending.plan.value!==undefined?t('spOperationValue',String(pending.plan.value)):''}`:'';
     $('start').disabled=busy||tabId===null;
     for(const id of ['grant','grant-all'])$(id).disabled=busy||tabId===null||!tabOrigin;
-    const ongoing=task&&!['completed','ended'].includes(task.status);
+    const ongoing=ongoingTask();
     $('goal-mode').setAttribute('aria-pressed',String(goalOn()));$('goal-mode').disabled=busy||tabId===null;
     $('start').textContent=t('spSend');
     $('start').title=ongoing?t('spSendContinue'):t('spSendStart');

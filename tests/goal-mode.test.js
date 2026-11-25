@@ -88,7 +88,9 @@ test('goal mode can be toggled on a live task, persists through supplements and 
  await f.runtime.tick(1);assert.equal(payload.goalMode,true);
  await f.runtime.submit(1,'Calm down',{goalMode:false});assert.equal((await f.runtime.get(1)).goalMode,false);
  const done=await f.runtime.get(1);done.status='completed';await f.store.set(1,done);
- await assert.rejects(()=>f.runtime.setGoalMode(1,task.taskId,true),/任务已变化/);
+ assert.equal((await f.runtime.setGoalMode(1,task.taskId,true)).goalMode,true);
+ await f.runtime.finish(1);
+ await assert.rejects(()=>f.runtime.setGoalMode(1,task.taskId,false),/任务已变化/);
  assert.match(P.agentSystem('中文'),/goalMode=true/);
 });
 
