@@ -1,10 +1,10 @@
 'use strict';
 let startupFailure=null;
 try {
-  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','browser-tools.js','runtime.js');
+  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','browser-tools.js','runtime.js');
 } catch(error) {
   const match=String(error?.message||'').match(/\/([a-z-]+\.js)(?:['"\s]|$)/);
-  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
+  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
   startupFailure=`扩展无法加载 ${file}。请在扩展管理页重新加载，并刷新网页、重新打开侧边栏；仍失败时检查扩展目录文件是否齐全。`;
 }
 if(startupFailure){
@@ -27,6 +27,14 @@ const store=PageAgentTaskStore.createTaskStore(chrome);
 const tools=PageAgentBrowserTools.createBrowserTools(chrome);
 const siteMemory=PageAgentSiteMemory.createSiteMemory();
 const globalMemory=PageAgentSiteMemory.createSiteMemory({scope:'global'});
+const history=PageAgentHistoryStore.createHistoryStore();
+const historyTimers=new Map(),forgottenHistory=new Set();let historyQueue=Promise.resolve();
+// Session conversations are copied to IndexedDB through one queue, so a delete is never overtaken by an older save.
+function historyJob(operation){const job=historyQueue.catch(()=>{}).then(operation);historyQueue=job.catch(()=>{});return job;}
+function saveHistory(taskId){return historyJob(async()=>{if(forgottenHistory.has(taskId))return;const view=await store.conversation(taskId);if(view&&!forgottenHistory.has(taskId))await history.save(view);});}
+function queueHistory(taskId){clearTimeout(historyTimers.get(taskId));historyTimers.set(taskId,setTimeout(()=>{historyTimers.delete(taskId);void saveHistory(taskId).catch(()=>{});},500));}
+function forgetHistory(taskId){forgottenHistory.add(taskId);clearTimeout(historyTimers.get(taskId));historyTimers.delete(taskId);return historyJob(()=>history.remove(taskId));}
+async function syncHistory(){const ids=await store.conversationIds();for(const id of ids)await saveHistory(id);await historyJob(()=>history.interrupt(new Set(ids)));}
 const timers=new Map(),scheduledTasks=new Map(),scheduleVersions=new Map(),scheduleQueues=new Map();
 function queueSchedule(tabId,operation){const job=(scheduleQueues.get(tabId)||Promise.resolve()).catch(()=>{}).then(operation);scheduleQueues.set(tabId,job);job.finally(()=>{if(scheduleQueues.get(tabId)===job)scheduleQueues.delete(tabId);}).catch(()=>{});return job;}
 function schedule(tabId,delay=0){
@@ -70,6 +78,11 @@ const ready=(async()=>{
   if(legacyIds.length)await chrome.scripting.unregisterContentScripts({ids:legacyIds});
   await runtime.recover();return true;
 })().catch(()=>false);
+void ready.then(ok=>ok&&syncHistory()).catch(()=>{});
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area!=='session')return;
+  for(const [name,change] of Object.entries(changes)){const taskId=change.newValue?.taskId;if(typeof taskId==='string'&&/^(taskRoot|task|conversation|conversation-origin):/.test(name))queueHistory(taskId);}
+});
 function panelSender(s){return s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('sidepanel.html')&&(s.frameId===undefined||s.frameId===0);}
 function contentSender(s){
   if(s.id!==chrome.runtime.id||s.frameId!==0||!Number.isInteger(s.tab?.id))return false;
@@ -99,7 +112,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
     if(m.type.startsWith('task:')){
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
-      // Commands on a non-executing member tab act on its task's executing tab; history and notes stay per tab.
+      // Commands on a non-executing member tab act on its task's executing tab; notes stay per tab.
       const taskTab=['task:get','task:sensitive-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
       if(m.type==='task:get')return runtime.get(taskTab);
       if(m.type==='task:sensitive-access')return runtime.sensitiveAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
@@ -117,11 +130,16 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:member-change')return runtime.changeMembers(taskTab,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
       if(m.type==='task:scope-change')return runtime.changeOrigins(taskTab,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});
       if(m.type==='task:diagnostics')return runtime.diagnostics(taskTab,m.taskId);
-      if(m.type==='task:history'||m.type==='task:history-get'){
-        const tab=await tools.tab(m.tabId,true),url=new URL(tab.url),origin=['http:','https:'].includes(url.protocol)?url.origin:'browser';
-        if(m.type==='task:history')return store.history(m.tabId,origin);
-        if(typeof m.taskId!=='string'||m.taskId.length>100)throw new Error('对话标识无效');
-        return store.historyGet(m.tabId,origin,m.taskId);
+      if(m.type==='task:history')return history.list();
+      if(m.type==='task:history-get'||m.type==='task:history-delete'){
+        if(typeof m.taskId!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(m.taskId))throw new Error('对话标识无效');
+        if(m.type==='task:history-get'){
+          const live=await store.conversation(m.taskId),view=live?PageAgentHistoryStore.snapshot(live):await history.get(m.taskId);
+          if(!view)throw new Error('对话不存在或已删除');return view;
+        }
+        const live=await store.getByTaskId(m.taskId);
+        if(live){if(!['completed','ended','stopped','failed'].includes(live.status))throw new Error('该对话仍在进行，请先结束后再删除');await runtime.remove(live.tabId);}
+        await store.deleteConversation(m.taskId);await forgetHistory(m.taskId);return true;
       }
       if(m.type==='task:site-memory')return runtime.getSiteMemory(m.tabId);
       if(m.type==='task:site-memory-change')return runtime.editSiteMemory(m.tabId,{origin:m.origin,action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
@@ -137,7 +155,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:takeover')return runtime.takeover(taskTab);
       if(m.type==='task:choose')return runtime.choose(taskTab,m.taskId,m.questionId,m.indices);
       if(m.type==='task:approve')return runtime.approve(taskTab,m.taskId);
-      if(m.type==='task:clear'){await runtime.remove(taskTab);return null;}
+      if(m.type==='task:clear'){const cleared=await runtime.get(taskTab);await runtime.remove(taskTab);if(typeof cleared?.taskId==='string')await forgetHistory(cleared.taskId);return null;}
       throw new Error('未知任务操作');
     }
     if(m.type==='model'&&m.task==='agent')throw new Error('请从侧边栏发起任务');

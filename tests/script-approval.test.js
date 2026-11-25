@@ -117,10 +117,10 @@ test('only the trusted side panel can send task:script-approval',async()=>{
   let listener,deps;const calls=[],revokes=[];
   const runtime={async recover(){},async resolve(id){return id;},async scriptApproval(id,p){calls.push([id,p]);return {ok:true};},async revokeScriptApproval(id,p){revokes.push([id,p]);return {ok:true};}};
   const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}}},
-    permissions:{onRemoved:{addListener(){}}},sidePanel:{async setPanelBehavior(){}},scripting:{async getRegisteredContentScripts(){return [];}},
+    permissions:{onRemoved:{addListener(){}}},storage:{onChanged:{addListener(){}}},sidePanel:{async setPanelBehavior(){}},scripting:{async getRegisteredContentScripts(){return [];}},
     alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}}},action:{onClicked:{addListener(){}}}};
   vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,URL,setTimeout,clearTimeout,importScripts(){},
-    PageAgentSiteMemory:{createSiteMemory(){return {};}},PageAgentBackend:{createService(){return {async init(){}};}},
+    PageAgentSiteMemory:{createSiteMemory(){return {};}},PageAgentHistoryStore:{createHistoryStore(){return {async list(){return [];},async get(){return null;},async save(){},async remove(){},async interrupt(){}};},snapshot:v=>v},PageAgentBackend:{createService(){return {async init(){}};}},
     PageAgentTaskStore:{createTaskStore(){return {async migrate(){}};}},PageAgentBrowserTools:{createBrowserTools(){return {};}},
     PageAgentRuntime:{createRuntime(d){deps=d;return runtime;}}});
   await new Promise(r=>setImmediate(r));

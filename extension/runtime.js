@@ -693,7 +693,7 @@
             await pause(task,'该点击的结果仍不确定，已阻止重复点击同一目标；请核实当前状态或选择新的确认控件','uncertain');return;
           }
         }
-        const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,operationId:uuid(),expected,time:call.time};
+        const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,sensitive:target?.sensitive===true?true:undefined,operationId:uuid(),expected,time:call.time};
         if(plan.action==='run_script'&&!autoApproveScripts){
           // Store build: nothing runs until the user approves this exact code in the side panel, or the user
           // allowed scripts for this task on this same tab and origin. Decided on the stored record so a revoke wins.
@@ -716,7 +716,7 @@
         await execute(task,pending,live);
       } catch (error) {
         if (!await live()) return;
-        await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error,call?{}:{dispatch:'not_sent'});if(call)t.results=t.results.concat({...call,action:call.request.action,label:t.pending?.label,outcome:t.lastOutcome,result:t.lastOutcome.message});});
+        await update(tabId,token,t=>{t.lastOutcome=error.result||T.failure(error,call?{}:{dispatch:'not_sent'});if(call)t.results=t.results.concat({...call,action:call.request.action,label:t.pending?.label,sensitive:t.pending?.sensitive,outcome:t.lastOutcome,result:t.lastOutcome.message});});
         if(!await live())return;
         if (['STALE','TARGET_BLOCKED'].includes(error.code)) {
           if((task.recoveryCount||0)>=caps(task).recovery){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}
@@ -900,7 +900,7 @@
         if(t.check)t.check.dispatch=result.dispatch;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
         else if(t.check){t.phase='verifying';t.status='waiting_page';}
-        const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
+        const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,sensitive:pending.sensitive,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
         t.results=t.results.concat(entry);event(t,entry.result);
         if(result.legacy&&result.verification?.verified===false){t.status='paused';t.reason='verification';t.check=null;event(t,'字段结果尚未核实，已暂停，不能声称按指定答案完成');}
         const noChange=caps(t).noChange;

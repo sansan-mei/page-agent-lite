@@ -14,11 +14,12 @@
 | session `conversation:<tabId>:<taskId>` | 被替换或关闭的对话只读归档 | 浏览器会话 |
 | session `conversation-origin:<tabId>:<taskId>:<encodedOrigin>` | 离开某来源前的只读分段（tabId 为当时的执行标签页） | 清空当前任务时删除；替换/关闭后保留只读 |
 | session `task:<tabId>` / `chat:<tabId>` | 旧版记录，仅作迁移输入 | 迁移成功后删除 |
-| IndexedDB `page-agent-memory`（v2）`sites` | 按 origin 的长期笔记 | 跨重启；卸载/清理存储后丢失 |
-| IndexedDB `page-agent-memory`（v2）`global` | 唯一记录 `scope:'global'` | 同上 |
+| IndexedDB `page-agent-memory`（v3）`sites` | 按 origin 的长期笔记 | 跨重启；卸载/清理存储后丢失 |
+| IndexedDB `page-agent-memory`（v3）`global` | 唯一记录 `scope:'global'` | 同上 |
+| IndexedDB `page-agent-memory`（v3）`history` / `historyViews` | 对话历史摘要（含 updatedAt 索引）与只读正文，以 taskId 为主键 | 同上；最多 50 条 |
 
 - local 初始化时设为 `TRUSTED_CONTEXTS`，API 不可用则拒绝初始化；session 默认只对可信扩展上下文开放。都不是加密存储。
-- session 可能在浏览器重启、扩展更新/重载/禁用时清空；任务不跨重启恢复。
+- session 可能在浏览器重启、扩展更新/重载/禁用时清空；任务不跨重启恢复，只有对话历史另存 IndexedDB。
 
 ## 任务记录
 
@@ -74,13 +75,17 @@ session 多键写入不是事务，所以归属变更（新建/替换、范围�
 
 - 替换不同 taskId 时，同一次 `session.set` 写入旧对话归档和新根；写失败不删旧记录。归档去掉 token、pending、check。
 - 成员关闭归档：ended/`member_closed`、members 为空、去掉 token，但保留 steps、phase、pending/check 作为未知证据；侧栏 `historyGet` 不暴露 pending/check/token。
-- `task:history` 只返回标题、状态、更新时间、taskId；`task:history-get` 按需取正文，均按当前标签页和完整 origin 校验，合并该来源的只读分段与当前段，不混入其他来源；任务范围撤销后拒绝该来源历史。
 - 来源分区每个上限 100 万序列化字符，超限暂停（`origin_storage`）且不裁剪原根。
-- 归档只含任务已保留的消息、结果、摘要和 contextArchive，不是完整轨迹；不支持跨标签列表、搜索、导入、逐条删除。切换执行标签页后，旧标签下的来源分段不出现在新标签的历史列表。
+- `history-store.js` 持久化：后台监听 session 中 taskRoot/对话归档/来源分段的变化，约 500 ms 合并后把该 taskId 的合并对话（`taskStore.conversation`，各来源分段 + 当前段，不含 token）写入 IndexedDB。只保留展示字段；超过 40 万序列化字符时从最早的结果开始裁剪。超过 50 条删除最早更新的。
+- 脱敏：带 `sensitive:true` 的结果（已授权的敏感字段）在入库前把请求值、回执、结果替换为「已隐藏」，并在全文中抹去这些值（≥ 3 字符）。session 中的运行记录不变。
+- 后台启动时把库中不属于存活任务的未结束记录改为 `interrupted`；不恢复任务。
+- `task:history` 返回全部网站的摘要（标题、来源列表、状态、更新时间、taskId）；`task:history-get` 对存活任务取当前合并快照，否则读库。
+- `task:history-delete` 拒绝运行/等待/暂停中的任务；否则删除 session 中该任务的已结束根、归档和来源分段，再删库记录。`task:clear` 同时删除对应历史。
+- 只含任务已保留的消息、结果、摘要和 contextArchive，不是完整轨迹；不支持搜索、导入、导出、跨重启续接。
 
 ## IndexedDB 长期笔记
 
-- `site-memory.js` 使用原生 IndexedDB，不需额外权限；从 v1 升级到 v2 保留 `sites` 原记录。
+- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储）保留原记录。
 - `sites` 以 origin 为主键 `{origin, version, notes}`；`global` 以 scope 为主键 `{scope:'global', version, notes}`。笔记字段 id/text/source/createdAt/updatedAt，source 为 user/model，只表示写入来源。
 - 每个范围 32 条、64000 序列化字符，单条 2000 字符；不申请 unlimitedStorage。
 - readwrite 事务读版本后写入，不匹配返回 `MEMORY_CONFLICT`；事务完成才算成功，失败不改旧记录。clear 保留空记录并递增版本，防止旧请求按 version=0 写回。写入支持 AbortSignal。

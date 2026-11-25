@@ -114,7 +114,13 @@
     "message": "Back to chat"
   },
   "spHistoryNote": {
-    "message": "Conversations for this tab and site; kept only for this browser session"
+    "message": "Conversations from all sites, saved on this device (latest 50); sensitive field values are hidden"
+  },
+  "spHistoryDelete": {
+    "message": "Delete conversation: {1}"
+  },
+  "spHistoryDeleted": {
+    "message": "Conversation deleted."
   },
   "spHistoryEmpty": {
     "message": "No history yet"
@@ -331,6 +337,9 @@
   },
   "statusEnded": {
     "message": "Ended"
+  },
+  "statusInterrupted": {
+    "message": "Interrupted"
   },
   "outcomeSuccess": {
     "message": "Verified"

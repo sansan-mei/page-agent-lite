@@ -1,19 +1,20 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
 const flush=()=>new Promise(r=>setImmediate(r));
-async function fixture(registered=[],storeExtra={},runtimeExtra={}){
- let listener,removed,permissionRemoved,updated;const calls=[];
+async function fixture(registered=[],storeExtra={},runtimeExtra={},historyExtra={}){
+ let listener,removed,permissionRemoved,updated,sessionChanged;const calls=[];
  const runtime={async getGlobalMemory(){return {scope:'global',version:0,notes:[]};},async editGlobalMemory(p){calls.push(['global-change',p]);return {version:1};},async recover(){},async get(id){calls.push(['get',id]);return {taskId:'t'};},async submit(id,goal){calls.push(['submit',id,goal]);return {taskId:'new'};},async finish(id){calls.push(['finish',id]);return {status:'ended'};},async stop(id){calls.push(['stop',id]);},async remove(){calls.push(['remove']);},async memberClosed(id){calls.push(['member-closed',id]);},async changeOrigins(id,p){calls.push(['scope-change',id,p]);return {status:'paused'};},async reviewPermissions(){calls.push(['review-permissions']);},async navigationChanged(id){calls.push(['navigation-changed',id]);},async tick(){},...runtimeExtra};
  const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async openOptionsPage(){calls.push(['options']);}},
- permissions:{onRemoved:{addListener(fn){permissionRemoved=fn;}}},storage:{local:{async get(){return {};}}},sidePanel:{async setPanelBehavior(){}},
+ permissions:{onRemoved:{addListener(fn){permissionRemoved=fn;}}},storage:{local:{async get(){return {};}},onChanged:{addListener(fn){sessionChanged=fn;}}},sidePanel:{async setPanelBehavior(){}},
  scripting:{async getRegisteredContentScripts(){return registered;},async unregisterContentScripts({ids}){calls.push(['unregister',...ids]);},async executeScript(){calls.push(['inject']);}},
  alarms:{async create(){},async clear(){},onAlarm:{addListener(){}}},
  tabs:{onUpdated:{addListener(fn){updated=fn;}},onRemoved:{addListener(fn){removed=fn;}}},action:{onClicked:{addListener(){}}}};
  vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,URL,setTimeout,clearTimeout,importScripts(){},
   PageAgentCore:{},PageAgentSiteMemory:{createSiteMemory(){return {};}},PageAgentBackend:{createService(){return {async init(){},async handle(){return 'service';}};}},
+  PageAgentHistoryStore:{createHistoryStore(){return {async list(){calls.push(['history-list']);return [{taskId:'saved'}];},async get(id){calls.push(['history-get',id]);return id==='saved'?{taskId:'saved'}:null;},async save(view){calls.push(['history-save',view.taskId]);},async remove(id){calls.push(['history-remove',id]);},async interrupt(ids){calls.push(['history-interrupt',[...ids]]);},...historyExtra};},snapshot:view=>({...view,snapshot:true})},
   PageAgentTaskStore:{createTaskStore(){return {async migrate(){},...storeExtra};}},
   PageAgentBrowserTools:{createBrowserTools(){return {async inject(){calls.push(['tools.inject']);}};}},
   PageAgentRuntime:{createRuntime(){return runtime;}}});await flush();
- return {calls,removed,permissionRemoved,updated,send:(m,s)=>new Promise(r=>listener(m,s,r))};
+ return {calls,removed,permissionRemoved,updated,sessionChanged:(...args)=>sessionChanged(...args),send:(m,s)=>new Promise(r=>listener(m,s,r))};
 }
 const panel={id:'test',url:'chrome-extension://test/sidepanel.html',frameId:0};
 test('only trusted sidepanel owns runtime commands; content cannot create/read/stop tasks',async()=>{
@@ -96,4 +97,31 @@ test('commands from a member tab act on its task executing tab; submit is decide
  calls.length=0;assert.equal((await f.send({type:'task:submit',tabId:2,goal:'x'},panel)).ok,true);assert.deepEqual(calls,[['submit',2,'x']]);
  calls.length=0;await f.send({type:'task:history',tabId:2},panel);assert.equal(calls.some(x=>x[0]==='resolve'),false);
  assert.equal(calls.some(x=>x[0]==='tools.inject'),false);
+});
+
+test('history uses the persistent store, rejects deleting live conversations and never resaves deleted ones',async()=>{
+ const sessions={live:{taskId:'live',status:'running'},x:{taskId:'x',status:'ended'},done:{taskId:'done',status:'completed'}};
+ const f=await fixture([],{async conversation(id){return sessions[id]||null;},async conversationIds(){return ['live'];},
+  async getByTaskId(id){return id==='live'?{taskId:'live',tabId:3,status:'running'}:id==='done'?{taskId:'done',tabId:4,status:'completed'}:null;},
+  async deleteConversation(id){f.calls.push(['delete',id]);delete sessions[id];}});
+ await new Promise(r=>setTimeout(r,20));
+ assert.ok(f.calls.some(c=>c[0]==='history-save'&&c[1]==='live'));assert.ok(f.calls.some(c=>c[0]==='history-interrupt'&&c[1][0]==='live'));
+ assert.deepEqual((await f.send({type:'task:history',tabId:1},panel)).value,[{taskId:'saved'}]);
+ assert.equal((await f.send({type:'task:history-get',tabId:1,taskId:'saved'},panel)).value.taskId,'saved');
+ assert.equal((await f.send({type:'task:history-get',tabId:1,taskId:'live'},panel)).value.snapshot,true);
+ assert.equal((await f.send({type:'task:history-get',tabId:1,taskId:'missing'},panel)).ok,false);
+ assert.equal((await f.send({type:'task:history-get',tabId:1,taskId:'../x'},panel)).ok,false);
+ assert.equal((await f.send({type:'task:history-delete',tabId:1,taskId:'saved'},{...panel,url:'chrome-extension://test/options.html'})).ok,false);
+ assert.equal((await f.send({type:'task:history-delete',tabId:1,taskId:'live'},panel)).ok,false);
+ assert.equal(f.calls.some(c=>c[0]==='history-remove'&&c[1]==='live'),false);
+ assert.equal((await f.send({type:'task:history-delete',tabId:1,taskId:'done'},panel)).ok,true);
+ assert.ok(f.calls.some(c=>c[0]==='remove'));assert.ok(f.calls.some(c=>c[0]==='delete'&&c[1]==='done'));assert.ok(f.calls.some(c=>c[0]==='history-remove'&&c[1]==='done'));
+ sessions.done={taskId:'done',status:'stopped'};
+ f.sessionChanged({'taskRoot:x':{newValue:{taskId:'x'}},'conversation:4:done':{newValue:{taskId:'done'}},taskRegistry:{newValue:{taskId:'x'}}},'session');
+ f.sessionChanged({'taskRoot:live':{newValue:{taskId:'live'}}},'local');
+ const before=f.calls.filter(c=>c[0]==='history-save').length;
+ await new Promise(r=>setTimeout(r,700));
+ const saves=f.calls.filter(c=>c[0]==='history-save').slice(before).map(c=>c[1]);
+ assert.deepEqual(saves,['x']);
+ await f.send({type:'task:clear',tabId:1},panel);assert.ok(f.calls.some(c=>c[0]==='history-remove'&&c[1]==='t'));
 });

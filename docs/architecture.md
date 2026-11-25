@@ -8,7 +8,8 @@ options.js  ──┤
               ▼
 background.js ── runtime.js ── prompts.js ── backend.js ── 模型 API（密钥只在后台）
                     │    │
-                    │    └── site-memory.js ── IndexedDB
+                    │    ├── site-memory.js ── IndexedDB
+                    │    └── history-store.js ── IndexedDB（对话历史）
                     ├── task-store.js ── storage.session
                     └── browser-tools.js ── tabs / scripting
                               │ agent:* 消息
@@ -25,7 +26,8 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `prompts.js` | 稳定系统指令与每轮上下文组装 | [上下文](context-and-skills.md) |
 | `backend.js` | 配置读写、OpenAI 兼容请求与响应解析（`parseChatResponse`）、文章存储（兼容） | [上下文](context-and-skills.md) |
 | `task-store.js` | session 任务根记录、归属索引、对话历史、迁移与中断对账 | [存储](storage.md) |
-| `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS | [存储](storage.md) |
+| `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS；共用库的打开与升级 | [存储](storage.md) |
+| `history-store.js` | IndexedDB 对话历史：快照、脱敏、50 条上限、中断标记 | [存储](storage.md#对话历史) |
 | `browser-tools.js` | 标签检查、脚本注入、权限/来源门禁、导航派发、网页工具消息适配 | [网页工具](browser-tools.md) |
 | `content.js` | 一次性快照、执行白名单动作、动作后短观察、只读核对 | [网页工具](browser-tools.md) |
 | `core.js` | DOM 抽取、动作校验与执行、静态工具注册表 `agentToolRegistry`、敏感字段排除 | [网页工具](browser-tools.md) |
@@ -43,7 +45,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 消息入口
 
-- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
+- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:history-delete`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
 - 设置页 → 后台：`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`。
 - 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:document`（只读文档 ID 探测）、`agent:clear-pointer`。
 

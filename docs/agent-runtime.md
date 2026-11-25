@@ -155,7 +155,7 @@
 
 - `members(tabId, taskId)`（仅可信侧栏）：返回成员目录（tabRef、类型、是否执行中、是否打开、当前 origin、≤ 80 字符标题、是否在任务范围）和可加入的 HTTP/HTTPS 标签页（≤ 50，标记是否被占用）。
 - `changeMembers`：核对 taskId 与 membersRevision；加入前向浏览器确认标签仍打开且为 HTTP/HTTPS；可移出除执行标签页外的任意成员，移出不关闭网页。
-- 侧栏命令（get/stop/takeover/resume/finish/choose/approve/成员/范围/诊断/清空）从非执行成员标签发出时，后台经 `runtime.resolve` 作用于其任务的执行标签页；历史与记忆仍按发出标签。发送：所属任务未结束时作为补充指令；已结束（或非浏览器对话已完成）时先释放该标签（`release`），再在此标签新建任务。
+- 侧栏命令（get/stop/takeover/resume/finish/choose/approve/成员/范围/诊断/清空）从非执行成员标签发出时，后台经 `runtime.resolve` 作用于其任务的执行标签页；记忆仍按发出标签，历史为全局列表。发送：所属任务未结束时作为补充指令；已结束（或非浏览器对话已完成）时先释放该标签（`release`），再在此标签新建任务。
 
 ## 诊断
 

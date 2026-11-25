@@ -197,6 +197,31 @@
       async removeHistory(id){
         for(const name of Object.keys(await area.get(null)))if(name.startsWith('conversation:'+id+':')||name.startsWith('conversation-origin:'+id+':'))await area.remove(name);
       },
+      // Whole conversation across tabs and origins, oldest origin segment first; read-only and token-free.
+      async conversation(taskId){
+        const all=await area.get(null),segments=new Map();let base=null;
+        for(const [name,value] of Object.entries(all)){
+          if(value?.taskId!==taskId)continue;
+          if(name.startsWith('conversation-origin:'))for(const segment of value.segments||[])segments.set(segment.id,segment.view);
+          else if((name===rootKey(taskId)||name.startsWith('conversation:')||name.startsWith('task:'))&&(!base||(value.updatedAt||0)>=(base.updatedAt||0)))base=value;
+        }
+        const parts=[...segments.entries()].sort((a,b)=>a[0]-b[0]).map(([,view])=>view);
+        if(base)parts.push(base);
+        if(!parts.length)return null;
+        const {token,pending,check,...view}=parts.at(-1);
+        return {...view,taskId,results:parts.flatMap(v=>v.results||[]),events:parts.flatMap(v=>v.events||[])};
+      },
+      async conversationIds(){
+        const ids=new Set();
+        for(const [name,value] of Object.entries(await area.get(null)))if(typeof value?.taskId==='string'&&(name.startsWith('taskRoot:')||name.startsWith('task:')||name.startsWith('conversation:')||name.startsWith('conversation-origin:')))ids.add(value.taskId);
+        return [...ids];
+      },
+      async deleteConversation(taskId){return serial(async()=>{
+        const registry=await readRegistry(),all=await area.get(null);
+        if(registry.pending)throw scopeError();
+        if(Object.values(registry.bindings).some(binding=>binding.taskId===taskId)||Object.entries(all).some(([name,value])=>name.startsWith('task:')&&value?.taskId===taskId))throw new Error('该对话仍在标签页中，请先结束或清空后再删除');
+        for(const [name,value] of Object.entries(all))if(value?.taskId===taskId&&(name===rootKey(taskId)||name.startsWith('conversation:')||name.startsWith('conversation-origin:')))await area.remove(name);
+      });},
       async remove(id){return serial(async()=>{
         const registry=await readRegistry();if(registry.pending)throw scopeError();const binding=registry.bindings[id],bindings={...registry.bindings};delete bindings[id];
         // Remove compatibility alias before releasing ownership; roots remain authoritative.

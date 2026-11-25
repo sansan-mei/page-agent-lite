@@ -141,3 +141,18 @@ test('origin history remains read-only, respects task revocation and is removed 
  const view=await store.historyGet(1,'https://a.test',t.taskId);assert.equal(view.token,undefined);assert.equal(view.pending,undefined);assert.ok(JSON.stringify(view).includes('A_PRIVATE'));assert.equal((await store.list()).length,1);
  await store.changeOrigins(1,{taskId:t.taskId,expectedRevision:t.scopeRevision,action:'remove',origin:'https://a.test',token:'revoked',updatedAt:3});await assert.rejects(()=>store.historyGet(1,'https://a.test',t.taskId),/授权网站/);assert.deepEqual(await store.history(1,'https://a.test'),[]);await store.remove(1);assert.equal(Object.keys(data).some(k=>k.startsWith('conversation-origin:')),false);
 });
+
+test('whole conversations merge origin segments across tabs and only unbound ones can be deleted',async()=>{
+ const data={},area={async get(k){return structuredClone(k===null?data:{[k]:data[k]});},async set(v){Object.assign(data,structuredClone(v));},async remove(k){delete data[k];}};
+ const store=createTaskStore({storage:{session:area}});
+ data['conversation-origin:1:x:'+encodeURIComponent('https://a.test')]={version:1,taskId:'x',tabId:1,origin:'https://a.test',segments:[{id:2,view:{taskId:'x',origin:'https://a.test',results:[{result:'on a'}],events:[{time:1,text:'A'}]}}]};
+ data['conversation:2:x']={taskId:'x',tabId:2,origin:'https://b.test',status:'ended',updatedAt:5,token:'private',pending:{plan:{}},results:[{result:'on b'}],events:[{time:2,text:'B'}],archived:true};
+ const view=await store.conversation('x');
+ assert.deepEqual(view.results.map(r=>r.result),['on a','on b']);assert.deepEqual(view.events.map(e=>e.text),['A','B']);
+ assert.equal(view.status,'ended');assert.equal(view.token,undefined);assert.equal(view.pending,undefined);
+ await store.set(3,{taskId:'live',tabId:3,origin:'https://c.test',status:'running',results:[],events:[]});
+ assert.deepEqual((await store.conversationIds()).sort(),['live','x']);
+ await assert.rejects(store.deleteConversation('live'),/结束/);assert.equal((await store.get(3)).taskId,'live');
+ await store.deleteConversation('x');assert.equal(await store.conversation('x'),null);assert.deepEqual(await store.conversationIds(),['live']);
+ assert.equal(await store.conversation('missing'),null);
+});

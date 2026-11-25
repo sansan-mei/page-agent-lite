@@ -114,7 +114,13 @@
     "message": "返回对话"
   },
   "spHistoryNote": {
-    "message": "当前标签页、当前网站的对话；仅在本次浏览器会话内保留"
+    "message": "所有网站的对话，保存在本机（最近 50 条）；敏感字段的值已隐藏"
+  },
+  "spHistoryDelete": {
+    "message": "删除对话：{1}"
+  },
+  "spHistoryDeleted": {
+    "message": "已删除该对话。"
   },
   "spHistoryEmpty": {
     "message": "暂无历史记录"
@@ -331,6 +337,9 @@
   },
   "statusEnded": {
     "message": "已结束"
+  },
+  "statusInterrupted": {
+    "message": "已中断"
   },
   "outcomeSuccess": {
     "message": "已核实"

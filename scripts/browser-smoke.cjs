@@ -844,6 +844,14 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal((await command('task:site-memory')).value.notes[0].text,'User corrected workflow');
   await optionsPage.screenshot({path:path.join(outputDir,'10-global-memory.png'),fullPage:true});
   pass('global model read/write and settings view, edit, delete, clear and JSON export preserve separate website notes');
+  const persistSeed=await panel.evaluate(async origin=>{
+    await import(chrome.runtime.getURL('task-store.js'));const store=PageAgentTaskStore.createTaskStore(chrome);
+    const tab=await chrome.tabs.create({url:origin+'/article',active:false});
+    await store.set(tab.id,{taskId:'history-persist',origin,tabId:tab.id,goal:'Persist me with SMOKE_SECRET_VALUE',status:'paused',reason:'blocked',phase:'observe',steps:2,prefs:{maxSteps:50},updatedAt:Date.now(),events:[{time:1,text:'Typed SMOKE_SECRET_VALUE'}],results:[{action:'fill',label:'Password',sensitive:true,request:{action:'fill',id:'t0',value:'SMOKE_SECRET_VALUE'},result:'Matched'}]});
+    for(let attempt=0;attempt<100;attempt++){const list=await chrome.runtime.sendMessage({type:'task:history',tabId:tab.id});if(list.ok&&list.value.some(item=>item.taskId==='history-persist'))return {saved:true,tabId:tab.id};await new Promise(resolve=>setTimeout(resolve,50));}
+    return {saved:false};
+  },origin);
+  assert.equal(persistSeed.saved,true,'unfinished conversation copied to IndexedDB before restart');
   await command('task:clear');await panel.close();
   await context.close();context=await chromium.launchPersistentContext(profileDir,launchOptions);
   const restartedPanel=await context.newPage();await restartedPanel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
@@ -855,6 +863,18 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(globalRetained.notes[0].text,'Global survives restart');
   pass('global notes survive browser process relaunch independently of website notes');
   pass('durable website notes survive a real browser process close and relaunch using the same extension profile');
+  const persisted=await restartedPanel.evaluate(async()=>{
+    const send=message=>chrome.runtime.sendMessage({tabId:0,...message});let item;
+    for(let attempt=0;attempt<100;attempt++){const list=await send({type:'task:history'});item=list.ok&&list.value.find(entry=>entry.taskId==='history-persist');if(item?.status==='interrupted')break;await new Promise(resolve=>setTimeout(resolve,50));}
+    const detail=await send({type:'task:history-get',taskId:'history-persist'});
+    const removed=await send({type:'task:history-delete',taskId:'history-persist'});
+    const after=await send({type:'task:history'});
+    return {item,detail,removed,remaining:after.ok&&after.value.some(entry=>entry.taskId==='history-persist')};
+  });
+  assert.equal(persisted.item?.status,'interrupted');assert.equal(persisted.detail.ok,true);assert.equal(persisted.detail.value.status,'interrupted');
+  assert.equal(JSON.stringify(persisted.detail.value).includes('SMOKE_SECRET_VALUE'),false);assert.ok(JSON.stringify(persisted.detail.value).includes('已隐藏'));
+  assert.equal(persisted.removed.ok,true);assert.equal(persisted.remaining,false);
+  pass('conversation history survives a browser relaunch in IndexedDB, unfinished tasks become interrupted, sensitive values stay hidden and one item can be deleted');
   const conversationCheck=await restartedPanel.evaluate(async origin=>{
     await import(chrome.runtime.getURL('task-store.js'));
     const store=PageAgentTaskStore.createTaskStore(chrome);
@@ -862,7 +882,8 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     for(let attempt=0;attempt<100;attempt++){const ready=await chrome.tabs.get(tab.id);if(ready.status==='complete'&&ready.url===origin+'/article')break;if(attempt===99)throw new Error('History fixture tab did not finish loading');await new Promise(resolve=>setTimeout(resolve,50));}
     const first={taskId:'history-first',origin,tabId:tab.id,goal:'First isolated conversation',status:'ended',phase:'idle',steps:1,prefs:{maxSteps:50},updatedAt:1,events:[{time:1,text:'First only'}],results:[],token:'not-for-history'};
     await store.set(tab.id,first);await store.set(tab.id,{...first,taskId:'history-second',goal:'Second isolated conversation',updatedAt:2,events:[]});
-    const list=await chrome.runtime.sendMessage({type:'task:history',tabId:tab.id});
+    let list;
+    for(let attempt=0;attempt<100;attempt++){list=await chrome.runtime.sendMessage({type:'task:history',tabId:tab.id});if(list.ok&&['history-first','history-second'].every(id=>list.value.some(item=>item.taskId===id)))break;await new Promise(resolve=>setTimeout(resolve,50));}
     const detail=await chrome.runtime.sendMessage({type:'task:history-get',tabId:tab.id,taskId:first.taskId});
     const current=await store.get(tab.id);
     const other=await chrome.tabs.create({url:origin+'/article',active:false});
@@ -882,7 +903,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
     const after=await store.get(other.id);await chrome.tabs.remove(other.id);
     return {list,detail,currentId:current.taskId,scope,removedScope,deniedResume,restoredScope,closed,alarm:!!alarm,independent,after};
   },origin);
-  assert.equal(conversationCheck.list.ok,true);assert.equal(conversationCheck.list.value.length,2);
+  assert.equal(conversationCheck.list.ok,true);assert.ok(['history-first','history-second'].every(id=>conversationCheck.list.value.some(item=>item.taskId===id)));
   assert.equal(conversationCheck.detail.value.goal,'First isolated conversation');
   assert.equal(conversationCheck.detail.value.token,undefined);assert.equal(conversationCheck.currentId,'history-second');
   pass('conversation history preserves separate tasks and reads old records through trusted messages without replacing the current task');

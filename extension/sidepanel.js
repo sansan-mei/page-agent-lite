@@ -23,7 +23,7 @@
       if(version===permissionCheck&&origin===tabOrigin){$('grant').hidden=false;$('grant-all').hidden=false;}
     }
   }
-  const labels={running:t('statusRunning'),waiting_page:t('statusWaitingPage'),waiting_confirmation:t('statusWaitingConfirmation'),paused:t('statusPaused'),stopped:t('statusStopped'),failed:t('statusFailed'),completed:t('statusCompleted'),ended:t('statusEnded')};
+  const labels={running:t('statusRunning'),waiting_page:t('statusWaitingPage'),waiting_confirmation:t('statusWaitingConfirmation'),paused:t('statusPaused'),stopped:t('statusStopped'),failed:t('statusFailed'),completed:t('statusCompleted'),ended:t('statusEnded'),interrupted:t('statusInterrupted')};
   async function send(type,extra={}){
     const result=await chrome.runtime.sendMessage({type,tabId,...extra});
     if(!result?.ok)throw new Error(result?.error||t('commonMessagingFailed'));return result.value;
@@ -106,13 +106,19 @@
       for(const origin of current?.allowedOrigins||[]){const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');label.textContent=origin;button.type='button';button.textContent=t('spRemoveFromTask');button.dataset.origin=origin;button.disabled=busy||!editableScope;li.append(label,button);$('scope-origins').append(li);}
     }
     const list=$('conversation-list');list.replaceChildren();
-    const items=historyIndex.map(item=>item.taskId===current?.taskId&&current.origin===(tabOrigin||'browser')?current:item);
-    if(current?.taskId&&current.origin===(tabOrigin||'browser')&&!items.some(t=>t.taskId===current.taskId))items.unshift(current);
+    const items=historyIndex.map(item=>item.taskId===current?.taskId?{...item,goal:current.goal,status:current.status,updatedAt:current.updatedAt}:item);
+    if(current?.taskId&&!items.some(item=>item.taskId===current.taskId))items.unshift({taskId:current.taskId,goal:current.goal,status:current.status,updatedAt:current.updatedAt,origin:current.initialOrigin||current.origin,origins:current.allowedOrigins});
     for(const item of items){
+      const row=document.createElement('div');row.className='conversation-row';
       const button=document.createElement('button');button.type='button';button.className='conversation-item';button.dataset.taskId=item.taskId;
       button.setAttribute('aria-pressed',String(historyTask?.taskId===item.taskId));
-      button.textContent=(item.goal||t('spUntitledChat')).slice(0,100)+' · '+(labels[item.status]||item.status)+' · '+new Date(item.updatedAt||0).toLocaleString();
-      button.addEventListener('click',()=>void openConversation(item.taskId));list.append(button);
+      const goal=(item.goal||t('spUntitledChat')).slice(0,100);
+      button.textContent=goal+' · '+siteLabel(item)+' · '+(labels[item.status]||item.status)+' · '+new Date(item.updatedAt||0).toLocaleString();
+      button.addEventListener('click',()=>void openConversation(item.taskId));
+      const remove=document.createElement('button');remove.type='button';remove.className='conversation-delete';remove.textContent=t('commonDelete');remove.setAttribute('aria-label',t('spHistoryDelete',goal));
+      remove.disabled=busy||['running','waiting_page','waiting_confirmation','paused'].includes(item.status);
+      remove.addEventListener('click',()=>void deleteConversation(item.taskId));
+      row.append(button,remove);list.append(row);
     }
     $('history-empty').hidden=!!items.length;$('history-goal').textContent=historyTask?.goal||'';
     const messageList=$('timeline');
@@ -370,6 +376,22 @@
     const request=++historyRequest,target=tabId;
     try{const value=await send('task:history');if(request!==historyRequest||target!==tabId||!historyOpen)return;historyIndex=Array.isArray(value)?value:[];render();}
     catch(e){if(request===historyRequest&&target===tabId)$('status').textContent=e.message;}
+  }
+  function siteLabel(item){
+    let site=t('spNotWebpage');
+    if(item.origin&&item.origin!=='browser')try{site=new URL(item.origin).host;}catch{site=item.origin;}
+    const extra=(item.origins||[]).filter(origin=>origin!==item.origin).length;
+    return extra?site+' +'+extra:site;
+  }
+  async function deleteConversation(taskId){
+    const target=tabId;
+    try{
+      await send('task:history-delete',{taskId});if(target!==tabId)return;
+      if(historyTask?.taskId===taskId)historyTask=null;
+      if(task?.taskId===taskId)task=null;
+      $('status').textContent=t('spHistoryDeleted');
+    }catch(e){if(target===tabId)$('status').textContent=e.message;}
+    if(historyOpen&&target===tabId)void loadHistory();
   }
   async function openConversation(taskId){
     const request=++historyRequest,target=tabId;

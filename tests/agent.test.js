@@ -350,6 +350,7 @@ test('sensitive inputs require snapshot authorization and file/hidden stay exclu
  const snap=C.agentSnapshot(document,0,{sensitiveFields:true});
  assert.equal(snap.page.coverage.sensitiveFieldsAuthorized,true);
  assert.deepEqual(snap.page.elements.map(e=>e.label),['Password','Card']);
+ assert.deepEqual(snap.page.elements.map(e=>e.sensitive),[true,true]);
  const card=snap.page.elements.find(e=>e.label==='Card');
  C.agentExecute({action:'fill',id:card.id,value:'456'},snap,document);
  assert.equal(C.agentVerify({action:'fill',id:card.id,value:'456'},snap).verified,true);

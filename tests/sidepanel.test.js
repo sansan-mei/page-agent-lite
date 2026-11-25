@@ -407,3 +407,17 @@ test('tab refresh keeps header nodes and permission layout while asynchronous re
  resolveTask({ok:true,value:null});await flush();assert.equal(d.getElementById('target').firstChild,title);assert.equal(d.getElementById('grant').hidden,false);
  for(const resolve of permissionReplies)resolve(false);await flush();assert.equal(d.getElementById('grant').hidden,false);
 });
+
+test('history lists every site with a label, marks interrupted copies and deletes one finished conversation',async()=>{
+ const live={taskId:'live',origin:'https://example.test',goal:'Current work',status:'running',steps:1,prefs:{maxSteps:50},events:[],results:[]};
+ let saved=[{taskId:'live',goal:'Current work',status:'running',origin:'https://example.test',updatedAt:3},{taskId:'other',goal:'Other site work',status:'interrupted',origin:'https://other.test:8443',origins:['https://other.test:8443','https://third.test'],updatedAt:2}];
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:live}:m.type==='task:history'?{ok:true,value:saved}:m.type==='task:history-delete'?(saved=saved.filter(item=>item.taskId!==m.taskId),{ok:true,value:true}):undefined),d=f.document;
+ d.getElementById('history').click();await flush();
+ const rows=[...d.querySelectorAll('.conversation-row')];assert.equal(rows.length,2);
+ assert.match(rows[1].textContent,/other\.test:8443 \+1/);assert.match(rows[1].textContent,/已中断/);
+ assert.equal(rows[0].querySelector('.conversation-delete').disabled,true);
+ const remove=rows[1].querySelector('.conversation-delete');assert.equal(remove.disabled,false);assert.match(remove.getAttribute('aria-label'),/Other site work/);
+ f.calls.length=0;remove.click();await flush();await flush();
+ assert.deepEqual(f.calls.filter(c=>c[1].type.startsWith('task:history')).map(c=>[c[1].type,c[1].taskId]),[['task:history-delete','other'],['task:history',undefined]]);
+ assert.equal(d.querySelectorAll('.conversation-row').length,1);assert.match(d.getElementById('status').textContent,/已删除/);
+});

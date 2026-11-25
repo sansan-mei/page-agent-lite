@@ -898,3 +898,14 @@ test('internal tab navigates immediately with existing browser permission',async
  assert.equal(f.dispatches.length,1);assert.notEqual((await f.store.get(1)).reason,'browser_target');
  await f.runtime.tick(1);assert.equal((await f.store.get(1)).origin,'https://b.test');assert.equal(f.dispatches.length,1);
 });
+
+test('sensitive field operations are marked so saved history can hide their values',async()=>{
+ let n=0;const H=require('../extension/history-store.js');
+ const f=fixture({tools:{async observe(){return {url:'https://example.test/1',snapshotId:'s'+n,page:{text:'Login',elements:[{id:'t0',label:'Password',tag:'input',type:'password',sensitive:true},{id:'t1',label:'Name',tag:'input'}]}};}},
+  model:async()=>{n++;return {text:JSON.stringify(n===1?{reply:'Fill password',action:'fill',id:'t0',value:'hunter22'}:n===2?{reply:'Fill name',action:'fill',id:'t1',value:'Alice'}:{reply:'Done',action:'done'})};}});
+ await f.runtime.start(1,'Log in with hunter22');for(let i=0;i<4;i++)await f.runtime.tick(1);
+ const task=await f.runtime.get(1);assert.equal(task.status,'completed');
+ assert.equal(task.results[0].sensitive,true);assert.equal(task.results[1].sensitive,undefined);
+ const saved=JSON.stringify(H.snapshot(task));
+ assert.equal(saved.includes('hunter22'),false);assert.ok(saved.includes('Alice'));assert.ok(saved.includes('Log in with 已隐藏'));
+});
