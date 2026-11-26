@@ -27,7 +27,25 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
  assert.equal(await page.frames()[1].locator('[aria-label="Card"]').inputValue(),'4242424242424242');
  assert.equal((await worker.evaluate(()=>frameTestTools.verify(frameTestTab,{expected:frameTestPending.expected},frameTestPolicy))).status,'success');
  assert.equal(await worker.evaluate(async()=>{try{await frameTestTools.execute(frameTestTab,frameTestPending,frameTestPolicy,async()=>true);return 'executed';}catch(e){return e.code;}}),'STALE');
+ const recovery=await worker.evaluate(async()=>{
+  const store=PageAgentTaskStore.createTaskStore(chrome);
+  let requests=0;
+  const runtime=PageAgentRuntime.createRuntime({store,tools:frameTestTools,preferences:async()=>({maxSteps:50,contextTokens:32768}),schedule(){},cancelSchedule:async()=>{},model:async input=>{
+   requests++;const page=JSON.parse(input).page,e=page.elements.find(e=>e.label==='Name');
+   return {text:JSON.stringify(e?{action:'fill',id:e.id,value:'Scoped Customer',reply:'Fill name'}:{action:'pause',reply:'Embedded form needs website access'})};
+  }});
+  const initial=await runtime.submit(frameTestTab,'Fill test fields and stop before Pay',{goalMode:true});
+  await runtime.tick(frameTestTab);const blocked=await runtime.get(frameTestTab);
+  if(blocked.reason!=='frame_access')throw Error('Expected frame permission card: '+blocked.reason);
+  await runtime.tick(frameTestTab);const requestCount=requests;
+  await runtime.changeOrigins(frameTestTab,{taskId:blocked.taskId,expectedRevision:blocked.scopeRevision,origin:'https://payment.test',action:'add'});
+  await runtime.resume(frameTestTab);await runtime.tick(frameTestTab);
+  const after=await runtime.get(frameTestTab);
+  return {requestCount,helpAttempts:blocked.helpAttempts||0,origins:blocked.frameAccessRequest.origins,sameTask:initial.taskId===after.taskId,status:after.status};
+ });
+ assert.equal(recovery.requestCount,1);assert.equal(recovery.helpAttempts,0);assert.deepEqual(recovery.origins,['https://payment.test']);assert.equal(recovery.sameTask,true);
+ assert.equal(await page.frames()[1].locator('[aria-label="Name"]').inputValue(),'Scoped Customer');
  assert.equal(await page.frames()[1].evaluate(()=>!!window.paid),false);
- console.log('Real MV3 cross-origin smoke passed: actual webNavigation, scoped injection, sensitive authorization, fill, verification, stale rejection; Pay untouched.');
+ console.log('Real MV3 cross-origin smoke passed: actual webNavigation, scoped injection, sensitive authorization, fill, verification, stale rejection, runtime permission pause without retries and scoped continuation; Pay untouched.');
  }finally{if(context)await context.close();await fs.rm(tmp,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

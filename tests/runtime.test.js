@@ -946,3 +946,21 @@ test('sensitive field operations are marked so saved history can hide their valu
  const saved=JSON.stringify(H.snapshot(task));
  assert.equal(saved.includes('hunter22'),false);assert.ok(saved.includes('Alice'));assert.ok(saved.includes('Log in with 已隐藏'));
 });
+
+
+test('missing embedded website access pauses immediately in both modes, then reobserves after grant',async()=>{
+ for(const goalMode of [false,true])for(const pauseReason of [undefined,'user']){
+  let granted=false,modelCalls=0,reads=0;
+  const route={frameId:7,origin:'https://embedded.test',url:'https://embedded.test/form',documentId:'frame-doc',snapshotId:'frame-snap',id:'t0'};
+  const f=fixture({tools:{async hasOriginAccess(){return true;},async observe(){reads++;return {url:'https://example.test/1',snapshotId:'fresh'+reads,documentId:'top-doc',frameRoutes:granted?{t0:route}:{},page:{text:'Checkout',elements:granted?[{id:'t0',label:'Name',tag:'input'}]:[],frames:granted?[]:[{url:'https://embedded.test/form',origin:'https://embedded.test',reason:'permission_required'}]}};}},model:async()=>{modelCalls++;return {text:JSON.stringify(granted?{action:'fill',id:'t0',value:'Test',reply:'Fill'}:{action:'pause',pauseReason,reply:'Need website access'})};}});
+  const original=await f.runtime.submit(1,'Fill test fields, stop before payment',{goalMode});
+  await f.runtime.tick(1);let t=await f.runtime.get(1);
+  assert.equal(t.status,'paused');assert.equal(t.reason,'frame_access');assert.equal(t.helpAttempts||0,0);assert.equal(modelCalls,1);assert.equal(f.executed.length,0);
+  assert.deepEqual(t.frameAccessRequest.origins,['https://embedded.test']);
+  await f.runtime.tick(1);assert.equal(modelCalls,1);assert.equal(f.executed.length,0);
+  // The trusted side-panel scope mutation is covered by UI and task-store tests.
+  t.allowedOrigins.push('https://embedded.test');await f.store.set(1,t);granted=true;
+  await f.runtime.resume(1);await f.runtime.tick(1);t=await f.runtime.get(1);
+  assert.equal(t.taskId,original.taskId);assert.equal(f.executed.length,1);assert.deepEqual(f.executed[0].frameRoute,route);assert(reads>=2);
+ }
+});

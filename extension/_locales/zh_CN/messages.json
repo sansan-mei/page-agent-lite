@@ -850,5 +850,14 @@
   },
   "optManageMemory": {
     "message": "管理记忆"
+  },
+  "spFrameAccessTitle": {
+    "message": "授权嵌入式表单网站"
+  },
+  "spFrameAccessText": {
+    "message": "这些表单网站尚未获得网站权限或加入任务范围。敏感字段授权不能替代网站权限；授权后重新观察当前页，不跳转网站或提交表单。"
+  },
+  "spFrameAccessAllow": {
+    "message": "授权此网站并继续"
   }
 }

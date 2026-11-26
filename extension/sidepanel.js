@@ -81,6 +81,14 @@
     $('browser-target').hidden=historyOpen||!current?.browserTarget||current?.reason!=='browser_target';
     $('browser-target-url').textContent=current?.browserTarget?t('spOpenSite',current.browserTarget):'';
     $('browser-target-open').disabled=busy;
+    const frameAccess=!historyOpen&&current?.status==='paused'&&current?.reason==='frame_access'?current.frameAccessRequest:null;
+    $('frame-access').hidden=!frameAccess;
+    $('frame-access-origins').replaceChildren();
+    for(const origin of frameAccess?.origins||[]){
+      const row=document.createElement('div'),label=document.createElement('p'),button=document.createElement('button');
+      label.textContent=origin;button.type='button';button.textContent=t('spFrameAccessAllow');button.disabled=busy;
+      button.addEventListener('click',()=>editScope('add',origin,true));row.append(label,button);$('frame-access-origins').append(row);
+    }
     const tabRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='tab_access'?current.tabRequest:null;
     $('tab-access').hidden=!tabRequest;
     $('tab-access-reason').textContent=tabRequest?.text||'';
@@ -256,7 +264,7 @@
     $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
     // A decision card can appear while the conversation is scrolled elsewhere; bring each new one into view once.
-    const prompt=[['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
+    const prompt=[['frame-access',frameAccess?current.frameAccessRequest.url:null],['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
     const promptKey=prompt?prompt[0]+':'+prompt[1]:'';
     if(promptKey!==shownPrompt){shownPrompt=promptKey;if(prompt)$(prompt[0]).scrollIntoView?.({block:'end'});}
   }

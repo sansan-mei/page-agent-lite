@@ -46,7 +46,7 @@
 |---|---|---|
 | 核对未通过后重新规划（`verificationRecoveries`） | 动作 2 次 | 动作、wait、完成条件共 5 次 |
 | 目标过期/遮挡重新定位（`recoveryCount`） | 2 次 | 5 次 |
-| 普通阻碍重新规划（`helpAttempts`） | 3 次 | 8 次 |
+| 普通阻碍重新规划（`helpAttempts`） | 3 次 | 3 次 |
 | 同动作同目标连续 `NO_CHANGE` 暂停 | 3 条 | 6 条 |
 | 连续切换标签页而无网页动作（`tabHops`）暂停 | 6 次 | 10 次 |
 | `uncertainClicks` | 运行时拦截同文档同目标 | 不拦截，只作为提示交给模型 |
@@ -61,6 +61,8 @@
 - `check.dispatch` 在执行前为 unknown，拿到回执后更新；只读核对不覆盖它。旧检查点缺省按 unknown。
 
 ## 错误与恢复
+
+模型暂停且当前快照含 `permission_required` 框架时，直接暂停为 `frame_access`，不消耗普通阻碍恢复次数。`frameAccessRequest` 只保存当前页身份和快照内的 HTTP/HTTPS 框架来源；侧栏按来源申请主机权限，再经带任务 ID/范围版本的 `task:scope-change` 加入任务并继续。拒绝或任务变化不继续；继续后重新观察，不重放旧动作。
 
 | 情况 | 处理 |
 |---|---|

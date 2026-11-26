@@ -451,7 +451,7 @@
       schedule(tabId); return saved;
     }
     // Goal mode trades pauses for more autonomous replanning; the step budget still bounds it.
-    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:8,noChange:6,hops:10}:{verify:2,recovery:2,help:3,noChange:3,hops:6};
+    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:3,noChange:6,hops:10}:{verify:2,recovery:2,help:3,noChange:3,hops:6};
     async function setGoalMode(tabId,taskId,enabled){
       if(typeof enabled!=='boolean')throw new Error('目标模式参数无效');
       return serial(tabId,async()=>{
@@ -641,6 +641,16 @@
         }
         if(plan.action==='pause'){
           if(plan.choices){await update(tabId,token,t=>{t.status='paused';t.reason='question';t.pending=null;t.check=null;t.waitDeadline=null;t.question={id:uuid(),text:plan.reply,options:plan.choices};event(t,plan.reply);});return;}
+          // Missing browser/frame scope grants require a user gesture, not model recovery.
+          const frameOrigins=[...new Set((snap.page.frames||[]).filter(f=>f.reason==='permission_required').map(f=>{
+            try{const u=new URL(f.url);return ['http:','https:'].includes(u.protocol)&&u.origin===f.origin&&!u.username&&!u.password?u.origin:null;}catch{return null;}
+          }).filter(Boolean))].slice(0,10);
+          if(frameOrigins.length){
+            await update(tabId,token,t=>{t.status='paused';t.reason='frame_access';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;
+              t.frameAccessRequest={url:snap.url,documentId:snap.documentId,origins:frameOrigins};
+              event(t,plan.reply);event(t,'嵌入式表单缺少网站权限或任务范围授权，请点击侧栏对应网站的授权按钮；敏感字段授权不能替代网站权限。未重试或提交表单。');
+            });return;
+          }
           const helpCap=caps(task).help;
           if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<helpCap){
             await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索'+(t.goalMode?'；先核对当前页面再决定是否重做':'；禁止重复结果不确定的操作')+'。自主恢复 '+t.helpAttempts+'/'+helpCap});event(t,'正在尝试其他方法（'+t.helpAttempts+'/'+helpCap+'）');});return;

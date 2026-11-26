@@ -61,11 +61,11 @@ test('goal mode replans unverified completion instead of pausing',async()=>{
  }
 });
 
-test('goal mode raises blocked-replan, stale-target and no-progress limits but keeps them finite',async()=>{
+test('goal mode keeps blocked replans at three while raising stale-target and no-progress limits',async()=>{
  const blocked=fixture({model:async()=>({text:JSON.stringify({action:'pause',reply:'入口尚未找到'})})});
  await blocked.runtime.submit(1,'查找',{goalMode:true});
- for(let i=0;i<8;i++){await blocked.runtime.tick(1);assert.equal(blocked.data.get(1).status,'running');}
- await blocked.runtime.tick(1);assert.equal(blocked.data.get(1).status,'paused');assert.equal(blocked.data.get(1).helpAttempts,8);
+ for(let i=0;i<3;i++){await blocked.runtime.tick(1);assert.equal(blocked.data.get(1).status,'running');}
+ await blocked.runtime.tick(1);assert.equal(blocked.data.get(1).status,'paused');assert.equal(blocked.data.get(1).helpAttempts,3);
  const user=fixture({model:async()=>({text:JSON.stringify({action:'pause',pauseReason:'user',reply:'需要账号'})})});
  await user.runtime.submit(1,'查找',{goalMode:true});await user.runtime.tick(1);assert.equal(user.data.get(1).status,'paused');
  const still=fixture({model:async()=>({text:'{"reply":"滚动","action":"scroll","value":"down"}'}),tools:{async execute(){return {version:2,status:'unknown',dispatch:'sent',scope:'dispatch',code:'NO_CHANGE',recovery:'observe',message:'Unchanged'};}}});
