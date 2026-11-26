@@ -15,7 +15,6 @@
 
 - 本地预览：先运行一次 `scripts/store-shots.cjs`（会复制图片），再直接打开 `site/index.html`；`?lang=en` 切英文，`?static` 关闭动画。
 - 商店截图：`PAGE_AGENT_CHROMIUM=<chrome 路径> node scripts/store-shots.cjs`，输出中英文 1280×800 截图和 440×280、1400×560 宣传图到 `dist/store/`；`?shot=<区块 class>` 单独渲染某个区块。
-- 上架后把 `site/main.js` 的 `STORE_URL` 改成商店地址，按钮会变成「免费添加到 Chrome」。
 
 ## 发版
 

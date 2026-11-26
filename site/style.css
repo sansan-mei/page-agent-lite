@@ -203,8 +203,9 @@ html.shot .hero.shot-on { padding-top: 40px; padding-bottom: 40px; }
 html.shot .how.shot-on .how-pin { min-height: 0; height: 100%; padding: 0; }
 html.shot .how.shot-on .progress i { transform: scaleX(1); }
 html.shot .verify.shot-on, html.shot .privacy.shot-on, html.shot .final.shot-on { display: flex; flex-direction: column; justify-content: center; padding-block: 0; }
-html.shot .verify.shot-on .log { margin-top: 36px; }
-html.shot .verify.shot-on .row { padding-block: 13px; }
+html.shot .verify.shot-on .row { padding-block: 9px; }
+html.shot .verify.shot-on .log { margin-top: 28px; }
+html.shot .verify.shot-on .pills { margin-top: 24px; }
 html.shot .memory.shot-on, html.shot .limits.shot-on { padding-block: 0; align-content: center; }
 
 /* Responsive */

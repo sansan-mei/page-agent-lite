@@ -34,11 +34,9 @@
 
 ## 快速开始
 
-1. 克隆本仓库。
-2. 打开 `chrome://extensions` 或 `edge://extensions`，开启开发者模式。
-3. 「加载已解压的扩展程序」，选择 **extension/** 文件夹。
-4. 打开扩展「设置」，填写 API 基础地址、模型和密钥，授权并保存。
-5. 在普通网页点击工具栏图标打开侧栏，授权当前网站（或全部网页），输入目标。
+1. 从 [Chrome 应用商店](https://chromewebstore.google.com/detail/jkfldbgdbhddacbbiejgpkeecomifdkl) 安装；或克隆本仓库，在 `chrome://extensions` / `edge://extensions` 开启开发者模式，「加载已解压的扩展程序」选择 **extension/** 文件夹。
+2. 打开扩展「设置」，填写 API 基础地址、模型和密钥，授权并保存。
+3. 在普通网页点击工具栏图标打开侧栏，授权当前网站（或全部网页），输入目标。
 
 ```text
 读取这页内容，帮我整理成几个要点。
@@ -46,7 +44,7 @@
 逐页查看这些条目，找出符合条件的内容。
 ```
 
-需要 Chrome / Edge 120+，模型需支持 OpenAI 兼容工具调用（tools），或能稳定输出 JSON。更新源码后重新加载扩展并刷新网页。完整说明见 [使用指南](docs/usage.md)。
+需要 Chrome / Edge 120+，模型需支持 OpenAI 兼容工具调用（tools），或能稳定输出 JSON。源码安装更新后重新加载扩展并刷新网页。完整说明见 [使用指南](docs/usage.md)。
 
 ## 你的数据去哪了
 
