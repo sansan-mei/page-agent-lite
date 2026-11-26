@@ -459,3 +459,19 @@ test('remembered embedded access is listed and removable even outside the curren
  assert(row);f.calls.length=0;row.querySelector('button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();
  assert(!f.calls.some(c=>c[0]==='permission'));const call=f.calls.find(c=>c[1]?.type==='task:scope-change')[1];assert.equal(call.action,'remove');assert.equal(call.origin,'https://embedded.test');assert.equal(call.expectedRevision,2);
 });
+
+test('management lists site skills as text and deletes or clears them with the read version',async()=>{
+ let current={origin:'https://example.test',version:3,notes:[{id:'export',description:'<b>Export</b> orders',text:'1. Open Orders\n2. Click Export'}]};
+ const f=await fixture(true,m=>{
+  if(m.type==='task:site-skills')return {ok:true,value:current};
+  if(m.type==='task:site-skill-change'){current={origin:'https://example.test',version:current.version+1,notes:current.notes.filter(n=>m.action==='delete'&&n.id!==m.id)};return {ok:true,value:current};}
+  if(m.type==='task:site-memory')return {ok:true,value:{origin:'https://example.test',version:0,notes:[]}};
+ },true);
+ const list=f.document.getElementById('site-skills');
+ assert.equal(list.querySelector('b'),null);assert.match(list.textContent,/<b>Export<\/b> orders/);assert.match(list.textContent,/Click Export/);
+ assert.equal(f.document.getElementById('site-skill-clear').disabled,false);
+ list.querySelector('button').click();await flush();
+ const change=f.calls.find(([,m])=>m?.type==='task:site-skill-change')[1];
+ assert.deepEqual({action:change.action,id:change.id,expectedVersion:change.expectedVersion,origin:change.origin,tabId:change.tabId},{action:'delete',id:'export',expectedVersion:3,origin:'https://example.test',tabId:9});
+ assert.equal(list.children.length,0);assert.equal(f.document.getElementById('site-skill-clear').disabled,true);
+});

@@ -15,9 +15,10 @@
 | session `conversation:<tabId>:<taskId>` | 被替换或关闭的对话只读归档 | 浏览器会话 |
 | session `conversation-origin:<tabId>:<taskId>:<encodedOrigin>` | 离开某来源前的只读分段（tabId 为当时的执行标签页） | 清空当前任务时删除；替换/关闭后保留只读 |
 | session `task:<tabId>` / `chat:<tabId>` | 旧版记录，仅作迁移输入 | 迁移成功后删除 |
-| IndexedDB `page-agent-memory`（v3）`sites` | 按 origin 的长期笔记 | 跨重启；卸载/清理存储后丢失 |
-| IndexedDB `page-agent-memory`（v3）`global` | 唯一记录 `scope:'global'` | 同上 |
-| IndexedDB `page-agent-memory`（v3）`history` / `historyViews` | 对话历史摘要（含 updatedAt 索引）与只读正文，以 taskId 为主键 | 同上；最多 50 条 |
+| IndexedDB `page-agent-memory`（v4）`sites` | 按 origin 的长期笔记 | 跨重启；卸载/清理存储后丢失 |
+| IndexedDB `page-agent-memory`（v4）`global` | 唯一记录 `scope:'global'` | 同上 |
+| IndexedDB `page-agent-memory`（v4）`skills` | 按 origin 的网站技能 | 同上 |
+| IndexedDB `page-agent-memory`（v4）`history` / `historyViews` | 对话历史摘要（含 updatedAt 索引）与只读正文，以 taskId 为主键 | 同上；最多 50 条 |
 
 - local 初始化时设为 `TRUSTED_CONTEXTS`，API 不可用则拒绝初始化；session 默认只对可信扩展上下文开放。都不是加密存储。
 - session 可能在浏览器重启、扩展更新/重载/禁用时清空；任务不跨重启恢复，只有对话历史另存 IndexedDB。
@@ -50,7 +51,7 @@
 | results、events | 工具结果与时间线（时间线最多 40 项/16000 字符） |
 | contextSummary、contextArchive、contextUsage、contextPressure、compactionGuard | 上下文压缩，见 [上下文](context-and-skills.md) |
 | metrics | 观察/核对/动作计数与 `timings` |
-| memoryReview、问题/选择状态 | 记忆提醒与用户决策 |
+| memoryReview、reviewState、问题/选择状态 | 记忆提醒、任务复盘状态（pending/running/done）与用户决策 |
 
 旧任务缺省字段按空处理，迁移不重放未确定动作。
 
@@ -89,8 +90,8 @@ session 多键写入不是事务，所以归属变更（新建/替换、范围�
 
 ## IndexedDB 长期笔记
 
-- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储）保留原记录。
-- `sites` 以 origin 为主键 `{origin, version, notes}`；`global` 以 scope 为主键 `{scope:'global', version, notes}`。笔记字段 id/text/source/createdAt/updatedAt，source 为 user/model，只表示写入来源。
+- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储，v4 加 `skills`）保留原记录。
+- `sites` 以 origin 为主键 `{origin, version, notes}`；`global` 以 scope 为主键 `{scope:'global', version, notes}`。笔记字段 id/text/source/createdAt/updatedAt，source 为 user/model，只表示写入来源。`skills` 与 `sites` 结构相同（`{origin, version, notes}`），每项另有 description（`createSiteMemory({scope:'skill'})`）。
 - 每个范围 32 条、64000 序列化字符，单条 2000 字符；不申请 unlimitedStorage。
 - readwrite 事务读版本后写入，不匹配返回 `MEMORY_CONFLICT`；事务完成才算成功，失败不改旧记录。clear 保留空记录并递增版本，防止旧请求按 version=0 写回。写入支持 AbortSignal。
 - 只有可信设置页/侧栏经后台管理；网站操作附期望 origin，导航后拒绝写到其他网站。导出只含对应范围笔记和 schema 标识。
