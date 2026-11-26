@@ -26,7 +26,7 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
@@ -59,6 +59,9 @@
       }
     }
     const event = (t, text) => {t.events = recent(t.events.concat({time:Date.now(), text}), 40, 16000);};
+    // A finished task earns one memory review request when it did page work or received user corrections.
+    const pageWork=t=>(t.results||[]).concat(...(t.contextArchive||[]).map(a=>a.results||[])).some(r=>C.agentTool(r.action)?.effect==='page'||r.action==='run_script');
+    function markReview(t){t.reviewState=review&&(t.instructions?.length||pageWork(t)||t.contextSummary)&&!(t.prefs?.maxSteps&&t.steps>=t.prefs.maxSteps)?'pending':null;}
     const withoutSubgoals=plan=>{if(!plan||!Object.prototype.hasOwnProperty.call(plan,'subgoals'))return plan;const {subgoals,...rest}=plan;return rest;};
     function forgetPlanContext(t){
       t.taskPlan=null;
@@ -384,7 +387,7 @@
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
           controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
-          task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};
+          task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};task.reviewState=null;
           task.question=null;task.helpAttempts=0;task.tabHops=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           if(wasCompleted)task.steps=0;
           if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
@@ -713,7 +716,7 @@
             task=await update(tabId,token,t=>{t.completionChecks=expected;t.phase='verifying';t.check={operationId:uuid(),expected,deadline:now(),kind:'completion',reply:plan.reply};});
             if(task&&await live())await verifyCheck(task,live);return;
           }
-          await update(tabId,token,t=>{t.status='completed';t.phase='idle';t.completionEvidence='model_reported';t.results=t.results.concat({action:'done',result:plan.reply,time:now()});event(t,plan.reply);event(t,'模型报告完成；未提供可执行的任务完成条件');});return;
+          await update(tabId,token,t=>{t.status='completed';t.phase='idle';t.completionEvidence='model_reported';t.results=t.results.concat({action:'done',result:plan.reply,time:now()});event(t,plan.reply);event(t,'模型报告完成；未提供可执行的任务完成条件');markReview(t);});return;
         }
         const target = snap.page.elements.find(e=>e.id===plan.id);
         const combined=[...plan.expected||[]];
@@ -958,7 +961,7 @@
           t.status='running';event(t,(check.kind==='completion'?'完成条件尚未核实，继续推进':outcome.status==='not_satisfied'?'预期结果与页面不符，重新读取当前页面规划':'预期结果无法核对，重新读取当前页面规划')+'（'+t.verificationRecoveries+'/'+verifyCap+'）；未自动重发原操作');
         }else if(outcome.status==='success'){
           t.verificationRecoveries=0;
-          if(check.kind==='completion'){t.status='completed';t.phase='idle';t.completionEvidence='verified';if(check.reply)t.results=t.results.concat({action:'done',result:check.reply,time:now()});event(t,check.reply);}
+          if(check.kind==='completion'){t.status='completed';t.phase='idle';t.completionEvidence='verified';if(check.reply)t.results=t.results.concat({action:'done',result:check.reply,time:now()});event(t,check.reply);markReview(t);}
           else{t.status='running';event(t,'预期条件已核实，继续任务');}
         }else if(check.kind==='verify'){
           t.status='running';event(t,'验证未满足或结果未知，交给模型重新规划');
@@ -1010,6 +1013,41 @@
         }
       });
     }
+    // One extra model request after completion proposes durable notes. It never touches the page,
+    // is cancelled by any new input, and writes with the versions it read (a conflict stops it).
+    async function reviewTask(tabId,initial){
+      const {taskId,token}=initial,controller=new AbortController();
+      controllers.set(taskId,controller);controllerTasks.set(tabId,taskId);
+      const live=async()=>{const c=await store.get(tabId);return !controller.signal.aborted&&!globalEditing&&c?.taskId===taskId&&c.token===token&&c.status==='completed';};
+      const close=text=>update(tabId,token,t=>{if(t.taskId!==taskId||t.reviewState!=='running')return;t.reviewState='done';if(text)event(t,text);});
+      const done=[];
+      const label=op=>(op.action==='delete'?'删除':'记住')+(op.scope==='site'?'网站笔记 ':'全局笔记 ')+op.id;
+      try{
+        const task=await update(tabId,token,t=>{if(t.taskId===taskId&&t.status==='completed'&&t.reviewState==='pending'){t.reviewState='running';t.steps++;}});
+        if(task?.reviewState!=='running'||!await live())return;
+        const site=task.origin!=='browser'&&siteMemory?await siteMemory.read(task.origin):null;
+        const shared=globalMemory?await globalMemory.read(null):null;
+        const response=await review(P.reviewInput(task,site,shared),controller.signal);
+        if(!await live())return;
+        const {notes}=P.parseReview(response.text,{site:!!site,global:!!shared});
+        let siteVersion=site?.version,globalVersion=shared?.version;
+        for(const op of notes){
+          if(!await live())return;
+          const change={action:op.action,id:op.id,text:op.text,source:'model',signal:controller.signal};
+          if(op.scope==='site')siteVersion=(await siteMemory.change(task.origin,{...change,expectedVersion:siteVersion})).version;
+          else{
+            globalVersion=(await globalMemory.change(null,{...change,expectedVersion:globalVersion})).version;
+            globalEpoch++;for(const [id,other] of controllers)if(id!==taskId)other.abort();
+          }
+          done.push(label(op));
+        }
+        await close(done.length?'任务复盘：'+done.join('、')+'（可在设置「管理记忆」查看或修改）':null);
+      }catch(error){
+        if(await live())await close('任务复盘未完成：'+error.message+(done.length?'；已保存：'+done.join('、'):'')+'。任务结果不受影响');
+      }finally{
+        if(controllers.get(taskId)===controller){controllers.delete(taskId);if(controllerTasks.get(tabId)===taskId)controllerTasks.delete(tabId);}
+      }
+    }
     async function tick(tabId,expectedTaskId){
       const initial=await store.get(tabId);if(!initial||expectedTaskId&&initial.taskId!==expectedTaskId)return;
       const taskId=initial.taskId;if(jobs.has(taskId))return jobs.get(taskId);
@@ -1023,6 +1061,7 @@
           // tab_switch / tab_open moved the binding: continue on the new executing tab.
           const moved=!task&&store.getByTaskId?await store.getByTaskId(taskId).catch(()=>null):null;
           if(moved&&moved.tabId!==tabId&&ACTIVE.has(moved.status))schedule(moved.tabId);
+          if(task?.status==='completed'&&task.reviewState==='pending')await reviewTask(tabId,task);
         }
       }
     }

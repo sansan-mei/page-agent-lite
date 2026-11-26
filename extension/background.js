@@ -62,6 +62,7 @@ const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemor
   preferences:()=>service.preferences(),
   model:(text,signal,capabilities)=>service.generateAgent(text,signal,capabilities),
   summarize:(text,signal)=>service.summarizeAgent(text,signal),
+  review:(text,signal)=>service.reviewAgent(text,signal),
   identity:()=>service.identity(),
   protocol:()=>service.agentProtocol(),
   // run_script is offered to the model only on turns where the optional permission and API are usable.

@@ -251,6 +251,7 @@ async function startServer() {
                  : sysPrompt.startsWith('Summarize browser task history') ? 'context-summary'
                  : sysPrompt.startsWith('Summarize ')    ? 'summary'
                  : sysPrompt.startsWith('You are a browser') ? 'agent'
+                 : sysPrompt.startsWith('You review a finished') ? 'review'
                  : sysPrompt.startsWith('You are a')      ? 'edit'
                  : null;
       assert.ok(task, 'Stub recognized production system prompt');
@@ -274,6 +275,11 @@ async function startServer() {
         return;
       }
 
+      if(task==='review'){
+        // Task-end memory review: no tools, strict JSON; answer that nothing is worth saving.
+        assert.equal(body.tools,undefined);assert.ok(typeof JSON.parse(input).goal==='string');
+        res.end(JSON.stringify({choices:[{message:{content:'{"notes":[]}'}}]}));return;
+      }
       if(task==='context-summary'){
         const data=JSON.parse(input);assert.equal(data.olderResults.length,7);assert.ok(data.instructions[0].text.includes('correction'));
         res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({completed:['Opened the page, observed only'],remaining:['Check current status'],facts:['User correction preserved'],failed:[],uncertain:['Previous save unverified; do not replay']})}}]}));return;

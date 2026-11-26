@@ -50,7 +50,7 @@
 | results、events | 工具结果与时间线（时间线最多 40 项/16000 字符） |
 | contextSummary、contextArchive、contextUsage、contextPressure、compactionGuard | 上下文压缩，见 [上下文](context-and-skills.md) |
 | metrics | 观察/核对/动作计数与 `timings` |
-| memoryReview、问题/选择状态 | 记忆提醒与用户决策 |
+| memoryReview、reviewState、问题/选择状态 | 记忆提醒、任务复盘状态（pending/running/done）与用户决策 |
 
 旧任务缺省字段按空处理，迁移不重放未确定动作。
 

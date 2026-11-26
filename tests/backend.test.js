@@ -69,6 +69,15 @@ test('agent preferences are bounded, page-readable and writable only by options;
 });
 
 
+test('task review uses its own JSON-only system prompt without agent tools',async()=>{
+ const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret-key',model:'review-model',language:'中文',toolMode:'native'};let body;
+ const s=backend.createService(c,async(url,request)=>{body=JSON.parse(request.body);return new Response(JSON.stringify({choices:[{message:{content:'{"notes":[]}'}}]}));});
+ assert.equal((await s.reviewAgent('{"goal":"g"}',new AbortController().signal)).text,'{"notes":[]}');
+ assert.equal(body.model,'review-model');assert.match(body.messages[0].content,/finished browser-assistant task/);assert.match(body.messages[0].content,/untrusted/);assert.equal(body.tools,undefined);
+ await assert.rejects(()=>s.handle({type:'model',task:'agent',text:'review',review:true},page));
+});
+
+
 test('task compaction uses separate trusted summary system and configured model',async()=>{
  const c=fake();c.setGrant(true);c.data.config={endpoint:'https://api.test/v1',key:'secret-key',model:'summary-model',language:'中文'};let body;
  const s=backend.createService(c,async(url,request)=>{body=JSON.parse(request.body);return new Response(JSON.stringify({choices:[{message:{content:'{"completed":[],"remaining":[],"facts":[],"failed":[],"uncertain":[]}'}}]}));});
