@@ -6,7 +6,7 @@
 
 1. **目标模式 CDP 通道**：声明 `debugger` 权限，功能默认关闭，仅目标模式启用时向模型提供受限工具调用。见 [设计](docs/plans/goal-mode-cdp.md)。
 2. **PA8 收尾**：多标签执行的真实浏览器验收、侧栏手动切换执行标签页、`tabs.create` 丢回执的只读对账。见 [任务范围与标签归属](docs/plans/task-scope-v3.md#实施顺序)。
-3. **Page Agent 能力吸收的剩余项**：快照差异与低影响批量动作、组合输入与真实框架兼容、上下文分层、原生工具调用评估、统一事件与轨迹导出。见 [能力吸收计划](docs/plans/page-agent-integration.md)。
+3. **Page Agent 能力吸收的剩余项**：组合输入与真实框架兼容、上下文分层、原生工具调用评估、统一事件与轨迹导出。见 [能力吸收计划](docs/plans/page-agent-integration.md)。
 4. **跨会话检索与恢复**：在任务复盘与网站技能之上评估跨会话检索/恢复、全局技能与技能导入导出。
 5. **持续验收**：真实模型、多网站、原生侧栏与权限弹窗、派发瞬间进程中断。不作为新功能的硬门槛。
 
@@ -28,6 +28,7 @@
 - [x] 同源与已授权直接跨源 iframe（单层）读取、操作与核对；未支持框架标注未读
 - [x] 按顶层来源→嵌入来源记住网站授权，跨任务/重启沿用并可移除
 - [x] 长页面：正文、控件、区域、单区域文字的分段读取与名称查找；按需省略整页正文
+- [x] 批量填写：一轮写 2–8 个字段（`fill_fields`），逐项核对，失败或页面变化即停
 - [x] 动作：fill、check、select、click、hover、scroll、wheel、press_key、double_click、right_click、navigate
 - [x] 点击遮挡检查、SVG 命中点击、目标变化中断
 - [x] 原生字段输入兼容（setter、可取消 beforeinput、值清洗前置检查）
@@ -63,7 +64,6 @@
 ## 未实现
 
 - [ ] 目标模式 CDP 通道：`debugger` 权限与受限 function calling，见[设计](docs/plans/goal-mode-cdp.md)
-- [ ] 快照差异与低影响批量动作（PA5 剩余）
 - [ ] 组合输入（IME）、真实框架/组件库兼容验证（PA2 剩余）
 - [ ] 完整工具参数 schema 与生命周期 hooks（PA9 剩余）、上下文分层与 llms.txt 评估（PA10）
 - [ ] 内容过滤配置与预览（PA11 剩余）

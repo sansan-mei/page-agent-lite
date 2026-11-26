@@ -24,6 +24,7 @@
 | press_key | id、value | content | keydown/keyup，见下 |
 | double_click | id | content | 两次受保护 click 后派发 detail=2 的 dblclick |
 | right_click | id | content | 右键 pointer/mouse down/up + contextmenu，不打开原生菜单 |
+| fill_fields | value=2–8 个 `{action:fill/check/select, id, value}`，目标不重复，无 id/expected | runtime | 一轮里按顺序写多个字段，逐项走 fill/check/select 原路径，见 [运行器](agent-runtime.md#批量填写) |
 | navigate | 绝对 HTTP/HTTPS URL（≤ 2000 字符） | browser | 见 [导航](#导航) |
 | tab_switch | id=tabRef | runtime | 切换执行标签页，见 [任务标签页](#任务标签页) |
 | tab_open | 绝对 HTTP/HTTPS URL，无 id/expected | browser | 后台打开并登记为任务标签页，切换执行目标 |
@@ -157,4 +158,4 @@ observe 的 value：
 
 ## 未支持
 
-快照差异、批量动作、截图/视觉、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
+快照差异、点击/导航类批量动作、截图/视觉、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。

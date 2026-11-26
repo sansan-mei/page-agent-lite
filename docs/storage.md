@@ -31,6 +31,7 @@
 |---|---|
 | version=3、taskId、token | 身份与运行代次 |
 | initialTabId、activeTabId、initialOrigin、origin/activeOrigin | 初始标签页与当前执行标签页（activeTabId = tabId，只能经 `switchTab` 修改）；origin 只能经 `switchOrigin` 修改 |
+| batch | 进行中的 `fill_fields` 剩余步骤（按 key 定位，见 [运行器](agent-runtime.md#批量填写)） |
 | scriptApproval | 本任务脚本自动批准 `{scope:'task', origin, tabId, grantedAt}`；切换来源/执行标签、结束、撤销、userScripts 权限移除时清除，新任务不继承 |
 | tabCandidates、tabRequest | 最近一次模型输入的 otherTabs 映射 `[{tabRef:'openN', tabId, url}]`（tabId/url 不发给模型）及待确认的读取请求；切换执行标签页时清空 |
 | frameAccessRequest | 嵌入式表单网站授权提示，见[权限暂停](agent-runtime.md#错误与恢复) |

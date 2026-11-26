@@ -16,6 +16,8 @@ const agentToolRegistry=(()=>{
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
  add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
  add(['navigate'],{route:'browser',effect:'page',timeout:true});
+ // fill_fields: 2-8 field writes in one turn; the runtime runs them one by one through the normal fill/check/select path.
+ add(['fill_fields'],{effect:'page'});
  // Task tabs: refs come only from the task member directory; handled by the runtime, never by the page.
  add(['tab_switch'],{});add(['tab_open','tab_close'],{route:'browser',effect:'tab'});
  for(const prefix of ['site_memory','global_memory']){
@@ -251,6 +253,14 @@ function agentPlan(raw,snap){
   }
  }
  if(p.action==='observe'&&p.value!==undefined){if(typeof p.value==='object')agentReadOptions(p.value);else if(!Number.isSafeInteger(p.value)||p.value<0)throw new Error('Invalid text offset');}
+ if(p.action==='fill_fields'){
+  if(!Array.isArray(p.value)||p.value.length<2||p.value.length>8||p.id!==undefined||p.expected!==undefined)throw new Error('批量填写需要 2–8 个字段步骤，且不带 id 或 expected');
+  const ids=new Set();
+  for(const s of p.value){
+   if(!s||typeof s!=='object'||Array.isArray(s)||Object.keys(s).some(k=>!['action','id','value'].includes(k))||!['fill','check','select'].includes(s.action)||typeof s.id!=='string'||ids.has(s.id))throw new Error('批量填写步骤无效：只支持 fill/check/select，每个目标一次');
+   ids.add(s.id);agentPlan(JSON.stringify({reply:p.reply,action:s.action,id:s.id,value:s.value}),snap);
+  }
+ }
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
  if(p.choices!==undefined&&(p.action!=='pause'||!Array.isArray(p.choices)||p.choices.length<2||p.choices.length>8||p.choices.some(v=>typeof v!=='string'||!v.trim()||v.length>120)||new Set(p.choices).size!==p.choices.length))throw new Error('用户选项无效');

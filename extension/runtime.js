@@ -573,7 +573,8 @@
           }
           await execute(task,pending,live);return;
         }
-        if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
+        // Queued fill_fields steps make no model request, so they are not stopped by the round budget.
+        if (!task.batch&&task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
         const readingScope=task.nextObservation;
         let snap = task.origin==='browser'?{url:tab.url,snapshotId:null,nodes:new Map(),page:{browser:true,text:'',elements:[],regions:[],coverage:{absenceComplete:false}}}:readingScope?await tools.observe(tabId,readingScope.value,policyFor(task)):readySnapshot||await tools.observe(tabId,undefined,policyFor(task));
         if(!await live())return;
@@ -608,6 +609,32 @@
         if(!await live())return;
         if(JSON.stringify(task.tabCandidates||[])!==JSON.stringify(tabsView.candidates)){task=await update(tabId,token,t=>{t.tabCandidates=tabsView.candidates;});if(!task||!await live())return;}
         const tabsArgs=[tabsView.members.length>1?tabsView.members:null,tabsView.others.length?tabsView.others:null];
+        // fill_fields continuation: the next queued field runs without a model request, found again by its stable key.
+        let batchPlan=null,batchState=null;
+        if(task.batch){
+          const b=task.batch,last=(task.results||[]).at(-1),next=b.queue[0];
+          const ran=b.token===task.token&&last?.outcome?.operationId===b.current&&last.outcome.status==='success';
+          const samePage=snap.url===b.url&&(!b.documentId||snap.documentId===b.documentId);
+          const matches=next?snap.page.elements.filter(e=>e.key&&e.key===next.key):[];
+          if(ran&&samePage&&next&&matches.length===1){
+            batchPlan={reply:b.reply+'（'+(b.index+1)+'/'+b.total+'）',action:next.action,id:matches[0].id,value:next.value};
+            batchState={...b,index:b.index+1,queue:b.queue.slice(1)};
+          }else{
+            const done=ran&&!next,left=b.queue.map(q=>q.label).filter(Boolean).join('、');
+            const why=b.token!==task.token?'任务收到新的指令或被打断':!ran?'第 '+b.index+' 步未成功':!samePage?'页面已变化':'找不到第 '+(b.index+1)+' 步的目标字段';
+            const message=done?'批量填写完成，共 '+b.total+' 项':'批量填写在第 '+b.index+'/'+b.total+' 步后停止（'+why+'）；未执行 '+b.queue.length+' 项'+(left?'：'+left:'');
+            task=await update(tabId,token,t=>{t.batch=null;t.results=t.results.concat({action:'fill_fields',time:now(),result:message,
+              outcome:T.result({status:done?'success':'error',dispatch:done?'sent':'not_sent',scope:'dispatch',code:done?'BATCH_DONE':'BATCH_STOPPED',recovery:done?'none':'replan',documentId:snap.documentId,message})});if(!done)event(t,message);});
+            if(!task||!await live())return;
+          }
+        }
+        let planText;
+        if(batchPlan){
+          task=await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.pending=null;t.waitDeadline=null;});
+          if(!task||!await live())return;
+          planText=JSON.stringify(batchPlan);
+        }else{
+        if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
         const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,siteSkillIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
@@ -670,7 +697,9 @@
           if(await live())await update(tabId,token,t=>{forgetSiteContext(t);t.phase='observe';event(t,'网站长期记忆已在其他任务更新，丢弃旧回复并重新读取');});return;
         }
         if(!await live())return;
-        const plan = C.agentPlan(result.text, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
+        planText=result.text;
+        }
+        let plan = C.agentPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
         if(task.origin==='browser'&&!['navigate','tab_switch','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
         if(plan.subgoals!==undefined){
           const updates=plan.subgoals.map(g=>{
@@ -680,6 +709,15 @@
           const merged=plan.subgoals.length?(task.taskPlan||[]).filter(g=>!updates.some(u=>u.id===g.id)).concat(updates):[];
           if(merged.length>8)throw new Error('子目标总数超过 8 项，请先用空列表清空后重列');
           task=await update(tabId,token,t=>{t.taskPlan=merged;});if(!task||!await live())return;
+        }
+        if(plan.action==='fill_fields'){
+          const steps=plan.value.map(step=>({...step,target:snap.page.elements.find(e=>e.id===step.id)}));
+          if(steps.some(step=>!step.target?.key)){
+            await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({request:plan,time:now(),action:'fill_fields',outcome:T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'BATCH_UNSUPPORTED',recovery:'replan',documentId:snap.documentId,message:'部分字段没有稳定标识，无法批量填写；请逐项填写'})});});return;
+          }
+          const [first,...rest]=steps;
+          batchState={token,documentId:snap.documentId||null,url:snap.url,total:steps.length,index:1,reply:plan.reply,queue:rest.map(step=>({action:step.action,value:step.value,key:step.target.key,label:step.target.label||null}))};
+          plan={reply:plan.reply+'（1/'+steps.length+'）',action:first.action,id:first.id,value:first.value,...(plan.notice?{notice:plan.notice}:{})};
         }
         if(!['done','pause'].includes(plan.action))call={request:plan,time:Date.now()};
         // run_script was not offered this turn (no optional permission, old Chrome or toggle off): nothing runs.
@@ -780,7 +818,7 @@
           task=decided;if(!await live())return;
           await execute(task,pending,live);return;
         }
-        task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;event(t,plan.reply);const notice=plan.notice||(/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i.test(pending.label)?'即将执行：'+pending.label:null);if(notice){t.notice=notice;event(t,'重要操作：'+notice);}});
+        task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;if(batchState)t.batch={...batchState,current:pending.operationId};event(t,plan.reply);const notice=plan.notice||(/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i.test(pending.label)?'即将执行：'+pending.label:null);if(notice){t.notice=notice;event(t,'重要操作：'+notice);}});
         if (!task || !await live()) return;
         await execute(task,pending,live);
       } catch (error) {

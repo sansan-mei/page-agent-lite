@@ -105,6 +105,14 @@
 - 授权清除：侧栏「撤销」（`task:script-revoke {taskId}`）、结束任务、清空、新建任务、切换来源（`switchOrigin` 重建记录）、切换执行标签（`switchTab` 置空）、`userScripts` 权限被移除（`permissions.onRemoved` → `reviewPermissions`，以及每轮检测到无权限时）。停止、接管、补充指令不清除授权（任务仍可继续，侧栏一直显示撤销入口）。撤销不影响已写入 pending 的这一次执行。
 - 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准执行，结果记 `SCRIPT_DISCARDED`（not_sent）。
 
+## 批量填写
+
+模型返回 `fill_fields` 时，运行器校验每项目标都有稳定 `key`（否则记 `BATCH_UNSUPPORTED`，not_sent，交回模型），把第 1 项转成普通 fill/check/select 执行，其余写入 `task.batch`（`{token, documentId, url, total, index, reply, current, queue:[{action, value, key, label}]}`）。
+
+- 继续：下一轮照常重新观察，不请求模型、不计轮数、不受轮数上限阻挡；只有在代次未变、上一项结果的 operationId 等于 `batch.current` 且 status=success、URL 与文档未变、下一项 key 在新快照中唯一时，才按新快照 ID 执行下一项。每项照常写 executing 检查点、自动核对字段值，回执丢失按原规则只读核对或暂停。
+- 停止：任一条件不满足即清空 `batch`，记一条 `fill_fields` 结果（全部完成为 `BATCH_DONE`；否则 `BATCH_STOPPED`、not_sent、recovery=replan，写明停在第几步、原因和未执行的字段），同一轮交回模型。补充指令、停止、接管、范围或记忆变更轮换代次，下一轮即停止；不重放未执行项。
+- 只允许字段写入（幂等、自动核对）；点击、提交、导航仍一轮一个动作。
+
 ## 子目标
 
 模型普通响应可附 `subgoals`，在同一轮更新 `taskPlan`，不额外请求模型：
