@@ -1,10 +1,10 @@
 'use strict';
 let startupFailure=null;
 try {
-  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','browser-tools.js','runtime.js');
+  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','frame-tools.js','browser-tools.js','runtime.js');
 } catch(error) {
   const match=String(error?.message||'').match(/\/([a-z-]+\.js)(?:['"\s]|$)/);
-  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
+  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','frame-tools.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
   startupFailure=`扩展无法加载 ${file}。请在扩展管理页重新加载，并刷新网页、重新打开侧边栏；仍失败时检查扩展目录文件是否齐全。`;
 }
 if(startupFailure){

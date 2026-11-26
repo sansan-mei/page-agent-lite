@@ -700,7 +700,7 @@
             await pause(task,'该点击的结果仍不确定，已阻止重复点击同一目标；请核实当前状态或选择新的确认控件','uncertain');return;
           }
         }
-        const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,sensitive:target?.sensitive===true?true:undefined,operationId:uuid(),expected,time:call.time};
+        const pending={frameRoute:snap.frameRoutes?.[plan.id],tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,sensitive:target?.sensitive===true?true:undefined,operationId:uuid(),expected,time:call.time};
         if(plan.action==='run_script'){
           // Nothing runs until the user approves this exact code in the side panel, or the user
           // allowed scripts for this task on this same tab and origin. Decided on the stored record so a revoke wins.

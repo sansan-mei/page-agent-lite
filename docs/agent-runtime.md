@@ -28,7 +28,7 @@
 3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 的结果作为 `capabilities` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
-6. 网页动作前保存 `executing` 检查点，执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
+6. 网页动作前保存 `executing` 检查点；跨源框架动作另保存可信 `frameRoute`（框架、文档与一次性快照身份），不发给模型。执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
 
 同一任务的 tick 串行；运行锁、去重 jobs、请求控制器、timer 和 alarm（`task-id:<taskId>`）都以 taskId 为身份。tabId 入口通过标签发布队列防替换竞态；`tick(tabId, expectedTaskId)` 中的过期调度不会操作同一标签上的新任务。
 

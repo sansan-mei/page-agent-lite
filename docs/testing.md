@@ -32,11 +32,13 @@ git diff --check
 | `scripts/editable-smoke.cjs` | 纯文本 contenteditable |
 | `scripts/hover-controls-smoke.cjs` | 可点击行内的悬浮操作（a、aria-haspopup）、visibility 覆盖与继承隐藏、真实点击 |
 | `scripts/overlay-smoke.cjs` | 部分遮挡改点可见点、完全遮挡回报遮挡层控件 key 且不派发、按 key 关闭浮层后重试、固定底栏居中后点击 |
+| `scripts/cross-origin-extension-smoke.cjs` | 加载真实 MV3 扩展，真实框架发现、权限范围、isolated world 注入、敏感授权、填写、核对与旧快照拒绝；不点付款，无模型请求 |
+| `scripts/cross-origin-frame-smoke.cjs` | 真实跨源 DOM + Chrome API 替身：任务范围、敏感字段授权、填写与核对、过期快照、取消、遮挡、权限撤销与框架导航；不点付款 |
 | `scripts/iframe-smoke.cjs` | 同源 iframe 读取与 frame 标注、跨源/嵌套标注未读、框架内敏感字段排除、填写/勾选/选择/按键/点击、区域核对、框架内滚入视野、顶层遮挡、移除框架后过期 |
 | `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针 |
 | `scripts/ui-preview.cjs` | 用合成数据生成 README 预览图，检查 320/390/480px 侧栏无横向溢出；`PAGE_AGENT_LOCALE=en` 渲染英文界面到 `tests/browser-output/en/`，不覆盖 `docs/assets` |
 
-- 除 `browser-smoke.cjs` 外，组件脚本用真实 DOM + Chrome 消息 stub，不是完整扩展。
+- 除 `browser-smoke.cjs` 和 `cross-origin-extension-smoke.cjs` 外，组件脚本用真实 DOM + Chrome 消息 stub，不是完整扩展。
 - `browser-smoke.cjs`：CI 中用 xvfb 运行；本机加 `--local` 无窗口运行并允许未提交源码。只在临时复制的 manifest 里注入 loopback 权限，fixture 预置主机权限。
 - 环境变量：`PAGE_AGENT_CHROMIUM` 指定浏览器；`PAGE_AGENT_SMOKE_OUTPUT` 指定输出目录（默认 `tests/browser-output/`，不提交）。使用临时 profile，不碰用户配置。
 - 侧栏文档在测试标签页打开，不是原生侧栏。
@@ -47,6 +49,8 @@ git diff --check
 `.github/workflows/ci.yml`：`test` job 跑 `node --check extension/*.js` 和 `npm test`；`smoke` job 安装 Playwright Chromium 跑 `browser-smoke.cjs`，上传 `tests/browser-output/`。`.github/workflows/pages.yml` 只部署 `site/` 宣传页，不跑测试。`.github/workflows/release.yml` 在推送 `v*` tag 时用 `scripts/release-check.cjs` 核对版本与 CHANGELOG，再跑 `npm test` 后打包发布。
 
 ## 尚未验证
+
+- 跨源 iframe：原生权限弹窗、线上支付组件、重定向/嵌套框架与真实模型端到端；合成站点 smoke 不替代真实支付页验收。
 
 - 线上真实模型：规划、记忆选择、摘要质量、子目标质量、缓存命中与费用。
 - 原生工具调用：请求体、tool_call 转换、多调用/坏参数拒绝、auto 回退与记忆只有 Node 假 fetch，浏览器 smoke 的假接口按 tool_calls 应答；真实服务商（OpenAI、DeepSeek、通义、Ollama 等）对 `tools`、`tool_choice:"required"`、`parallel_tool_calls` 的接受情况及 400 正文措辞未验证。

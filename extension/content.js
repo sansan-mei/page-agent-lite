@@ -5,7 +5,7 @@
   const C=globalThis.PageAgentCore,G=globalThis.PageAgentConditions,T=globalThis.PageAgentProtocol;
   const documentId=crypto.randomUUID();
   let snapshot=null,snapshotId=null,executing=false,sensitiveFields=false;
-  function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset,{sensitiveFields}),documentId,url:location.href};}
+  function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset,{sensitiveFields,skipFrames:!!globalThis.top&&globalThis!==globalThis.top}),documentId,url:location.href};}
   function captureForChecks(expected){
     G.validate(expected);
     const current=capture(),regions=new Map(current.page.regions.map(r=>[r.key,r]));
@@ -35,10 +35,11 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
+      if(message.type==='agent:frame-guard')return C.agentFrameGuard(message.key,message.frameURL,message.sensitiveFields===true);
       if(message.type==='agent:document')return {documentId,url:location.href};
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});
@@ -54,6 +55,7 @@
         return T.result({...check,operationId:message.operationId,documentId,dispatch:'not_sent',scope:'page',code:check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET',recovery:check.status==='success'?'none':'wait',message:check.status==='success'?'预期条件已满足':'预期条件尚未满足或证据不足'});
       }
       if(!snapshot||message.snapshotId!==snapshotId||message.url!==location.href||message.documentId&&message.documentId!==documentId)throw Object.assign(new Error('页面快照已失效'),{code:'STALE'});
+      if(message.type==='agent:consume'){snapshot=null;snapshotId=null;return {consumed:true};}
       const plan=C.agentPlan(JSON.stringify(message.plan),snapshot);
       if(message.type==='agent:prepare-navigation'){
         if(plan.action!=='navigate')throw Object.assign(new Error('导航准备动作无效'),{code:'STALE'});

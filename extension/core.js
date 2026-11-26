@@ -58,7 +58,7 @@ function agentVisibleRect(n){
 }
 function agentGeometry(n){const b=agentVisibleRect(n);return b&&{inViewport:b.width>0&&b.height>0&&b.right>b.left&&b.bottom>b.top};}
 // Read same-origin frames one level deep (at most 10); list cross-origin, nested, loading or over-limit frames as not read.
-function agentFrameScan(doc,visible){
+function agentFrameScan(doc,visible,skipFrames=false){
  const frames=[],docs=new Map(),origin=d=>d?.defaultView?.origin;let complete=true,count=0;
  const scan=(d,nested)=>{for(const f of d.querySelectorAll('iframe,frame')){
   if(!visible(f))continue;
@@ -66,12 +66,12 @@ function agentFrameScan(doc,visible){
   const src=(f.getAttribute('src')||'').trim(),box=f.getBoundingClientRect?.();
   const reason=nested?'nested':!fd||origin(fd)&&origin(doc)&&origin(fd)!==origin(doc)?'cross_origin':fd.readyState==='loading'||!fd.body||src&&!/^about:/i.test(src)&&fd.URL==='about:blank'?'loading':docs.size>=10?'limit':null;
   if(reason&&box&&box.width*box.height<4)continue;// zero-size trackers hold nothing readable
-  const entry={id:'f'+count++,key:agentNodeKey(f),label:(f.getAttribute('title')||f.getAttribute('aria-label')||f.getAttribute('name')||'').trim().slice(0,100),read:!reason,reason:reason||undefined};
+  const entry={id:'f'+count++,key:agentNodeKey(f),url:(()=>{try{return new URL(src,d.URL).href;}catch{return '';}})(),label:(f.getAttribute('title')||f.getAttribute('aria-label')||f.getAttribute('name')||'').trim().slice(0,100),read:!reason,reason:reason||undefined};
   if(reason)complete=false;
   if(!reason||frames.length<20)frames.push(entry);
   if(!reason){agentFrames.set(fd,f);docs.set(f,{doc:fd,entry});}
  }};
- scan(doc,false);for(const f of [...docs.values()])scan(f.doc,true);
+ scan(doc,skipFrames);for(const f of [...docs.values()])scan(f.doc,true);
  return {frames,docs,complete};
 }
 function agentScrollInfo(n){
@@ -133,7 +133,7 @@ function agentSnapshot(doc, textOffset=0, policy={}){
  const blocked=sensitiveSelector+',[data-page-agent],script,style,noscript,[hidden],[aria-hidden="true"]';
  const visible=n=>{if(n.closest(blocked)||n.closest('dialog:not([open])'))return false;return !agentHidden(n,n.ownerDocument.defaultView);};
  const dialogSelector='dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
- const scan=agentFrameScan(doc,visible),frameOf=n=>agentFrame(n.ownerDocument),frameId=n=>scan.docs.get(frameOf(n))?.entry.id;
+ const scan=agentFrameScan(doc,visible,policy.skipFrames===true),frameOf=n=>agentFrame(n.ownerDocument),frameId=n=>scan.docs.get(frameOf(n))?.entry.id;
  const inDialog=n=>!!n.closest(dialogSelector)||!!frameOf(n)?.closest(dialogSelector);
  // Frame nodes follow their iframe element so document order and shared budgets stay intact.
  const all=[];for(const n of doc.querySelectorAll('*')){all.push(n);const f=scan.docs.get(n);if(f)all.push(...f.doc.querySelectorAll('*'));}
@@ -452,7 +452,17 @@ function agentClick(n,doc,hover=false,snap){
  else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
  try{root.PageAgentPointer?.click();}catch{}
 }
-const api={endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
+function agentFrameGuard(key,url,sensitiveFields=false){
+ const f=[...document.querySelectorAll('iframe,frame')].find(n=>agentNodeKey(n)===key);
+ if(!f||!agentLive(f)||f.src!==url)throw Object.assign(new Error('框架已变化'),{code:'STALE',beforeDispatch:true});
+ if(f.closest(sensitiveFields?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))throw Object.assign(new Error('Sensitive frame excluded'),{code:'STALE',beforeDispatch:true});
+ const b=agentVisibleRect(f),w=f.ownerDocument.defaultView,style=w.getComputedStyle(f);
+ if(!b||b.right<=b.left||b.bottom<=b.top||style.visibility!=='visible'||style.display==='none'||f.closest('[hidden],[aria-hidden="true"]'))throw Object.assign(new Error('框架不可见，请先滚动到框架'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ // Require the whole visible frame surface to be unobstructed before synthetic input.
+ for(const x of [b.left+1,(b.left+b.right)/2,b.right-1])for(const y of [b.top+1,(b.top+b.bottom)/2,b.bottom-1])if(document.elementFromPoint(x,y)!==f)throw Object.assign(new Error('框架被遮挡'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ return {visible:true};
+}
+const api={agentFrameGuard,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;
 if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

@@ -3,6 +3,7 @@
   const T=typeof module!=='undefined'?require('./tool-protocol.js'):root.PageAgentProtocol;
   const scripts=()=>typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools;
   function createBrowserTools(chrome) {
+    const F=(typeof module!=='undefined'?require('./frame-tools.js'):root.PageAgentFrameTools).create(chrome,T);
     // Trusted startup inventory contains IDs only and is never offered to the model.
     async function existingTabIds(){return (await chrome.tabs.query({})).map(t=>t.id).filter(Number.isInteger);}
     // Trusted side-panel member picker only; tab titles and URLs are never offered to the model.
@@ -37,7 +38,7 @@
     }
     // Read-only probe of the content script's per-document id; a new document answers with a different id.
     async function documentId(tabId,policy=null){return (await call(tabId,{type:'agent:document',...(policy?.origin?{expectedOrigin:policy.origin}:{})}))?.documentId||null;}
-    async function observe(tabId,textOffset=0,policy=null){
+    async function observeTop(tabId,textOffset=0,policy=null){
       const message={type:'agent:observe',textOffset,...(policy?.sensitiveFields===true?{sensitiveFields:true}:{}),...(policy?.origin?{expectedOrigin:policy.origin}:{})};
       await checkOrigin(tabId,policy);
       try{return await call(tabId,message);}catch(error){
@@ -50,6 +51,11 @@
           throw reconnectError;
         }
       }
+    }
+    async function observe(tabId,textOffset=0,policy=null){
+      const top=await observeTop(tabId,textOffset,policy);
+      const combined=await F.observe(tabId,top,textOffset,policy);
+      return combined;
     }
     async function navigate(tabId,pending,policy,live){
       const destination=new URL(pending.plan.value),source=new URL(pending.url);
@@ -69,6 +75,7 @@
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
       // run_script runs through userScripts after the runtime's approval step (auto-approved only in the developer build).
       const S=scripts();if(S?.handles(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return S.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab,live,documentId});}
+      if(pending.frameRoute||pending.expected?.some(c=>c.target?.frame?.startsWith('remote:')))return F.execute(tabId,pending,policy,live,{checkOrigin,call,observe});
       try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect
@@ -81,6 +88,11 @@
     }
     async function verify(tabId,operation,policy=null){
       await checkOrigin(tabId,policy);
+      if(operation.expected?.some(c=>c.target?.frame?.startsWith('remote:'))){
+        const snap=await observe(tabId,0,policy),G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;
+        const checked=G.evaluate(operation.expected,snap);
+        return T.result({...checked,operationId:operation.operationId,dispatch:'not_sent',scope:'page',code:checked.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET',recovery:'wait'});
+      }
       try{return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));}
       catch(error){
         if(error.code)throw error;

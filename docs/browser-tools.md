@@ -53,12 +53,15 @@
 
 ### iframe
 
-内容脚本只注入顶层框架，从 isolated world 经 `contentDocument` 读取同源 iframe，只读一层。
+顶层内容脚本从 isolated world 经 `contentDocument` 读取单层同源 iframe。后台另用 `webNavigation.getAllFrames` 识别直接跨源子框架，在对应来源同时具备浏览器主机权限和任务范围授权时注入内容脚本，汇总读取并按框架路由动作。
+
+- 跨源框架只接受唯一匹配声明 src 的直接子框架；重定向、同 URL 多框架、嵌套与 opaque 来源保持未读。框架须在视口内且通过顶层遮挡检查；未授权时 `reason=permission_required` 并提供 origin，由用户在侧栏任务范围中添加。
+- 后台保存的 `frameRoutes` 不发给模型；检查点的 `frameRoute` 绑定框架 ID、来源、URL、文档与一次性快照。执行前重新检查权限、代次和顶层快照，回执丢失只读核对。跨源条件由后台汇总新快照核对；框架文档变化即不匹配旧 frame key，缺失证据保持 unknown。合并沿用控件、区域和正文预算；跨源读取不作为全局不存在的证明。敏感字段沿用本对话授权。
 
 - 同源且已加载的 iframe（最多 10 个）节点紧跟在其 iframe 元素之后参与排序，与顶层共用控件、区域、正文和上下文上限；正文段以 `[f0 标题]` 前缀接在顶层正文后。
-- `page.frames`（≤ 20 项，无 iframe 时省略）：`{id, key, label, read, reason}`，label 取 title/aria-label/name；未读 reason 为 `cross_origin`、`nested`、`loading`（含 src 未加载完的初始 about:blank）、`limit`。隐藏 iframe 跳过；不可读且面积 < 4px² 的 iframe 忽略。存在未读框架时 `coverage.framesComplete=false`；element_absent 的完整性不覆盖未读框架。
+- `page.frames`（≤ 20 项，无 iframe 时省略）：`{id, key, label, url, read, reason, origin?}`，label 取 title/aria-label/name；未读 reason 为 `cross_origin`、`permission_required`、`blocked`、`unavailable`、`nested`、`loading`（含 src 未加载完的初始 about:blank）、`limit`。隐藏 iframe 跳过；不可读且面积 < 4px² 的 iframe 忽略。存在未读框架时 `coverage.framesComplete=false`；element_absent 的完整性不覆盖未读框架。
 - 框架内元素、区域带 `frame`（`page.frames` 的 id）；节点 key 全局唯一。可见性、inViewport 按 iframe 内容框偏移并受 iframe 可见框裁剪。敏感字段与隐藏规则在框架内同样生效，iframe 本身处于敏感/隐藏子树时整框不读。
-- 执行：所有 content 动作都可用于框架内目标，在框架自身文档内完成——视口、`elementFromPoint`、事件构造器和原生 value setter 都取自该框架窗口；命中探测点还要求顶层在对应坐标命中该 iframe，否则以顶层遮挡层回报 `TARGET_BLOCKED`。iframe 被移除、隐藏或换了文档 → `STALE`。虚拟指针画在顶层。
+- 执行：所有 content 动作都可用于框架内目标，在框架自身文档内完成——视口、`elementFromPoint`、事件构造器和原生 value setter 都取自该框架窗口；命中探测点还要求顶层在对应坐标命中该 iframe，否则以顶层遮挡层回报 `TARGET_BLOCKED`。iframe 被移除、隐藏或换了文档 → `STALE`。同源框架的虚拟指针画在顶层；跨源框架画在自身文档中。
 - 条件：语义目标的 `frame` 为 iframe key（顶层为空串），绑定后与 group 一样始终比较，顶层与框架内同名控件不会互相匹配。
 
 ### 分段读取
@@ -154,4 +157,4 @@ observe 的 value：
 
 ## 未支持
 
-快照差异、批量动作、截图/视觉、跨源/嵌套 iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
+快照差异、批量动作、截图/视觉、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
