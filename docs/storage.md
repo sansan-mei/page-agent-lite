@@ -49,6 +49,7 @@
 | uncertainClicks | 最多 2 条未确定动作的文档/节点 key 或语义描述 |
 | nextObservation | 一次性读取范围 `{value, url, documentId}`，value 键见 [网页工具](browser-tools.md#分段读取) |
 | taskPlan | 公开子目标及核对证据（历史数据，不是待执行动作） |
+| progress | 模型的进度笔记 `{text ≤ 3000, url, time}`，整段替换，跨来源保留，见 [运行器](agent-runtime.md#进度笔记) |
 | results、events | 工具结果与时间线（时间线最多 40 项/16000 字符） |
 | contextSummary、contextArchive、contextUsage、contextPressure、compactionGuard | 上下文压缩，见 [上下文](context-and-skills.md) |
 | metrics | 观察/核对/动作计数与 `timings` |

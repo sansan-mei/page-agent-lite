@@ -226,7 +226,7 @@ test('handoff is accepted only on tab_switch/tab_open as nonempty text up to 200
 
 test('a cross-origin switch keeps the move trail and handoff for the model, but not the old page text',async()=>{
  const secret='SECRET-A-MARKER';
- const f=fixture({secret,plans:[{reply:'Read',action:'observe'},{reply:'Switch',action:'tab_switch',id:'tab1',handoff:'A price is 12'},{reply:'Look',action:'done'}]});
+ const f=fixture({secret,plans:[{reply:'Read',action:'observe'},{reply:'Switch',action:'tab_switch',id:'tab1',handoff:'A price is 12',progress:'A read: 12'},{reply:'Look',action:'done'}]});
  await f.runtime.start(1,'Copy A price into B');await joinTab(f,1,2);
  await f.runtime.tick(1);await f.runtime.tick(1);await f.runtime.tick(2);await f.runtime.tick(2);
  const task=await f.store.get(2);assert.equal(task.origin,'https://b.test');assert.equal(task.tabHops,1);
@@ -234,6 +234,7 @@ test('a cross-origin switch keeps the move trail and handoff for the model, but 
  assert.equal(input.results.length,0,'old-origin results are still cleared');
  assert.deepEqual(input.tabTrail.map(({action,from,fromOrigin,to})=>({action,from,fromOrigin,to})),[{action:'tab_switch',from:'tab0',fromOrigin:'https://a.test',to:'tab1'}]);
  assert.deepEqual(input.handoffs.map(({from,origin,text})=>({from,origin,text})),[{from:'tab0',origin:'https://a.test',text:'A price is 12'}]);
+ assert.equal(input.progress.text,'A read: 12','the progress notebook survives the origin switch');
  assert.equal(f.inputs.at(-1).includes(secret),false);assert.equal(f.inputs.at(-1).includes('Page 1'),false);
 });
 

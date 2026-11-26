@@ -710,6 +710,8 @@
           if(merged.length>8)throw new Error('子目标总数超过 8 项，请先用空列表清空后重列');
           task=await update(tabId,token,t=>{t.taskPlan=merged;});if(!task||!await live())return;
         }
+        // Model notebook for multi-page collection: results never carry old page text, so this is what survives a page change.
+        if(plan.progress!==undefined){task=await update(tabId,token,t=>{t.progress={text:plan.progress,url:snap.url,time:now()};});if(!task||!await live())return;}
         if(plan.action==='fill_fields'){
           const steps=plan.value.map(step=>({...step,target:snap.page.elements.find(e=>e.id===step.id)}));
           if(steps.some(step=>!step.target?.key)){
