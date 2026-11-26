@@ -35,7 +35,7 @@ git diff --check
 | `scripts/cross-origin-extension-smoke.cjs` | 加载真实 MV3 扩展，真实框架发现、权限范围、isolated world 注入、敏感授权、填写、核对、旧快照拒绝、真实运行器权限暂停不重试及加入范围后继续；不点付款，模型决策为本机函数 stub |
 | `scripts/cross-origin-frame-smoke.cjs` | 真实跨源 DOM + Chrome API 替身：任务范围、敏感字段授权、填写与核对、过期快照、取消、遮挡、权限撤销与框架导航；不点付款 |
 | `scripts/iframe-smoke.cjs` | 同源 iframe 读取与 frame 标注、跨源/嵌套标注未读、框架内敏感字段排除、填写/勾选/选择/按键/点击、区域核对、框架内滚入视野、顶层遮挡、移除框架后过期 |
-| `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针 |
+| `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针常驻/滚动/缩放/清理与减少动态效果 |
 | `scripts/ui-preview.cjs` | 用合成数据生成 README 预览图，检查 320/390/480px 侧栏无横向溢出；`PAGE_AGENT_LOCALE=en` 渲染英文界面到 `tests/browser-output/en/`，不覆盖 `docs/assets` |
 
 - 除 `browser-smoke.cjs` 和 `cross-origin-extension-smoke.cjs` 外，组件脚本用真实 DOM + Chrome 消息 stub，不是完整扩展。

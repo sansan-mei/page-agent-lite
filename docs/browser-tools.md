@@ -142,7 +142,7 @@ observe 的 value：
 
 ## 视觉反馈
 
-`page-pointer.js` 在 isolated world 创建禁止命中的显示层（内部用封闭 shadow root 隔离样式），从抽取和遮挡判断中排除。core 校验目标后触发，动画不阻塞操作；约 900ms 隐藏，pagehide/scroll/resize/visibilitychange 清理，后台停止或任务非活动时发 `agent:clear-pointer`。不新增权限，不保存状态，不增加模型请求。
+`page-pointer.js` 在 isolated world 创建禁止命中的显示层（内部用封闭 shadow root 隔离样式），从抽取和遮挡判断中排除。开始观察时在主页面显示箭头，等待模型和动作间隙保留；core 校验目标后移动指针，动画不阻塞操作。边框和点击圆环约 900ms 后隐藏；滚动/缩放只清高亮并把箭头留在视口内。后台页隐藏显示层，返回时恢复；pagehide、停止、接管或任务非活动时清理。后台的 `agent:clear-pointer` 同时清理已注入的子框架；跨源子框架内的精确指针仍为短暂反馈，主页面箭头指向对应框架。不新增权限，不保存状态，不增加模型请求。
 
 ## run_script
 

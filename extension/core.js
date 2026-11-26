@@ -460,6 +460,7 @@ function agentFrameGuard(key,url,sensitiveFields=false){
  if(!b||b.right<=b.left||b.bottom<=b.top||style.visibility!=='visible'||style.display==='none'||f.closest('[hidden],[aria-hidden="true"]'))throw Object.assign(new Error('框架不可见，请先滚动到框架'),{code:'TARGET_BLOCKED',beforeDispatch:true});
  // Require the whole visible frame surface to be unobstructed before synthetic input.
  for(const x of [b.left+1,(b.left+b.right)/2,b.right-1])for(const y of [b.top+1,(b.top+b.bottom)/2,b.bottom-1])if(document.elementFromPoint(x,y)!==f)throw Object.assign(new Error('框架被遮挡'),{code:'TARGET_BLOCKED',beforeDispatch:true});
+ try{root.PageAgentPointer?.show(f,document);}catch{}
  return {visible:true};
 }
 const api={agentFrameGuard,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};

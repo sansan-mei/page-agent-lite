@@ -47,6 +47,7 @@
       if(message.type==='agent:execute'&&snapshot?.sensitiveFields!==authorized)throw Object.assign(new Error('敏感字段授权已变化，请重新观察'),{code:'STALE'});
       sensitiveFields=authorized;
       if(message.type==='agent:observe'){
+        globalThis.PageAgentPointer?.start?.(document);
         snapshot=capture(message.textOffset??0);snapshotId=crypto.randomUUID();
         return {snapshotId,documentId,url:location.href,readyState:document.readyState,page:snapshot.page};
       }

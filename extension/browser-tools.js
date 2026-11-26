@@ -111,7 +111,10 @@
       return {id:created.id};
     }
     async function closeTab(tabId){await chrome.tabs.remove(tabId);}
-    async function clearPointer(tabId){try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }}
+    async function clearPointer(tabId){
+      try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }
+      try{const frames=await chrome.webNavigation?.getAllFrames({tabId});await Promise.allSettled((frames||[]).filter(f=>f.frameId!==0).map(f=>chrome.tabs.sendMessage(tabId,{type:'agent:clear-pointer'},{frameId:f.frameId})));}catch{ /* No live frame inventory. */ }
+    }
     return {tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab};
   }
   root.PageAgentBrowserTools={createBrowserTools};
