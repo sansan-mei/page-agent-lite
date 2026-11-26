@@ -66,7 +66,7 @@
 
 | 情况 | 处理 |
 |---|---|
-| 网络错误、25 秒超时、429/5xx | 最多额外重试 2 次，每次计轮数 |
+| 网络错误、60 秒超时、429/5xx | 最多额外重试 2 次，每次计轮数 |
 | `MODEL_PROTOCOL_FALLBACK`（auto 下接口不支持原生工具调用，未执行任何动作） | 与上行共用 2 次重试额度，下一轮改用 JSON 协议，记 `dispatch=not_sent`，计轮数 |
 | 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_TOOL_CALL_MULTIPLE`、`MODEL_TOOL_CALL_INVALID`、`MODEL_TOOL_ARGUMENTS_INVALID`、`MODEL_TOOL_CALL_MISSING`（native 模式）、`MODEL_TOOLS_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |

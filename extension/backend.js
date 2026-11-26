@@ -125,7 +125,7 @@ function createService(chrome,fetcher=fetch){
     const {text,usage}=parsed;
     return {text,usage,modelIdentity:await identity(config)};
    })();
-   try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('API 请求超时（25 秒），请重试'));},25000);})]);}finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);}
+   try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('API 请求超时（60 秒），请重试'));},60000);})]);}finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);}
   }
   throw new Error('未知请求');
  }
