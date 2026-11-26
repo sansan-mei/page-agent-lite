@@ -1,6 +1,6 @@
 {
   "name": "page-agent-lite",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "test": "node --max-old-space-size=256 --test --test-concurrency=1 tests/*.test.js"
