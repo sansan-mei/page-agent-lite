@@ -440,13 +440,22 @@ test('history lists every site with a label, marks interrupted copies and delete
 test('embedded frame card grants exact host on gesture, adds task scope then resumes without navigating',async()=>{
  for(const granted of [true,false]){
   const task={taskId:'embedded',scopeRevision:4,allowedOrigins:['https://example.test'],goal:'Fill test form',status:'paused',reason:'frame_access',steps:1,prefs:{},events:[],frameAccessRequest:{url:'https://example.test/task',origins:['https://embedded.test']}};
-  const f=await fixture(granted,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:scope-change'?{ok:true,value:{...task,scopeRevision:5,allowedOrigins:[...task.allowedOrigins,m.origin]}}:m.type==='task:resume'?{ok:true,value:{...task,status:'running',reason:null}}:undefined);
+  const f=await fixture(granted,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:scope-change'?{ok:true,value:{...task,scopeRevision:5,allowedOrigins:[...task.allowedOrigins,m.origin],rememberedFrameOrigins:[m.origin]}}:m.type==='task:resume'?{ok:true,value:{...task,status:'running',reason:null}}:undefined);
   const card=f.document.getElementById('frame-access');assert.equal(card.hidden,false);assert.match(card.textContent,/https:\/\/embedded.test/);
   f.calls.length=0;card.querySelector('button').dispatchEvent(new f.window.Event('click'));
   assert.equal(f.calls[0][0],'permission');assert.deepEqual(Array.from(f.calls[0][1].origins),['https://embedded.test/*']);
   await flush();await flush();
   const messages=f.calls.filter(c=>c[0]==='message').map(c=>c[1]);
-  if(granted){const scope=messages.find(m=>m.type==='task:scope-change');assert.equal(scope.origin,'https://embedded.test');assert.equal(scope.taskId,'embedded');assert.equal(scope.expectedRevision,4);assert.equal(scope.action,'add');assert(messages.some(m=>m.type==='task:resume'));assert(!messages.some(m=>m.type==='task:submit'));}
+  if(granted){const scope=messages.find(m=>m.type==='task:scope-change');assert.equal(scope.origin,'https://embedded.test');assert.equal(scope.taskId,'embedded');assert.equal(scope.expectedRevision,4);assert.equal(scope.action,'add');assert.equal(scope.rememberFrame,true);assert(messages.some(m=>m.type==='task:resume'));assert.match(f.document.getElementById('frame-grant-origins').textContent,/https:\/\/embedded.test/);assert(!messages.some(m=>m.type==='task:submit'));}
   else assert(!messages.some(m=>['task:scope-change','task:resume'].includes(m.type)));
  }
+});
+
+
+test('remembered embedded access is listed and removable even outside the current task scope',async()=>{
+ const task={taskId:'remembered',scopeRevision:2,allowedOrigins:['https://example.test'],rememberedFrameOrigins:['https://embedded.test'],status:'paused',goal:'Test',prefs:{},events:[]};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:scope-change'?{ok:true,value:{...task,rememberedFrameOrigins:[]}}:undefined);
+ assert.equal(f.document.getElementById('frame-grants').hidden,false);const rows=[...f.document.querySelectorAll('#frame-grant-origins li')];const row=rows.find(r=>r.textContent.includes('https://embedded.test'));
+ assert(row);f.calls.length=0;row.querySelector('button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();
+ assert(!f.calls.some(c=>c[0]==='permission'));const call=f.calls.find(c=>c[1]?.type==='task:scope-change')[1];assert.equal(call.action,'remove');assert.equal(call.origin,'https://embedded.test');assert.equal(call.expectedRevision,2);
 });

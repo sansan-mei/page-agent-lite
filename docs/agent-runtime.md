@@ -62,7 +62,7 @@
 
 ## 错误与恢复
 
-模型暂停且当前快照含 `permission_required` 框架时，直接暂停为 `frame_access`，不消耗普通阻碍恢复次数。`frameAccessRequest` 只保存当前页身份和快照内的 HTTP/HTTPS 框架来源；侧栏按来源申请主机权限，再经带任务 ID/范围版本的 `task:scope-change` 加入任务并继续。拒绝或任务变化不继续；继续后重新观察，不重放旧动作。
+模型暂停且当前快照含 `permission_required` 框架时，直接暂停为 `frame_access`，不消耗普通阻碍恢复次数。`frameAccessRequest` 只保存当前页身份和快照内的 HTTP/HTTPS 框架来源；侧栏按来源申请主机权限，再经带任务 ID/范围版本及 `rememberFrame:true` 的 `task:scope-change` 复核当前 URL、文档和框架后保存授权关系并继续；这条关系仅对当前顶层来源的嵌入框架生效，不把 B 加入可跨顶层来源继承的任务 `allowedOrigins`。普通范围修改仍只改当前任务。拒绝或任务变化不继续；继续后重新观察，不重放旧动作。
 
 | 情况 | 处理 |
 |---|---|

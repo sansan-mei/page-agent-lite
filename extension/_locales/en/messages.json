@@ -855,9 +855,15 @@
     "message": "Allow embedded form websites"
   },
   "spFrameAccessText": {
-    "message": "These form websites need browser access or task scope permission. Sensitive field approval does not grant website access. After approval, inspect the current page again without navigating or submitting the form."
+    "message": "Approval remembers access from the current website to this embedded form website for future tasks. Other websites do not inherit it. Sensitive fields still require separate approval."
   },
   "spFrameAccessAllow": {
-    "message": "Allow this website and continue"
+    "message": "Remember access and continue"
+  },
+  "spForgetFrameOrigin": {
+    "message": "Remove and forget access"
+  },
+  "spRememberedFrameTitle": {
+    "message": "Remembered embedded website access"
   }
 }

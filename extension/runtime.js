@@ -272,11 +272,32 @@
         if(!task||task.taskId!==operation.taskId||task.scopeRevision!==operation.expectedRevision||['ended','completed'].includes(task.status))throw new Error('任务范围已变化，请刷新后重试');
         let url;try{url=new URL(operation.origin);}catch{throw new Error('请输入完整 HTTP/HTTPS 站点来源');}
         if(!['http:','https:'].includes(url.protocol)||url.origin!==operation.origin||url.username||url.password||url.hostname.includes('*')||!['add','remove'].includes(operation.action)||operation.origin.length>300)throw new Error('站点来源或范围操作无效');
+        if(operation.rememberFrame!==undefined&&typeof operation.rememberFrame!=='boolean')throw new Error('嵌入式网站授权格式无效');
         const exists=(task.allowedOrigins||[task.origin]).includes(operation.origin);
-        if(operation.action==='add'&&exists||operation.action==='remove'&&!exists)return task;
+        if(operation.rememberFrame===true){
+          const request=task.frameAccessRequest,current=await tools.tab(tabId,true);
+          if(operation.action!=='add'||task.reason!=='frame_access'||!request?.origins?.includes(operation.origin)||current.url!==request.url||originOf(current)!==task.origin)throw new Error('嵌入式网站授权已过期，请重新观察');
+          const snap=await tools.observe(tabId,undefined,policyFor(task));
+          if(snap.url!==request.url||snap.documentId!==request.documentId||!snap.page.frames?.some(f=>f.origin===operation.origin&&(f.reason==='permission_required'||f.read===true)))throw new Error('嵌入式表单已变化，请重新观察');
+        }
         if(operation.action==='add'&&(!tools.hasOriginAccess||!await tools.hasOriginAccess(operation.origin)))throw new Error('请先从任务范围面板授权该网站');
+        const remembered=(await tools.frameOrigins?.(task.origin)||[]).includes(operation.origin);
+        if(!operation.rememberFrame&&(operation.action==='add'&&exists||operation.action==='remove'&&!exists&&!remembered))return task;
         controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
-        return store.changeOrigins(tabId,{...operation,token:uuid(),updatedAt:now()});
+        if(operation.rememberFrame===true){
+          if(!tools.rememberFrame)throw new Error('无法保存嵌入式网站授权');
+          await tools.rememberFrame(task.origin,operation.origin);
+          // A-to-B permission is frame-only, not a task-wide grant that C could inherit after navigation.
+          const saved={...task,token:uuid(),status:'paused',reason:'scope_changed',nextObservation:null};await store.set(tabId,saved);
+          return {...saved,rememberedFrameOrigins:await tools.frameOrigins(task.origin)};
+        }
+        if(operation.action==='remove')await tools.forgetFrame?.(task.origin,operation.origin);
+        let saved;
+        if(operation.action==='add'&&exists||operation.action==='remove'&&!exists){
+          saved=task;
+          if(operation.action==='remove'){saved={...task,token:uuid(),status:'paused',reason:'scope_changed'};await store.set(tabId,saved);}
+        }else saved=await store.changeOrigins(tabId,{...operation,token:uuid(),updatedAt:now()});
+        return {...saved,rememberedFrameOrigins:await tools.frameOrigins?.(task.origin)||[]};
       });
     }
     function tabView(tab,allowed){
@@ -1053,7 +1074,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:tabId=>store.get(tabId)};
+    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:async tabId=>{const task=await store.get(tabId);return task&&tools.frameOrigins?{...task,rememberedFrameOrigins:await tools.frameOrigins(task.origin)}:task;}};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

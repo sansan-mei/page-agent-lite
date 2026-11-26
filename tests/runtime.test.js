@@ -964,3 +964,21 @@ test('missing embedded website access pauses immediately in both modes, then reo
   assert.equal(t.taskId,original.taskId);assert.equal(f.executed.length,1);assert.deepEqual(f.executed[0].frameRoute,route);assert(reads>=2);
  }
 });
+
+
+test('remembered frame approval rejects a changed document before persisting access',async()=>{
+ let remembered=0;
+ const f=fixture({tools:{hasOriginAccess:async()=>true,rememberFrame:async()=>{remembered++;},observe:async()=>({url:'https://example.test/1',documentId:'new-document',page:{elements:[],frames:[{reason:'permission_required',origin:'https://embedded.test'}]}})}});
+ await f.runtime.start(1,'Fill');const task=await f.runtime.get(1);Object.assign(task,{scopeRevision:1,status:'paused',reason:'frame_access',frameAccessRequest:{url:'https://example.test/1',documentId:'old-document',origins:['https://embedded.test']}});await f.store.set(1,task);
+ await assert.rejects(()=>f.runtime.changeOrigins(1,{taskId:task.taskId,expectedRevision:1,origin:'https://embedded.test',action:'add',rememberFrame:true}),/重新观察/);
+ assert.equal(remembered,0);assert.equal(f.executed.length,0);
+});
+
+
+test('restoring browser access can resume an already remembered frame without granting task-wide origin access',async()=>{
+ let saved=0;
+ const f=fixture({tools:{hasOriginAccess:async()=>true,frameOrigins:async()=>['https://embedded.test'],rememberFrame:async()=>{saved++;},observe:async()=>({url:'https://example.test/1',documentId:'same-doc',page:{elements:[],frames:[{read:true,origin:'https://embedded.test'}]}})}});
+ await f.runtime.start(1,'Fill');const t=await f.runtime.get(1);Object.assign(t,{scopeRevision:1,status:'paused',reason:'frame_access',frameAccessRequest:{url:'https://example.test/1',documentId:'same-doc',origins:['https://embedded.test']}});await f.store.set(1,t);
+ const result=await f.runtime.changeOrigins(1,{taskId:t.taskId,expectedRevision:1,origin:'https://embedded.test',action:'add',rememberFrame:true});
+ assert.equal(saved,1);assert(!result.allowedOrigins.includes('https://embedded.test'));assert.deepEqual(result.rememberedFrameOrigins,['https://embedded.test']);
+});

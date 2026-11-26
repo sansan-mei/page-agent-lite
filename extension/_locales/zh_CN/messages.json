@@ -855,9 +855,15 @@
     "message": "授权嵌入式表单网站"
   },
   "spFrameAccessText": {
-    "message": "这些表单网站尚未获得网站权限或加入任务范围。敏感字段授权不能替代网站权限；授权后重新观察当前页，不跳转网站或提交表单。"
+    "message": "首次授权后会记住当前网站到此表单网站的访问关系，后续任务自动沿用；其他网站不继承。敏感字段仍需单独授权。"
   },
   "spFrameAccessAllow": {
-    "message": "授权此网站并继续"
+    "message": "记住授权并继续"
+  },
+  "spForgetFrameOrigin": {
+    "message": "移除并忘记授权"
+  },
+  "spRememberedFrameTitle": {
+    "message": "已记住的嵌入网站授权"
   }
 }

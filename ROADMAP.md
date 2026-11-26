@@ -26,6 +26,7 @@
 
 - [x] 顶层 DOM 读取：弹窗优先、视口排序、分组/语义上下文、ARIA combobox/listbox/tab 状态
 - [x] 同源与已授权直接跨源 iframe（单层）读取、操作与核对；未支持框架标注未读
+- [x] 按顶层来源→嵌入来源记住网站授权，跨任务/重启沿用并可移除
 - [x] 长页面：正文、控件、区域、单区域文字的分段读取与名称查找；按需省略整页正文
 - [x] 动作：fill、check、select、click、hover、scroll、wheel、press_key、double_click、right_click、navigate
 - [x] 点击遮挡检查、SVG 命中点击、目标变化中断

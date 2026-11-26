@@ -136,7 +136,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       }
       if(m.type==='task:members')return runtime.members(taskTab,m.taskId);
       if(m.type==='task:member-change')return runtime.changeMembers(taskTab,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
-      if(m.type==='task:scope-change')return runtime.changeOrigins(taskTab,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action});
+      if(m.type==='task:scope-change')return runtime.changeOrigins(taskTab,{taskId:m.taskId,expectedRevision:m.expectedRevision,origin:m.origin,action:m.action,rememberFrame:m.rememberFrame});
       if(m.type==='task:diagnostics')return runtime.diagnostics(taskTab,m.taskId);
       if(m.type==='task:history')return history.list();
       if(m.type==='task:history-get'||m.type==='task:history-delete'){

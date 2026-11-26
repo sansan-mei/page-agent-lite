@@ -32,7 +32,7 @@ git diff --check
 | `scripts/editable-smoke.cjs` | 纯文本 contenteditable |
 | `scripts/hover-controls-smoke.cjs` | 可点击行内的悬浮操作（a、aria-haspopup）、visibility 覆盖与继承隐藏、真实点击 |
 | `scripts/overlay-smoke.cjs` | 部分遮挡改点可见点、完全遮挡回报遮挡层控件 key 且不派发、按 key 关闭浮层后重试、固定底栏居中后点击 |
-| `scripts/cross-origin-extension-smoke.cjs` | 加载真实 MV3 扩展，真实框架发现、权限范围、isolated world 注入、敏感授权、填写、核对、旧快照拒绝、真实运行器权限暂停不重试及加入范围后继续、重复/失败核对不移动指针；不点付款，模型决策为本机函数 stub |
+| `scripts/cross-origin-extension-smoke.cjs` | 加载真实 MV3 扩展，真实框架发现、权限范围、isolated world 注入、敏感授权、填写、核对、旧快照拒绝、真实运行器权限暂停不重试及加入范围后继续、重复/失败核对不移动指针、记住授权跨浏览器重启、其他顶层来源隔离与忘记授权；不点付款，模型决策为本机函数 stub |
 | `scripts/cross-origin-frame-smoke.cjs` | 真实跨源 DOM + Chrome API 替身：任务范围、敏感字段授权、填写与核对、过期快照、取消、遮挡、权限撤销与框架导航；不点付款 |
 | `scripts/iframe-smoke.cjs` | 同源 iframe 读取与 frame 标注、跨源/嵌套标注未读、框架内敏感字段排除、填写/勾选/选择/按键/点击、区域核对、框架内滚入视野、顶层遮挡、移除框架后过期 |
 | `scripts/input-smoke.cjs`、`wheel-smoke.cjs`、`svg-click-smoke.cjs`、`page-pointer-smoke.cjs` | 按键/双击/右键、滚轮、SVG 命中点击、虚拟指针常驻、移动途中换目标/重复定位、到达后点击反馈、滚动/缩放/清理与减少动态效果 |

@@ -1,5 +1,7 @@
 (function(root){
   'use strict';
+  let grantWrites=Promise.resolve();
+  const validOrigin=value=>{try{const u=new URL(value);return typeof value==='string'&&value.length<=300&&['http:','https:'].includes(u.protocol)&&u.origin===value&&!u.username&&!u.password&&!u.hostname.includes('*');}catch{return false;}};
   function create(chrome,T){
     const G=()=>typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;
     const fail=(message,code='STALE')=>Object.assign(new Error(message),{code,beforeDispatch:true});
@@ -8,7 +10,26 @@
       if(!response?.ok)throw Object.assign(new Error(response?.error||'框架通信中断'),{code:response?.code,result:response?.result});
       return response.value;
     }
-    async function permitted(origin,policy){return policy?.allowedOrigins?.includes(origin)&&await chrome.permissions.contains({origins:[origin+'/*']});}
+    async function grantPairs(){
+      if(!chrome.storage?.local)return [];
+      const data=(await chrome.storage.local.get('frameSiteGrants')).frameSiteGrants;
+      return Array.isArray(data)?data.filter(p=>p&&validOrigin(p.parent)&&validOrigin(p.frame)).slice(0,512):[];
+    }
+    async function frameOrigins(parent){return [...new Set((await grantPairs()).filter(p=>p.parent===parent).map(p=>p.frame))];}
+    function editGrant(parent,frame,allow){
+      const work=grantWrites.catch(()=>{}).then(async()=>{
+        if(!validOrigin(parent)||!validOrigin(frame))throw new Error('Invalid embedded website origin');
+        if(!chrome.storage?.local)throw new Error('Embedded website permission storage unavailable');
+        const pairs=(await grantPairs()).filter(p=>p.parent!==parent||p.frame!==frame);
+        if(allow){if(pairs.length>=512)throw new Error('Remembered embedded website permissions limit reached');pairs.push({parent,frame});}
+        await chrome.storage.local.set({frameSiteGrants:pairs});
+      });grantWrites=work;return work;
+    }
+    async function permitted(origin,policy){
+      if(!policy?.origin||!validOrigin(origin))return false;
+      const allowed=policy.allowedOrigins?.includes(origin)||(await frameOrigins(policy.origin)).includes(origin);
+      return allowed&&await chrome.permissions.contains({origins:[origin+'/*']});
+    }
     async function observe(tabId,top,textOffset,policy){
       if(!chrome.webNavigation?.getAllFrames||!policy||!top.page?.frames)return top;
       const frames=await chrome.webNavigation.getAllFrames({tabId})||[],routes={};
@@ -91,7 +112,7 @@
       }
       return outcome;
     }
-    return {observe,execute};
+    return {observe,execute,frameOrigins,rememberFrame:(parent,frame)=>editGrant(parent,frame,true),forgetFrame:(parent,frame)=>editGrant(parent,frame,false)};
   }
   root.PageAgentFrameTools={create};if(typeof module!=='undefined')module.exports=root.PageAgentFrameTools;
 })(globalThis);

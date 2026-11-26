@@ -87,7 +87,7 @@
     for(const origin of frameAccess?.origins||[]){
       const row=document.createElement('div'),label=document.createElement('p'),button=document.createElement('button');
       label.textContent=origin;button.type='button';button.textContent=t('spFrameAccessAllow');button.disabled=busy;
-      button.addEventListener('click',()=>editScope('add',origin,true));row.append(label,button);$('frame-access-origins').append(row);
+      button.addEventListener('click',()=>editScope('add',origin,true,true));row.append(label,button);$('frame-access-origins').append(row);
     }
     const tabRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='tab_access'?current.tabRequest:null;
     $('tab-access').hidden=!tabRequest;
@@ -113,10 +113,18 @@
     if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
     $('scope-add').disabled=busy||!editableScope;$('scope-origin').disabled=busy||!editableScope;
-    const scopeSignature=JSON.stringify([current?.taskId,current?.scopeRevision,current?.allowedOrigins,busy]);
+    const scopeSignature=JSON.stringify([current?.taskId,current?.scopeRevision,current?.allowedOrigins,current?.rememberedFrameOrigins,busy]);
     if($('scope-origins').dataset.signature!==scopeSignature){
       $('scope-origins').dataset.signature=scopeSignature;$('scope-origins').replaceChildren();
       for(const origin of current?.allowedOrigins||[]){const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');label.textContent=origin;button.type='button';button.textContent=t('spRemoveFromTask');button.dataset.origin=origin;button.disabled=busy||!editableScope;li.append(label,button);$('scope-origins').append(li);}
+    }
+    const remembered=current?.rememberedFrameOrigins||[];
+    $('frame-grants').hidden=historyOpen||!editableScope||!remembered.length;
+    $('frame-grant-origins').replaceChildren();
+    for(const origin of remembered){
+      const li=document.createElement('li'),label=document.createElement('span'),button=document.createElement('button');
+      label.textContent=origin;button.type='button';button.textContent=t('spForgetFrameOrigin');button.disabled=busy;
+      button.addEventListener('click',()=>editScope('remove',origin));li.append(label,button);$('frame-grant-origins').append(li);
     }
     const list=$('conversation-list');list.replaceChildren();
     const items=historyIndex.map(item=>item.taskId===current?.taskId?{...item,goal:current.goal,status:current.status,updatedAt:current.updatedAt}:item);
@@ -307,7 +315,7 @@
   $('script-revoke').addEventListener('click',()=>{if(task?.scriptApproval)void action('task:script-revoke',{taskId:task.taskId});});
   for(const [id,allow] of [['tab-access-allow',true],['tab-access-deny',false]])$(id).addEventListener('click',()=>{if(task?.tabRequest)void action('task:tab-access',{taskId:task.taskId,requestId:task.tabRequest.id,allow});});
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
-  function editScope(action,origin,continueTask=false){
+  function editScope(action,origin,continueTask=false,rememberFrame=false){
     if(busy||!task||!Number.isSafeInteger(task.scopeRevision))return;
     const target=tabId,taskId=task.taskId,expectedRevision=task.scopeRevision,view=selection,draft=$('scope-origin').value;
     let permission;
@@ -317,8 +325,8 @@
       try{
         if(!await permission)throw new Error(t('spScopeCanceled'));
         if(view!==selection||target!==tabId||task?.taskId!==taskId||task.scopeRevision!==expectedRevision)throw new Error(t('spScopeTaskChanged'));
-        let value=await send('task:scope-change',{tabId:target,taskId,expectedRevision,origin,action});
-        if(continueTask)value=await send('task:resume',{tabId:target});
+        let value=await send('task:scope-change',{tabId:target,taskId,expectedRevision,origin,action,...(rememberFrame?{rememberFrame:true}:{})});
+        if(continueTask){const remembered=value.rememberedFrameOrigins;value=await send('task:resume',{tabId:target});if(remembered)value={...value,rememberedFrameOrigins:remembered};}
         if(view===selection&&target===tabId){task=value;$('scope-status').textContent=continueTask?t('spScopeContinued'):t('spScopeUpdated');if(action==='add'&&$('scope-origin').value===draft)$('scope-origin').value='';}
       }catch(error){if(view===selection)$('scope-status').textContent=error.message;}
       finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}void refreshPermissions();}

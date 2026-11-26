@@ -24,3 +24,26 @@ test('stale parent snapshot prevents child-frame dispatch',async()=>{
 test('frame moved below another frame is rejected before dispatch',async()=>{
  const f=fixture();f.chrome.webNavigation.getAllFrames=async()=>[{frameId:2,parentFrameId:9,url:f.pending.frameRoute.url}];await assert.rejects(f.run,e=>e.code==='STALE');assert.equal(f.actions,0);
 });
+
+
+test('remembered A-to-B access survives tool recreation without granting C-to-B or bypassing browser revocation',async()=>{
+ const f=fixture();let local={};
+ f.chrome.storage={local:{get:async()=>structuredClone(local),set:async data=>{local={...local,...structuredClone(data)};}}};
+ f.policy.allowedOrigins=['https://shop.test'];
+ const first=create(f.chrome,T);await first.rememberFrame('https://shop.test','https://pay.test');
+ assert.deepEqual(await create(f.chrome,T).frameOrigins('https://shop.test'),['https://pay.test']);
+ await f.run();assert.equal(f.actions,1);
+ f.policy.origin='https://another.test';f.policy.allowedOrigins=['https://another.test'];
+ await assert.rejects(f.run,e=>e.code==='PERMISSION_DENIED');assert.equal(f.actions,1);
+ f.policy.origin='https://shop.test';f.policy.allowedOrigins=['https://shop.test'];f.permitted=false;
+ await assert.rejects(f.run,e=>e.code==='PERMISSION_DENIED');assert.equal(f.actions,1);
+ f.permitted=true;await create(f.chrome,T).forgetFrame('https://shop.test','https://pay.test');
+ await assert.rejects(f.run,e=>e.code==='PERMISSION_DENIED');assert.equal(f.actions,1);
+});
+test('concurrent remembered grants retain unrelated pairs and reject malformed origins',async()=>{
+ let data={};const chrome={storage:{local:{get:async()=>structuredClone(data),set:async value=>{data={...data,...structuredClone(value)};}}}};
+ const a=create(chrome,T),b=create(chrome,T);
+ await Promise.all([a.rememberFrame('https://a.test','https://b.test'),b.rememberFrame('https://c.test','https://d.test')]);
+ assert.deepEqual(await a.frameOrigins('https://a.test'),['https://b.test']);assert.deepEqual(await b.frameOrigins('https://c.test'),['https://d.test']);
+ for(const origin of ['https://a.test/path','https://user:pass@a.test','https://*.a.test','file:///tmp'])await assert.rejects(()=>a.rememberFrame(origin,'https://b.test'));
+});

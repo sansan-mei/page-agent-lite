@@ -93,10 +93,10 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 
 #task-scope {margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:10px;}
 #task-scope p {font-size:11px;color:var(--muted);}
-#scope-origins {list-style:none;padding:0;}
-#scope-origins li {display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;overflow-wrap:anywhere;}
-#scope-origins span {min-width:0;}
-#scope-origins button {flex:none;}
+#scope-origins, #frame-grant-origins {list-style:none;padding:0;}
+#scope-origins li, #frame-grant-origins li {display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;overflow-wrap:anywhere;}
+#scope-origins span, #frame-grant-origins span {min-width:0;}
+#scope-origins button, #frame-grant-origins button {flex:none;}
 #scope-form label {display:block;margin-bottom:6px;}
 #scope-form input {width:100%;box-sizing:border-box;}
 #task-members h3 {margin:12px 0 4px;font-size:12px;}

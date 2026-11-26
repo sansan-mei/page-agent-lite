@@ -9,10 +9,12 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
  try{
  const ext=path.join(tmp,'extension');await fs.cp(path.join(__dirname,'../extension'),ext,{recursive:true});
  const manifest=JSON.parse(await fs.readFile(path.join(ext,'manifest.json'),'utf8'));
- manifest.host_permissions=['https://merchant.test/*','https://payment.test/*'];await fs.writeFile(path.join(ext,'manifest.json'),JSON.stringify(manifest));
- context=await chromium.launchPersistentContext(path.join(tmp,'profile'),{headless:true,channel:'chromium',executablePath:process.env.PAGE_AGENT_CHROMIUM||undefined,args:['--disable-extensions-except='+ext,'--load-extension='+ext]});
- const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
- await context.route('https://**/*',r=>r.fulfill({contentType:'text/html',body:r.request().url().startsWith('https://merchant.test')?'<h1>Checkout</h1><iframe title="Payment" src="https://payment.test/form" style="width:500px;height:300px"></iframe>':'<input aria-label="Name"><input aria-label="Card" autocomplete="cc-number"><button onclick="window.paid=true">Pay</button>'}));
+ manifest.host_permissions=['https://merchant.test/*','https://other-merchant.test/*','https://payment.test/*'];await fs.writeFile(path.join(ext,'manifest.json'),JSON.stringify(manifest));
+ const launchOptions={headless:true,channel:'chromium',executablePath:process.env.PAGE_AGENT_CHROMIUM||undefined,args:['--disable-extensions-except='+ext,'--load-extension='+ext]};
+ context=await chromium.launchPersistentContext(path.join(tmp,'profile'),launchOptions);
+ let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
+ const serveFixture=r=>r.fulfill({contentType:'text/html',body:r.request().url().match(/^https:\/\/(merchant|other-merchant)\.test/)?'<h1>Checkout</h1><iframe title="Payment" src="https://payment.test/form" style="width:500px;height:300px"></iframe>':'<input aria-label="Name"><input aria-label="Card" autocomplete="cc-number"><button onclick="window.paid=true">Pay</button>'});
+ await context.route('https://**/*',serveFixture);
  const page=await context.newPage();await page.goto('https://merchant.test/');
  await worker.evaluate(async()=>{globalThis.frameTestTools=PageAgentBrowserTools.createBrowserTools(chrome);globalThis.frameTestTab=(await chrome.tabs.query({url:'https://merchant.test/*'}))[0].id;globalThis.frameTestPolicy={origin:'https://merchant.test',allowedOrigins:['https://merchant.test'],sensitiveFields:false};});
  let s=await worker.evaluate(()=>frameTestTools.observe(frameTestTab,0,frameTestPolicy));assert.equal(s.page.frames[0].reason,'permission_required');
@@ -47,17 +49,32 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
   await runtime.tick(frameTestTab);const blocked=await runtime.get(frameTestTab);
   if(blocked.reason!=='frame_access')throw Error('Expected frame permission card: '+blocked.reason);
   await runtime.tick(frameTestTab);const requestCount=requests;
-  await runtime.changeOrigins(frameTestTab,{taskId:blocked.taskId,expectedRevision:blocked.scopeRevision,origin:'https://payment.test',action:'add'});
+  await runtime.changeOrigins(frameTestTab,{taskId:blocked.taskId,expectedRevision:blocked.scopeRevision,origin:'https://payment.test',action:'add',rememberFrame:true});
   await runtime.resume(frameTestTab);await runtime.tick(frameTestTab);
   const after=await runtime.get(frameTestTab);
-  return {requestCount,helpAttempts:blocked.helpAttempts||0,origins:blocked.frameAccessRequest.origins,sameTask:initial.taskId===after.taskId,status:after.status};
+  return {requestCount,helpAttempts:blocked.helpAttempts||0,origins:blocked.frameAccessRequest.origins,sameTask:initial.taskId===after.taskId,status:after.status,allowedOrigins:after.allowedOrigins};
  });
+ assert.deepEqual(recovery.allowedOrigins,['https://merchant.test'],'remembered frame access must not become task-wide origin access');
  assert.equal(recovery.requestCount,1);assert.equal(recovery.helpAttempts,0);assert.deepEqual(recovery.origins,['https://payment.test']);assert.equal(recovery.sameTask,true);
  assert.equal(await page.frames()[1].locator('[aria-label="Name"]').inputValue(),'Scoped Customer');
  assert.equal(await page.locator('[data-page-agent="pointer"]').count(),1,'active task keeps top pointer');
  await worker.evaluate(()=>frameTestRuntime.stop(frameTestTab));
  for(const frame of page.frames())assert.equal(await frame.locator('[data-page-agent="pointer"]').count(),0,'stop clears pointer in every frame');
  assert.equal(await page.frames()[1].evaluate(()=>!!window.paid),false);
- console.log('Real MV3 cross-origin smoke passed: actual webNavigation, scoped injection, sensitive authorization, fill, verification, stale rejection, runtime permission pause without retries and scoped continuation; Pay untouched.');
+ // Close the browser process: local origin pairs survive while the next task starts with only A.
+ await context.close();context=await chromium.launchPersistentContext(path.join(tmp,'profile'),launchOptions);
+ worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');await context.route('https://**/*',serveFixture);
+ const later=await context.newPage();await later.goto('https://merchant.test/');
+ const reused=await worker.evaluate(async()=>{
+  const tools=PageAgentBrowserTools.createBrowserTools(chrome),tab=(await chrome.tabs.query({url:'https://merchant.test/*'}))[0];
+  return tools.observe(tab.id,0,{origin:'https://merchant.test',allowedOrigins:['https://merchant.test'],sensitiveFields:false});
+ });assert(reused.page.elements.some(e=>e.label==='Name'));assert(!reused.page.elements.some(e=>e.label==='Card'),'saved website access must not grant sensitive fields');
+ await later.goto('https://other-merchant.test/');
+ const other=await worker.evaluate(async()=>{const tools=PageAgentBrowserTools.createBrowserTools(chrome),tab=(await chrome.tabs.query({url:'https://other-merchant.test/*'}))[0];return tools.observe(tab.id,0,{origin:'https://other-merchant.test',allowedOrigins:['https://other-merchant.test']});});
+ assert.equal(other.page.frames[0].reason,'permission_required');
+ await later.goto('https://merchant.test/');await worker.evaluate(async()=>{const tools=PageAgentBrowserTools.createBrowserTools(chrome);await tools.forgetFrame('https://merchant.test','https://payment.test');});
+ const forgotten=await worker.evaluate(async()=>{const tools=PageAgentBrowserTools.createBrowserTools(chrome),tab=(await chrome.tabs.query({url:'https://merchant.test/*'}))[0];return tools.observe(tab.id,0,{origin:'https://merchant.test',allowedOrigins:['https://merchant.test']});});
+ assert.equal(forgotten.page.frames[0].reason,'permission_required');
+ console.log('Real MV3 cross-origin smoke passed: actual webNavigation, scoped injection, sensitive authorization, fill, verification, stale rejection, runtime permission pause without retries and scoped continuation, remembered grants across browser restart, C isolation and forgetting; Pay untouched.');
  }finally{if(context)await context.close();await fs.rm(tmp,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});
