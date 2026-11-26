@@ -4,11 +4,10 @@
 // send them to the extension details page for the browser toggle the extension cannot flip.
 (() => {
   const $ = id => document.getElementById(id), t = PageAgentI18n.t, S = PageAgentScriptTools;
-  const required = (chrome.runtime?.getManifest?.().permissions || []).includes(S.permission);
   let version = 0;
-  // off: permission missing · toggle: browser toggle off · on: ready · dev: developer build auto-approves.
-  function stateName(state) { return state.available ? (required ? 'dev' : 'on') : required || state.permission ? 'toggle' : 'off'; }
-  const badges = {off: 'optScriptsBadgeOff', toggle: 'optScriptsBadgeToggle', on: 'optScriptsBadgeOn', dev: 'optScriptsBadgeDev'};
+  // off: permission missing · toggle: browser toggle off · on: ready.
+  function stateName(state) { return state.available ? 'on' : state.permission ? 'toggle' : 'off'; }
+  const badges = {off: 'optScriptsBadgeOff', toggle: 'optScriptsBadgeToggle', on: 'optScriptsBadgeOn'};
   async function refresh() {
     const current = ++version;
     let state = {permission: false, api: false, available: false};
@@ -16,10 +15,10 @@
     if (current !== version) return state;
     const name = stateName(state);
     $('script-badge').setAttribute('data-state', name); $('script-badge').textContent = t(badges[name]);
-    $('script-status').textContent = name === 'toggle' ? t(required ? 'optScriptsDevToggle' : 'optScriptsNeedToggle') : '';
+    $('script-status').textContent = name === 'toggle' ? t('optScriptsNeedToggle') : '';
     $('script-grant').hidden = name !== 'off';
     $('script-details').hidden = name !== 'toggle';
-    $('script-revoke').hidden = required || !state.permission;
+    $('script-revoke').hidden = !state.permission;
     return state;
   }
   $('script-grant').addEventListener('click', () => {

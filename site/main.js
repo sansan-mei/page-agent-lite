@@ -1,8 +1,6 @@
 // Landing page behaviour: language switch, GSAP motion and the hero demo loop.
 (function () {
   'use strict';
-  // Set this once the Chrome Web Store listing is live.
-  const STORE_URL = '';
   const params = new URLSearchParams(location.search);
   const SHOT = params.get('shot');
   const STATIC = params.has('static') || !!SHOT;
@@ -34,7 +32,6 @@
     }
     document.querySelectorAll('[data-i18n-aria]').forEach(n => n.setAttribute('aria-label', t(n.dataset.i18nAria)));
     document.getElementById('lang').textContent = lang === 'zh' ? 'EN' : '中文';
-    if (STORE_URL) document.querySelectorAll('.store-link').forEach(a => { a.href = STORE_URL; a.textContent = t('cta.storeLive'); });
     splitHeadings();
   }
 

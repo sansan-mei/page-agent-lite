@@ -40,7 +40,6 @@ button.link:hover:not(:disabled) { background: transparent; color: var(--text); 
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge[data-state="on"] { color: #15803d; background: #effaf2; border-color: #bfe6cb; }
 .badge[data-state="toggle"] { color: var(--warm); background: #fdf6e7; border-color: #f0d9a8; }
-.badge[data-state="dev"] { color: #6d28d9; background: #f5f0ff; border-color: #dccdfb; }
 
 /* Folded areas */
 details.more { padding: 0; border-top: 1px solid var(--line); }

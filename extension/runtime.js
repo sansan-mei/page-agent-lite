@@ -26,7 +26,7 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), autoApproveScripts=false, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
@@ -701,8 +701,8 @@
           }
         }
         const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,sensitive:target?.sensitive===true?true:undefined,operationId:uuid(),expected,time:call.time};
-        if(plan.action==='run_script'&&!autoApproveScripts){
-          // Store build: nothing runs until the user approves this exact code in the side panel, or the user
+        if(plan.action==='run_script'){
+          // Nothing runs until the user approves this exact code in the side panel, or the user
           // allowed scripts for this task on this same tab and origin. Decided on the stored record so a revoke wins.
           const {code,world}=S.source(plan);let granted=false;
           const decided=await update(tabId,token,t=>{

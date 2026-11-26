@@ -18,7 +18,7 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   // run_script needs userScripts; it is optional so installing shows no extra warning.
   assert.deepEqual(manifest.optional_permissions, ['userScripts']);assert.ok(!manifest.permissions.includes('userScripts'));
-  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'article-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js']) {
+  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js']) {
     assert.ok(fs.statSync(path.join(dir, file)).isFile(), file);
   }
 });
@@ -44,7 +44,6 @@ test('options requests API permission from submit gesture and refuses unsafe end
   assert.deepEqual({...sent.find(m => m.type === 'setAgentPreferences').preferences}, {maxSteps: 100, contextTokens: 100000, compressionThreshold: 80, inputChars: 2000});
   assert.equal(document.getElementById('status').hidden, false);
   assert.equal(sent.find(m => m.type === 'configure').config.endpoint, 'https://api.test/v1');
-  assert.equal(sent.some(m => m.type === 'enableSite'), false);
 });
 
 test('options script section requests the optional userScripts permission from the click and shows status',async()=>{
@@ -79,22 +78,6 @@ test('lite options hide power tools by default and both saves use the same form'
  for(const id of ['save-settings','save-more'])assert.equal(document.getElementById(id).closest('form').id,'config');
  for(const id of ['language-choice','max-steps','reasoningEffort','grant-all','welcome-image-pick'])assert.equal(document.getElementById(id).closest('details').id,'more');
  assert.equal(document.querySelectorAll('form form').length,0);
-});
-
-test('developer script row shows auto-approval without store permission actions',async()=>{
- const {document,window}=parseHTML(fs.readFileSync(path.join(dir,'options.html'),'utf8'));
- let api=true;
- const chrome={runtime:{getManifest:()=>({permissions:['userScripts']})},permissions:{async contains(){return true;},onAdded:{addListener(){}},onRemoved:{addListener(){}}}};
- Object.defineProperty(chrome,'userScripts',{get(){return api?{getScripts:async()=>[],execute:async()=>[]}:undefined;}});
- runUi('extension/script-settings.js',{document,window,chrome,PageAgentScriptTools:require('../extension/script-tools.js')});
- await flush();await flush();
- assert.equal(document.getElementById('script-badge').getAttribute('data-state'),'dev');
- assert.match(document.getElementById('script-badge').textContent,/开发版/);
- for(const id of ['script-grant','script-details','script-revoke'])assert.equal(document.getElementById(id).hidden,true);
- api=false;document.dispatchEvent(new window.Event('visibilitychange'));await flush();await flush();
- assert.equal(document.getElementById('script-details').hidden,false);
- assert.equal(document.getElementById('script-grant').hidden,true);
- assert.match(document.getElementById('script-status').textContent,/允许用户脚本/);
 });
 
 // ── Sender semantics under realistic MV3 conditions ──────────────────────

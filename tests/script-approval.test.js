@@ -6,7 +6,7 @@ const S=require('../extension/script-tools.js');
 const {createTaskStore}=require('../extension/task-store.js');
 
 const CODE='// read the title\n'+'const parts=[];\n'.repeat(500)+'return document.title;';
-function fixture({autoApproveScripts=false,api=true,plans=null,realStore=false,permission=null}={}){
+function fixture({api=true,plans=null,realStore=false,permission=null}={}){
   const page={url:'https://example.test/page',documentId:'d1'},executes=[],models=[],phases=[];let snapshots=0,seq=0;
   const data=new Map();
   const session={},area={async get(k){return structuredClone(k===null?session:{[k]:session[k]});},async set(v){Object.assign(session,structuredClone(v));},async remove(k){delete session[k];}};
@@ -30,7 +30,7 @@ function fixture({autoApproveScripts=false,api=true,plans=null,realStore=false,p
   const deps={store,tools:createBrowserTools(chrome),schedule(){},cancelSchedule:async()=>{},uuid:()=>'u'+(++seq),
     preferences:async()=>({maxSteps:50,contextTokens:32768}),
     model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),capabilities});return {text:JSON.stringify(queue.shift()||{reply:'Done',action:'done'})};},
-    scriptAccess:()=>S.status(chrome),autoApproveScripts};
+    scriptAccess:()=>S.status(chrome)};
   return {page,executes,models,phases,store,chrome,runtime:createRuntime(deps)};
 }
 async function paused(f){await f.runtime.start(1,'Get the title');await f.runtime.tick(1);return f.runtime.get(1);}
@@ -105,9 +105,7 @@ test('stop, takeover, supplemental instructions and navigation discard a pending
   }
 });
 
-test('developer flag executes without a pause; unavailable scripts are hidden and pause with instructions',async()=>{
-  const dev=fixture({autoApproveScripts:true});await dev.runtime.start(1,'Get the title');await dev.runtime.tick(1);
-  assert.equal(dev.executes.length,1);assert.equal((await dev.runtime.get(1)).scriptRequest,undefined);
+test('unavailable scripts are hidden and pause with instructions',async()=>{
   const off=fixture({api:false}),t=await paused(off);
   assert.equal(off.models[0].capabilities.scripts,false);
   assert.equal(t.status,'paused');assert.equal(t.reason,'access');assert.match(t.events.at(-1).text,/允许用户脚本/);assert.equal(off.executes.length,0);
@@ -124,7 +122,6 @@ test('only the trusted side panel can send task:script-approval',async()=>{
     PageAgentTaskStore:{createTaskStore(){return {async migrate(){}};}},PageAgentBrowserTools:{createBrowserTools(){return {};}},
     PageAgentRuntime:{createRuntime(d){deps=d;return runtime;}}});
   await new Promise(r=>setImmediate(r));
-  assert.equal(deps.autoApproveScripts,false);
   const send=(m,s)=>new Promise(r=>listener(m,s,r));
   const message={type:'task:script-approval',tabId:1,taskId:'t',requestId:'r',allow:true};
   for(const sender of [{id:'other',url:'chrome-extension://test/sidepanel.html',frameId:0},{id:'test',url:'chrome-extension://test/sidepanel.html',frameId:1},{id:'test',url:'chrome-extension://test/options.html',frameId:0},{id:'test',url:'https://example.test/',frameId:0,tab:{id:1}}])
@@ -226,10 +223,4 @@ test('task approval is bound to the origin: another origin pauses again, returni
   const other=await h.store.get(1);other.scriptApproval={scope:'task',origin:'https://example.test',tabId:2,grantedAt:1};await h.store.set(1,other);
   await h.runtime.tick(1);after=await h.runtime.get(1);
   assert.equal(h.executes.length,0);assert.equal(after.reason,'script_approval');
-});
-
-test('developer build ignores approvals entirely (no card, every script runs)',async()=>{
-  const dev=fixture({autoApproveScripts:true,plans:[RUN(1),RUN(2)]});await dev.runtime.start(1,'Get the title');
-  for(let i=0;i<3;i++)await dev.runtime.tick(1);
-  assert.deepEqual(runs(dev),['1','2']);const after=await dev.runtime.get(1);assert.ok(!after.scriptRequest);assert.ok(!after.scriptApproval);
 });

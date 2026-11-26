@@ -6,9 +6,8 @@
 
 1. 安装 Node.js 22+，执行 `npm ci --ignore-scripts --no-audit --no-fund`。
 2. 在 Chrome / Edge 开发者模式加载 `extension/`。
-3. 调试 `run_script` 时可运行 `npm run build:dev`，改为加载 `dist/extension-dev/`（可与商店版共存），并在扩展详情页打开「允许用户脚本」；开发版内置脚本权限、脚本不经批准直接执行，说明见 [run_script](docs/browser-tools.md#run_script)。开发版只供本地使用，不上传商店。
-4. 修改后重新加载扩展并刷新测试页。不要使用真实账号提交不可撤销的测试数据。
-5. 执行 `npm test`、扩展脚本 `node --check` 和 `git diff --check`。浏览器检查见 [测试文档](docs/testing.md)。
+3. 修改后重新加载扩展并刷新测试页。不要使用真实账号提交不可撤销的测试数据。
+4. 执行 `npm test`、扩展脚本 `node --check` 和 `git diff --check`。浏览器检查见 [测试文档](docs/testing.md)。
 
 ## 宣传页
 
@@ -16,7 +15,6 @@
 
 - 本地预览：先运行一次 `scripts/store-shots.cjs`（会复制图片），再直接打开 `site/index.html`；`?lang=en` 切英文，`?static` 关闭动画。
 - 商店截图：`PAGE_AGENT_CHROMIUM=<chrome 路径> node scripts/store-shots.cjs`，输出中英文 1280×800 截图和 440×280、1400×560 宣传图到 `dist/store/`；`?shot=<区块 class>` 单独渲染某个区块。
-- 上架后把 `site/main.js` 的 `STORE_URL` 改成商店地址，按钮会变成「免费添加到 Chrome」。
 
 ## 发版
 

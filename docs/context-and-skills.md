@@ -11,7 +11,7 @@
 
 ## 模型响应
 
-执行请求有两种协议，由设置 `toolMode`（auto 默认 / native / json）决定；摘要、翻译、编辑请求始终是 JSON/纯文本，不带 tools。
+执行请求有两种协议，由设置 `toolMode`（auto 默认 / native / json）决定；上下文摘要请求始终是纯文本，不带 tools。
 
 | 协议 | 请求 | 回复 |
 |---|---|---|

@@ -794,9 +794,6 @@
   "optScriptsDetailsFailed": {
     "message": "无法打开扩展详情页，请手动访问 chrome://extensions。"
   },
-  "optScriptsDevToggle": {
-    "message": "开发版：在扩展详情页打开「允许用户脚本」后可用。"
-  },
   "optLanguageBrowser": {
     "message": "跟随浏览器（{1}）"
   },
@@ -835,9 +832,6 @@
   },
   "optScriptsBadgeOn": {
     "message": "已开启"
-  },
-  "optScriptsBadgeDev": {
-    "message": "已自动批准（开发版）"
   },
   "optKeyPlaceholder": {
     "message": "本机服务可留空"
