@@ -691,7 +691,7 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(corrected.results.at(-1).action,'done');
   const followup=await command('task:submit',{goal:'请再次核对当前选中状态'});assert.equal(followup.ok,true);assert.equal(followup.value.taskId,corrected.taskId);
   await poll(async()=>((await command('task:get')).value?.status)==='completed','completed conversation follow-up',20000);
-  const continuedJudgment=(await command('task:get')).value;assert.equal(continuedJudgment.taskId,corrected.taskId);assert.equal(continuedJudgment.steps,1);
+  const continuedJudgment=(await command('task:get')).value;assert.equal(continuedJudgment.taskId,corrected.taskId);assert.equal(work(continuedJudgment),1);
   assert.equal(continuedJudgment.results.filter(r=>r.action==='check').length,2);assert.equal(continuedJudgment.results.filter(r=>r.action==='done').length,2);
   await optionsPage.locator('#management').evaluate(el=>el.open=true);
   await optionsPage.locator('#tabs-refresh').click();
