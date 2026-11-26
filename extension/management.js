@@ -37,6 +37,34 @@
     }catch(e){if(target===tabId&&version===selection){$('site-memory-status').textContent=e.message;siteVersion=null;}}
     finally{siteBusy=false;siteControls();}
   }
+  // Skills are saved by the task review; the page only lists and deletes them.
+  let skillVersion=null,skillNotes=[],skillRead=0,skillBusy=false;
+  function skillControls(){$('site-skill-clear').disabled=skillBusy||skillVersion===null||!skillNotes.length;for(const button of $('site-skills').querySelectorAll('button'))button.disabled=skillBusy;}
+  async function refreshSkills(){
+    const target=tabId,version=selection,read=++skillRead;if(target===null||!tabOrigin)return;
+    try{
+      const data=await send('task:site-skills');if(target!==tabId||version!==selection||read!==skillRead)return;
+      if(!data||data.origin!==tabOrigin||!Array.isArray(data.notes))throw new Error(t('commonMemoryReadFailed'));
+      skillVersion=data.version;skillNotes=data.notes;$('site-skills').replaceChildren();
+      for(const skill of data.notes){
+        const item=document.createElement('div'),title=document.createElement('p'),steps=document.createElement('p');
+        title.textContent=t('commonLabelValue',skill.id,skill.description);steps.textContent=skill.text;item.append(title,steps);
+        const remove=document.createElement('button');remove.type='button';remove.textContent=t('commonDelete');remove.addEventListener('click',()=>void changeSkills('delete',{id:skill.id}));item.append(remove);
+        $('site-skills').append(item);
+      }
+      $('site-skill-status').textContent=data.notes.length?t('mgSkillCount',data.notes.length):t('mgSkillEmpty');
+    }catch(e){if(target===tabId&&version===selection&&read===skillRead){skillVersion=null;skillNotes=[];$('site-skill-status').textContent=e.message;}}
+    finally{skillControls();}
+  }
+  async function changeSkills(action,extra={}){
+    if(skillBusy||skillVersion===null||tabId===null)return;
+    skillBusy=true;skillControls();
+    try{await send('task:site-skill-change',{origin:tabOrigin,action,expectedVersion:skillVersion,...extra});}
+    catch(e){$('site-skill-status').textContent=e.message;}
+    finally{skillBusy=false;}
+    await refreshSkills();
+  }
+  $('site-skill-clear').addEventListener('click',()=>void changeSkills('clear'));
   $('site-memory-refresh').addEventListener('click',()=>void refreshSiteMemory());
   $('site-memory-clear').addEventListener('click',()=>void changeSiteMemory('clear'));
   $('site-memory-form').addEventListener('submit',e=>{e.preventDefault();void changeSiteMemory('write',{id:$('site-memory-id').value.trim(),text:$('site-memory-text').value.trim()});});
@@ -50,7 +78,8 @@
     tabId=option?Number(option.value):null;tabOrigin=option?.dataset.origin||null;
     siteVersion=null;siteData=null;$('site-memories').replaceChildren();
     $('site-memory-id').value='';$('site-memory-text').value='';$('site-memory-status').textContent='';
-    siteControls();void refreshSiteMemory();
+    skillVersion=null;skillNotes=[];$('site-skills').replaceChildren();$('site-skill-status').textContent='';
+    siteControls();void refreshSiteMemory();void refreshSkills();
   }
   async function tabs(){
     try{

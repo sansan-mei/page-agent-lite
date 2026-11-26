@@ -26,7 +26,7 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, siteSkills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
@@ -167,6 +167,32 @@
         if(signal.aborted)return;
         t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:refOf(t),request:plan.action.endsWith('_read')?plan:withoutSubgoals(plan),time:Date.now(),action:plan.action,result});event(t,'网站长期记忆：'+plan.action+(result.error?' · '+result.error:' · 已完成'));await store.set(t.tabId,t);
       });
+    }
+    // Skills are written only by the task review or deleted by the user; the agent can only read them.
+    async function siteSkillRead(task,plan,signal){
+      await serial(task.tabId,async()=>{
+        const t=await store.get(task.tabId);if(t?.token!==task.token||signal.aborted||!ACTIVE.has(t.status))return;
+        let result;
+        try{
+          if(!siteSkills||t.origin==='browser')throw new Error('当前页面没有网站技能');
+          const current=await siteSkills.read(t.origin),skill=current.notes.find(n=>n.id===plan.id);
+          result=skill?{version:current.version,skill:{id:skill.id,description:skill.description,text:skill.text,updatedAt:skill.updatedAt}}:{version:current.version,error:'没有此网站技能'};
+        }catch(e){result={error:e.message,code:e.code||'SITE_SKILL_ERROR'};}
+        if(signal.aborted)return;
+        t.phase='observe';t.pending=null;t.results=t.results.concat({origin:t.origin,tabRef:refOf(t),request:plan,time:now(),action:plan.action,result});event(t,'网站技能：读取 '+plan.id+(result.error?' · '+result.error:''));await store.set(t.tabId,t);
+      });
+    }
+    async function getSiteSkills(tabId){
+      const tab=await tools.tab(tabId),origin=new URL(tab.url).origin;
+      if(!siteSkills)throw new Error('网站技能服务不可用，请重新加载扩展');
+      return siteSkills.read(origin);
+    }
+    async function editSiteSkills(tabId,operation){
+      const tab=await tools.tab(tabId),origin=new URL(tab.url).origin;
+      if(operation.origin!==origin)throw new Error('网页已切换，请刷新网站技能后重试');
+      if(!siteSkills)throw new Error('网站技能服务不可用，请重新加载扩展');
+      if(!['delete','clear'].includes(operation.action))throw new Error('网站技能只能删除或清空');
+      return siteSkills.change(origin,{action:operation.action,id:operation.id,expectedVersion:operation.expectedVersion,source:'user'});
     }
     const policyFor=t=>({origin:t.origin,allowedOrigins:t.allowedOrigins||[t.origin],scopeRevision:t.scopeRevision,sensitiveFields:t.sensitiveAccess==='allowed'});
     const inScope=t=>t.origin==='browser'||(t.allowedOrigins||[t.origin]).includes(t.origin);
@@ -571,6 +597,7 @@
         }
         const globalMemoryIndex=shared.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
         const siteMemoryIndex=durable.notes.map(n=>({id:n.id,updatedAt:n.updatedAt,source:n.source}));
+        const siteSkillIndex=siteSkills&&task.origin!=='browser'?(await siteSkills.read(task.origin).catch(()=>({notes:[]}))).notes.map(n=>({id:n.id,description:n.description})):[];
         const modelIdentity=await identity(),modelProtocol=await protocol();
         const scriptState=task.origin==='browser'?{permission:false,api:false,available:false}:await scriptAccess().catch(()=>({permission:false,api:false,available:false}));
         const capabilities={scripts:scriptState?.available===true};
@@ -581,7 +608,7 @@
         if(!await live())return;
         if(JSON.stringify(task.tabCandidates||[])!==JSON.stringify(tabsView.candidates)){task=await update(tabId,token,t=>{t.tabCandidates=tabsView.candidates;});if(!task||!await live())return;}
         const tabsArgs=[tabsView.members.length>1?tabsView.members:null,tabsView.others.length?tabsView.others:null];
-        const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs);
+        const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,siteSkillIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
         const afterCompact=task.compactionGuard;
@@ -601,7 +628,7 @@
           const archives=(task.contextArchive||[]).concat(archive);
           if(JSON.stringify(archives).length>1000000){await pause(task,'任务历史归档达到 100 万字符上限，请结束任务；原记录已保留','context');return;}
           const input=JSON.stringify({goal:task.goal,instructions:task.instructions||[],previousSummary:task.contextSummary?.content||null,archiveId:archive.id,olderResults:older.map(r=>{
-            if(['site_memory_read','global_memory_read'].includes(r.action))return {action:r.action,result:'Memory bodies omitted; read again if needed'};
+            if(['site_memory_read','global_memory_read','site_skill_read'].includes(r.action))return {action:r.action,result:'Memory bodies omitted; read again if needed'};
             const raw=JSON.stringify(r);return raw.length<=4000?r:{action:r.action,label:r.label,truncated:true,archiveId:archive.id,excerpt:raw.slice(0,2000)+' [middle omitted; recover with history_read] '+raw.slice(-1000)};
           })});
           if(input.length>1000000||P.estimateTokens(input)+P.estimateTokens(P.summarySystem('简体中文'))>pressure.budget*0.9){await pause(task,'待整理记录超过摘要预算，原始记录已保留；请增加上下文窗口或结束任务','context');return;}
@@ -625,7 +652,7 @@
         if(pressure.tokens>=pressure.trigger){await pause(task,'当前页面和受保护内容已接近上下文预算，无法压缩；请检查窗口设置或缩小页面','context');return;}
         task = await update(tabId,token,t=>{t.status='running';t.phase='thinking';t.siteMemoryVersion=durable.version;t.globalMemoryVersion=shared.version;t.steps++;t.pending=null;t.waitDeadline=null;t.metrics={...t.metrics,observations:(t.metrics?.observations||0)+1};});
         if (!task || !await live()) return;
-        const payload = P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs);
+        const payload = P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,siteSkillIndex);
         const sentEstimate=P.pressure(task,payload,null,modelProtocol,capabilities).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal,capabilities),live);
         if (!await live()) return;
@@ -692,6 +719,7 @@
         }
         if(plan.action.startsWith('global_memory_')){await globalMemoryAction(task,plan,shared.version,controller.signal);return;}
         if(plan.action.startsWith('site_memory_')){await siteMemoryAction(task,plan,durable.version,controller.signal);return;}
+        if(plan.action==='site_skill_read'){await siteSkillRead(task,plan,controller.signal);return;}
         if(plan.action==='observe'){
           if(plan.value&&typeof plan.value==='object'){
             await update(tabId,token,t=>{t.phase='observe';t.nextObservation={value:plan.value,url:snap.url,documentId:snap.documentId};t.results=t.results.concat({...call,action:'observe',outcome:T.result({status:'success',scope:'dispatch',code:'READ_SCOPE_SET',message:'下一轮重新读取指定控件范围'})});});return;
@@ -1027,9 +1055,10 @@
         if(task?.reviewState!=='running'||!await live())return;
         const site=task.origin!=='browser'&&siteMemory?await siteMemory.read(task.origin):null;
         const shared=globalMemory?await globalMemory.read(null):null;
-        const response=await review(P.reviewInput(task,site,shared),controller.signal);
+        const skills=task.origin!=='browser'&&siteSkills?await siteSkills.read(task.origin):null;
+        const response=await review(P.reviewInput(task,site,shared,skills),controller.signal);
         if(!await live())return;
-        const {notes}=P.parseReview(response.text,{site:!!site,global:!!shared});
+        const {notes,skills:skillOps}=P.parseReview(response.text,{site:!!site,global:!!shared,skill:!!skills});
         let siteVersion=site?.version,globalVersion=shared?.version;
         for(const op of notes){
           if(!await live())return;
@@ -1040,6 +1069,12 @@
             globalEpoch++;for(const [id,other] of controllers)if(id!==taskId)other.abort();
           }
           done.push(label(op));
+        }
+        let skillVersion=skills?.version;
+        for(const op of skillOps){
+          if(!await live())return;
+          skillVersion=(await siteSkills.change(task.origin,{action:op.action,id:op.id,description:op.description,text:op.text,expectedVersion:skillVersion,source:'model',signal:controller.signal})).version;
+          done.push((op.action==='delete'?'删除技能 ':'保存技能 ')+op.id);
         }
         await close(done.length?'任务复盘：'+done.join('、')+'（可在设置「管理记忆」查看或修改）':null);
       }catch(error){
@@ -1113,7 +1148,7 @@
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
     }
-    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:async tabId=>{const task=await store.get(tabId);return task&&tools.frameOrigins?{...task,rememberedFrameOrigins:await tools.frameOrigins(task.origin)}:task;}};
+    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSiteSkills,editSiteSkills,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:async tabId=>{const task=await store.get(tabId);return task&&tools.frameOrigins?{...task,rememberedFrameOrigins:await tools.frameOrigins(task.origin)}:task;}};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

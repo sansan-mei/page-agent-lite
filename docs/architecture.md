@@ -45,7 +45,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 ## 消息入口
 
 - 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:history-delete`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
-- 设置页 → 后台：`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`。
+- 设置页 → 后台：`task:site-memory`、`task:site-memory-change`、`task:site-skills`、`task:site-skill-change`（只接受 delete/clear）、`task:global-memory`、`task:global-memory-change`。
 - 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:document`（只读文档 ID 探测）、`agent:frame-guard`（框架可见与遮挡检查）、`agent:consume`（消费顶层快照）、`agent:clear-pointer`。
 
 网页不能创建、停止或读取任务，拿不到密钥、配置或记忆。内容脚本只接受后台消息，不直接导航、不保存任务目标。

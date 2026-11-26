@@ -9,17 +9,21 @@
   function validNote(id,text){
     if(typeof id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(id)||typeof text!=='string'||!text.trim()||text.length>2000)throw new Error('长期记忆名称或内容无效（名称限英文数字、下划线和短横线；内容最多 2000 字符）');
   }
-  // One database serves site notes, global notes and conversation history; every opener uses this upgrade.
+  function validSkill(id,description,text){
+    if(typeof id!=='string'||! /^[a-zA-Z0-9_-]{1,60}$/.test(id)||typeof description!=='string'||!description.trim()||description.length>200||typeof text!=='string'||!text.trim()||text.length>4000)throw new Error('技能名称、适用说明或步骤无效（名称限英文数字、下划线和短横线；说明最多 200 字符；步骤最多 4000 字符）');
+  }
+  // One database serves site notes, global notes, site skills and conversation history; every opener uses this upgrade.
   function openDatabase(factory,name,onClose){
     return new Promise((resolve,reject)=>{
       if(!factory){reject(new Error('浏览器不支持长期记忆数据库'));return;}
-      const request=factory.open(name,3);let blocked=false;
+      const request=factory.open(name,4);let blocked=false;
       request.onupgradeneeded=()=>{
         const db=request.result;
         if(!db.objectStoreNames.contains('sites'))db.createObjectStore('sites',{keyPath:'origin'});
         if(!db.objectStoreNames.contains('global'))db.createObjectStore('global',{keyPath:'scope'});
         if(!db.objectStoreNames.contains('history'))db.createObjectStore('history',{keyPath:'taskId'}).createIndex('updatedAt','updatedAt');
         if(!db.objectStoreNames.contains('historyViews'))db.createObjectStore('historyViews',{keyPath:'taskId'});
+        if(!db.objectStoreNames.contains('skills'))db.createObjectStore('skills',{keyPath:'origin'});
       };
       request.onerror=()=>reject(new Error('无法打开长期记忆数据库'));
       request.onblocked=()=>{blocked=true;reject(new Error('长期记忆数据库被其他扩展页面占用，请关闭后重试'));};
@@ -31,8 +35,9 @@
     });
   }
   function createSiteMemory({factory=root.indexedDB,name='page-agent-memory',now=()=>Date.now(),scope='site'}={}){
-    if(!['site','global'].includes(scope))throw new Error('长期记忆范围无效');
-    const storeName=scope==='global'?'global':'sites';
+    if(!['site','global','skill'].includes(scope))throw new Error('长期记忆范围无效');
+    const storeName={site:'sites',global:'global',skill:'skills'}[scope],skill=scope==='skill';
+    const limits=skill?{count:16,size:48000,message:'技能容量已满（每个网站 16 个 / 48000 字符），请先删除不用的技能'}:{count:32,size:64000,message:'长期记忆容量已满（每个范围 32 条 / 64000 字符），请先整理'};
     const key=value=>scope==='global'?'global':originKey(value);
     const empty=value=>scope==='global'?{scope:'global',version:0,notes:[]}:{origin:value,version:0,notes:[]};
     let opening;
@@ -52,10 +57,10 @@
         tx.onerror=()=>{};
       });
     }
-    async function change(origin,{action,id,text,expectedVersion,source='user',signal}={}){
+    async function change(origin,{action,id,text,description,expectedVersion,source='user',signal}={}){
       origin=key(origin);
       if(!['write','delete','clear'].includes(action)||!Number.isSafeInteger(expectedVersion)||expectedVersion<0)throw new Error('长期记忆操作无效');
-      if(action==='write')validNote(id,text);
+      if(action==='write')skill?validSkill(id,description,text):validNote(id,text);
       if(action==='delete')validNote(id,'delete');
       const db=await open();
       if(signal?.aborted)throw new Error('长期记忆操作已取消');
@@ -73,8 +78,8 @@
             const current=request.result||empty(origin);
             if(current.version!==expectedVersion)throw conflict();
             let notes=current.notes.filter(n=>action==='clear'?false:n.id!==id);
-            if(action==='write')notes.push({id,text:text.trim(),source:source==='model'?'model':'user',createdAt:current.notes.find(n=>n.id===id)?.createdAt||now(),updatedAt:now()});
-            if(notes.length>32||JSON.stringify(notes).length>64000)throw new Error('长期记忆容量已满（每个范围 32 条 / 64000 字符），请先整理');
+            if(action==='write')notes.push({id,...(skill?{description:description.trim()}:{}),text:text.trim(),source:source==='model'?'model':'user',createdAt:current.notes.find(n=>n.id===id)?.createdAt||now(),updatedAt:now()});
+            if(notes.length>limits.count||JSON.stringify(notes).length>limits.size)throw new Error(limits.message);
             saved={...empty(origin),version:current.version+1,notes};store.put(saved);
           }catch(e){error=e;tx.abort();}
         };
@@ -83,6 +88,6 @@
     async function close(){if(opening){const db=await opening;db.close();opening=null;}}
     return {read,change,close};
   }
-  const api={createSiteMemory,openDatabase,validNote,originKey};root.PageAgentSiteMemory=api;
+  const api={createSiteMemory,openDatabase,validNote,validSkill,originKey};root.PageAgentSiteMemory=api;
   if(typeof module!=='undefined')module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

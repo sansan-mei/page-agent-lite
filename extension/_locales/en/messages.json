@@ -865,5 +865,20 @@
   },
   "spRememberedFrameTitle": {
     "message": "Remembered embedded website access"
+  },
+  "optSiteSkills": {
+    "message": "Site skills"
+  },
+  "optSiteSkillsHint": {
+    "message": "Procedures for this site saved by the task review and read when relevant; you can delete them."
+  },
+  "optSiteSkillClear": {
+    "message": "Clear this site's skills"
+  },
+  "mgSkillCount": {
+    "message": "{1}/16 skills for this site"
+  },
+  "mgSkillEmpty": {
+    "message": "No skills for this site yet"
   }
 }
