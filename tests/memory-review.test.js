@@ -70,6 +70,19 @@ test('new input during the review cancels it and nothing is written',async()=>{
   const task=await f.runtime.get(1);assert.equal(task.status,'running');assert.equal(task.reviewState,null);
 });
 
+test('starting a new chat right after completion lets the running review finish and save',async()=>{
+  let release,signalSeen;const gate=new Promise(r=>{release=r;});
+  const f=fixture({review:async(text,signal)=>{signalSeen=signal;await gate;return {text:JSON.stringify({notes:[{scope:'site',action:'write',id:'flow',text:'Save button at the bottom; verified.'}]})};}});
+  await f.runtime.start(1,'Save the form');await f.runtime.tick(1);
+  const ticking=f.runtime.tick(1);
+  while(!signalSeen)await new Promise(r=>setImmediate(r));
+  await f.runtime.remove(1);assert.equal(signalSeen.aborted,false);assert.equal(await f.runtime.get(1),null);
+  await f.runtime.start(1,'Next task');assert.equal(signalSeen.aborted,false,'a new task on the same tab does not cancel the detached review');
+  release();await ticking;
+  assert.deepEqual((await f.siteMemory.read('https://example.test')).notes.map(n=>n.id),['flow']);
+  assert.equal((await f.runtime.get(1)).goal,'Next task');
+});
+
 test('invalid review output or a version conflict is reported without touching the task result',async()=>{
   const bad=fixture({review:async()=>({text:'not json'})});await run(bad);
   let task=await bad.runtime.get(1);assert.equal(task.status,'completed');assert.match(task.events.at(-1).text,/任务复盘未完成：复盘结果格式无效/);

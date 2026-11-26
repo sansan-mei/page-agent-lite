@@ -28,7 +28,7 @@
   }
   function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, siteSkills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
-    const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map();
+    const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
     function enqueue(map,key,fn){const operation=(map.get(key)||Promise.resolve()).catch(()=>{}).then(fn);map.set(key,operation);operation.finally(()=>{if(map.get(key)===operation)map.delete(key);}).catch(()=>{});return operation;}
     function serial(tabId,fn){
@@ -1084,7 +1084,8 @@
     async function reviewTask(tabId,initial){
       const {taskId,token}=initial,controller=new AbortController();
       controllers.set(taskId,controller);controllerTasks.set(tabId,taskId);
-      const live=async()=>{const c=await store.get(tabId);return !controller.signal.aborted&&!globalEditing&&c?.taskId===taskId&&c.token===token&&c.status==='completed';};
+      // A review detached by 「新对话」 keeps running without its task record; CAS versions still guard every write.
+      const live=async()=>{if(controller.signal.aborted||globalEditing)return false;if(detachedReviews.has(taskId))return true;const c=await store.get(tabId);return c?.taskId===taskId&&c.token===token&&c.status==='completed';};
       const close=text=>update(tabId,token,t=>{if(t.taskId!==taskId||t.reviewState!=='running')return;t.reviewState='done';if(text)event(t,text);});
       const done=[];
       const label=op=>(op.action==='delete'?'删除':'记住')+(op.scope==='site'?'网站笔记 ':'全局笔记 ')+op.id;
@@ -1118,6 +1119,7 @@
       }catch(error){
         if(await live())await close('任务复盘未完成：'+error.message+(done.length?'；已保存：'+done.join('、'):'')+'。任务结果不受影响');
       }finally{
+        detachedReviews.delete(taskId);
         if(controllers.get(taskId)===controller){controllers.delete(taskId);if(controllerTasks.get(tabId)===taskId)controllerTasks.delete(tabId);}
       }
     }
@@ -1175,7 +1177,15 @@
         return store.closeMember(tabId,task.taskId,now());
       });
     }
-    async function remove(tabId) {controllerForTab(tabId)?.abort();await stop(tabId);await serial(tabId,()=>store.remove(tabId));}
+    async function remove(tabId) {
+      // Clearing a finished chat must not lose its review: users usually start a new chat right after a task ends.
+      const current=await store.get(tabId);
+      if(current?.status==='completed'&&current.reviewState==='running'&&controllers.has(current.taskId)){
+        detachedReviews.add(current.taskId);if(controllerTasks.get(tabId)===current.taskId)controllerTasks.delete(tabId);
+        await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
+      }else{controllerForTab(tabId)?.abort();await stop(tabId);}
+      await serial(tabId,()=>store.remove(tabId));
+    }
     async function recover() {
       // Missing tabs can have closed while the worker was unavailable. Query failure
       // propagates: absence must be proven, never inferred from a page access error.
