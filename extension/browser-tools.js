@@ -10,6 +10,8 @@
     async function hasOriginAccess(origin){return chrome.permissions.contains({origins:[origin+'/*']});}
     async function tab(tabId,allowInternal=false){
       let t;try{t=await chrome.tabs.get(tabId);}catch{throw Object.assign(new Error('目标标签页已关闭，请切换到需要操作的网页'),{code:'TAB_CLOSED'});}
+      // A freshly created or navigating tab reports an empty url with pendingUrl/status loading until its first commit.
+      if(!t.url&&(t.pendingUrl||t.status==='loading'))throw Object.assign(new Error('等待新页面开始加载'),{code:'NAVIGATION'});
       if(!t.url)throw new Error('无法读取网页地址，请重新加载扩展并确认新增的标签页权限');
       if(!allowInternal&&!['http:','https:'].includes(new URL(t.url).protocol))throw Object.assign(new Error('该页面不支持操作，请切换到普通 HTTP/HTTPS 网页'),{code:'UNSUPPORTED_PAGE'});
       return t;

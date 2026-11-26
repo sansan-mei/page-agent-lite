@@ -252,3 +252,29 @@ test('bouncing between tabs without page actions pauses as no_progress; a page a
  // Continuing resets the count.
  await f.runtime.resume(activeTab(f));assert.equal((await f.store.get(activeTab(f))).tabHops,0);
 });
+test('tab_open waits while the new tab has no committed url instead of failing, then observes it once loaded',async()=>{
+ const f=fixture({plans:[{reply:'Open',action:'tab_open',value:'https://c.test/page'}]});
+ const {createBrowserTools}=require('../extension/browser-tools.js');
+ const real=createBrowserTools({tabs:{async get(id){if(!f.tabs[id])throw Error('No tab');return {...f.tabs[id]};}}});
+ f.tools.tab=(id,allowInternal)=>real.tab(id,allowInternal);
+ for(const id of [1,2,4])f.tabs[id].status='complete';
+ f.tools.openTab=async(url,{openerTabId})=>{f.opened.push([url,openerTabId]);f.tabs[50]={id:50,url:'',pendingUrl:url,status:'loading',windowId:1};return {id:50};};
+ await f.runtime.start(1,'Work');await f.runtime.tick(1);
+ await f.runtime.tick(50);let task=await f.store.get(50);
+ assert.equal(task.status,'waiting_page');assert.notEqual(task.status,'failed');assert.equal(task.origin,'https://a.test');assert.equal(f.observed.includes(50),false);
+ f.tabs[50]={id:50,url:'https://c.test/page',status:'complete',windowId:1};
+ await f.runtime.tick(50);task=await f.store.get(50);assert.equal(task.origin,'https://c.test');
+ await f.runtime.tick(50);assert.ok(f.observed.includes(50));assert.equal(f.opened.length,1,'never reopens the tab');
+});
+
+test('tab_close of a member whose url is not committed yet neither drops it from the directory nor reports it closed',async()=>{
+ const f=fixture({plans:[{reply:'Open',action:'tab_open',value:'https://a.test/new'},{reply:'Back',action:'tab_switch',id:'tab0'},{reply:'Close',action:'tab_close',id:'tab1'}]});
+ const {createBrowserTools}=require('../extension/browser-tools.js');
+ const real=createBrowserTools({tabs:{async get(id){if(!f.tabs[id])throw Error('No tab');return {status:'complete',...f.tabs[id]};}}});
+ f.tools.tab=(id,allowInternal)=>real.tab(id,allowInternal);
+ await f.runtime.start(1,'Work');await f.runtime.tick(1);await f.runtime.tick(50);await f.runtime.tick(50);
+ assert.equal((await f.store.get(1)).tabId,1);
+ f.tabs[50]={id:50,url:'',pendingUrl:'https://a.test/next',status:'loading',windowId:1};
+ await f.runtime.tick(1);const task=await f.store.get(1);
+ assert.deepEqual(f.closed,[]);assert.deepEqual(task.members.map(m=>m.tabRef),['tab0','tab1']);assert.notEqual(task.status,'failed');
+});

@@ -98,3 +98,11 @@ test('openTab creates one unfocused tab in the opener window only with host acce
  assert.deepEqual(created,[{url:'https://c.test/x',active:false,windowId:3,openerTabId:1}]);
  await tools.closeTab(77);assert.deepEqual(removed,[77]);
 });
+test('a just-created tab without a committed url waits as navigation; a settled tab without url still reports the permission problem',async()=>{
+ let current={id:5,url:'',pendingUrl:'https://c.test/x',status:'loading'};
+ const tools=createBrowserTools({tabs:{async get(){return current;}}});
+ await assert.rejects(()=>tools.tab(5,true),e=>e.code==='NAVIGATION');
+ current={id:5,status:'loading'};await assert.rejects(()=>tools.tab(5,true),e=>e.code==='NAVIGATION');
+ current={id:5,status:'complete'};await assert.rejects(()=>tools.tab(5,true),e=>!e.code&&/无法读取网页地址/.test(e.message));
+ current={id:5,url:'https://c.test/x',status:'loading'};assert.equal((await tools.tab(5)).url,'https://c.test/x');
+});

@@ -143,7 +143,7 @@
 - 切换轨迹与交接：`switchTo`（tab_switch、侧栏允许后的切换、tab_open）在任务记录追加 `tabTrail`（≤ 12 条 `{action, from, fromOrigin, to, time}`），计划带 `handoff`（≤ 2000 字符，只允许 tab_switch/tab_open）时追加到 `handoffs`（最近 3 条 `{from, origin, text, time}`）。两者经 switchTab/switchOrigin 保留并作为模型输入，交接笔记是模型自己写的不可信数据。
 - 防循环：`tabHops` 每次切换 +1，网页动作结果写回、继续、补充指令、回答选择时清零；达到上限（6，目标模式 10）时 tab_switch 到成员或 tab_open 不执行，暂停为 `no_progress`。请求读取 `openN` 由用户确认，不受限。
 - 目标标签来源不同：下一轮照常走 [跨来源切换](#跨来源切换)（主机权限、来源分区、上下文清空）；缺少权限则暂停为 `permission_denied`，不读取目标页。
-- `tab_open`：先查目标主机权限（缺少则暂停为 `browser_target`，不创建），成员已满 8 个则拒绝；写 executing 创建意图后调用一次 `tabs.create`（后台、opener 所在窗口）。用浏览器返回的 tabId 登记为 task_created 成员（停止后仍登记，避免无主标签），再切换执行目标到新标签。`tabs.create` 失败或回执不明 → 暂停 `uncertain`；worker 在执行中重启 → 按现有 executing 规则暂停。从不重试、不按 URL 或标题认领。
+- `tab_open`：先查目标主机权限（缺少则暂停为 `browser_target`，不创建），成员已满 8 个则拒绝；写 executing 创建意图后调用一次 `tabs.create`（后台、opener 所在窗口）。用浏览器返回的 tabId 登记为 task_created 成员（停止后仍登记，避免无主标签），再切换执行目标到新标签。新标签首次提交前 `url` 为空（带 `pendingUrl` 或 `status=loading`），`tab()` 返回 `NAVIGATION`，按页面加载等待，不判为权限或关闭。`tabs.create` 失败或回执不明 → 暂停 `uncertain`；worker 在执行中重启 → 按现有 executing 规则暂停。从不重试、不按 URL 或标题认领。
 - `tab_close`：只接受非执行中的 task_created 成员，且其当前来源仍在 `allowedOrigins`（被用户导航到别处的不关）；写 executing 后调用一次 `tabs.remove`，再向浏览器确认已不存在才移出目录，仍存在则返回 `TAB_STILL_OPEN`，不重试。
 
 ## 成员关闭

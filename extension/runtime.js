@@ -835,7 +835,7 @@
       const member=(task.members||[]).find(item=>item.tabRef===plan.id);
       if(!member)return tabReject(task,call,plan,'TAB_NOT_MEMBER','只能切换到任务标签页目录中的成员');
       if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ALREADY_ACTIVE',member.tabRef+' 已是执行标签页');
-      let tab;try{tab=await tools.tab(member.tabId,true);}catch{return tabReject(task,call,plan,'TAB_CLOSED',member.tabRef+' 已关闭');}
+      let tab;try{tab=await tools.tab(member.tabId,true);}catch(error){if(error.code==='NAVIGATION')throw error;return tabReject(task,call,plan,'TAB_CLOSED',member.tabRef+' 已关闭');}
       if(originOf(tab)==='browser')return tabReject(task,call,plan,'UNSUPPORTED_PAGE',member.tabRef+' 不是普通网页，不能切换');
       const outcome=T.result({status:'success',dispatch:'not_sent',scope:'dispatch',code:'TAB_SWITCHED',recovery:'observe',message:'执行目标已切换到 '+member.tabRef+'（未切换浏览器前台）；重新观察'});
       try{if(await switchTo(task,member.tabId,{...call,action:'tab_switch',outcome,result:outcome.message}))await tools.clearPointer?.(task.tabId);}
@@ -870,14 +870,14 @@
       if(!member||member.kind!=='task_created')return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','只能关闭本任务打开的标签页');
       if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ACTIVE','不能关闭执行标签页；请先用 tab_switch 切到其他成员');
       if((await store.owner(member.tabId))?.taskId!==task.taskId)return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已不属于本任务');
-      let tab=null;try{tab=await tools.tab(member.tabId,true);}catch{ /* Already gone: only the directory changes. */ }
+      let tab=null;try{tab=await tools.tab(member.tabId,true);}catch(error){if(error.code==='NAVIGATION')throw error; /* Already gone: only the directory changes. */ }
       if(tab&&!(task.allowedOrigins||[]).includes(originOf(tab)))return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已离开任务站点，可能正被你使用，不会关闭');
       const operationId=uuid();
       if(tab){
         const saved=await update(task.tabId,task.token,t=>{t.phase='executing';t.check=null;t.pending={tabId:task.tabId,origin:t.origin,scopeRevision:t.scopeRevision,plan,operationId,label:'tab_close',time:call.time};t.metrics={...t.metrics,actions:(t.metrics?.actions||0)+1};event(t,plan.reply);});
         if(!saved||!await live())return;
         try{await tools.closeTab(member.tabId);}catch{ /* Existence is checked below; never retried. */ }
-        let open=true;try{await tools.tab(member.tabId,true);}catch{open=false;}
+        let open=true;try{await tools.tab(member.tabId,true);}catch(error){open=error.code==='NAVIGATION';}
         if(open)return update(task.tabId,task.token,t=>tabResult(t,call,plan,{status:'not_satisfied',dispatch:'unknown',code:'TAB_STILL_OPEN',recovery:'replan',operationId,message:member.tabRef+' 仍然打开，未重试关闭'}));
       }
       await serial(task.tabId,()=>store.changeMembers(task.tabId,{taskId:task.taskId,action:'closed',memberTabId:member.tabId,updatedAt:now()}));
