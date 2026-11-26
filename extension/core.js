@@ -452,7 +452,7 @@ function agentClick(n,doc,hover=false,snap){
  else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
  try{root.PageAgentPointer?.click();}catch{}
 }
-function agentFrameGuard(key,url,sensitiveFields=false){
+function agentFrameGuard(key,url,sensitiveFields=false,showPointer=false){
  const f=[...document.querySelectorAll('iframe,frame')].find(n=>agentNodeKey(n)===key);
  if(!f||!agentLive(f)||f.src!==url)throw Object.assign(new Error('框架已变化'),{code:'STALE',beforeDispatch:true});
  if(f.closest(sensitiveFields?'input[type="file"],input[type="hidden"]':agentSensitiveSelector))throw Object.assign(new Error('Sensitive frame excluded'),{code:'STALE',beforeDispatch:true});
@@ -460,7 +460,7 @@ function agentFrameGuard(key,url,sensitiveFields=false){
  if(!b||b.right<=b.left||b.bottom<=b.top||style.visibility!=='visible'||style.display==='none'||f.closest('[hidden],[aria-hidden="true"]'))throw Object.assign(new Error('框架不可见，请先滚动到框架'),{code:'TARGET_BLOCKED',beforeDispatch:true});
  // Require the whole visible frame surface to be unobstructed before synthetic input.
  for(const x of [b.left+1,(b.left+b.right)/2,b.right-1])for(const y of [b.top+1,(b.top+b.bottom)/2,b.bottom-1])if(document.elementFromPoint(x,y)!==f)throw Object.assign(new Error('框架被遮挡'),{code:'TARGET_BLOCKED',beforeDispatch:true});
- try{root.PageAgentPointer?.show(f,document);}catch{}
+ if(showPointer)try{root.PageAgentPointer?.show(f,document);}catch{}
  return {visible:true};
 }
 const api={agentFrameGuard,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};

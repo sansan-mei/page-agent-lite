@@ -16,8 +16,11 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
  const page=await context.newPage();await page.goto('https://merchant.test/');
  await worker.evaluate(async()=>{globalThis.frameTestTools=PageAgentBrowserTools.createBrowserTools(chrome);globalThis.frameTestTab=(await chrome.tabs.query({url:'https://merchant.test/*'}))[0].id;globalThis.frameTestPolicy={origin:'https://merchant.test',allowedOrigins:['https://merchant.test'],sensitiveFields:false};});
  let s=await worker.evaluate(()=>frameTestTools.observe(frameTestTab,0,frameTestPolicy));assert.equal(s.page.frames[0].reason,'permission_required');
+ await worker.evaluate(()=>chrome.scripting.executeScript({target:{tabId:frameTestTab,frameIds:[0]},world:'ISOLATED',func:()=>{globalThis.pointerMoves=0;const show=PageAgentPointer.show;PageAgentPointer.show=(...args)=>{pointerMoves++;return show(...args);};}}));
+ const moveCount=()=>worker.evaluate(async()=>(await chrome.scripting.executeScript({target:{tabId:frameTestTab,frameIds:[0]},world:'ISOLATED',func:()=>pointerMoves}))[0].result);
  s=await worker.evaluate(()=>{frameTestPolicy.allowedOrigins.push('https://payment.test');return frameTestTools.observe(frameTestTab,0,frameTestPolicy);});
  assert(s.page.elements.some(e=>e.label==='Name'));assert(!s.page.elements.some(e=>e.label==='Card'));
+ assert.equal(await moveCount(),0,'read-only frame observation must not move the pointer');
  const r=await worker.evaluate(async()=>{
   frameTestPolicy.sensitiveFields=true;
   const s=await frameTestTools.observe(frameTestTab,0,frameTestPolicy),e=s.page.elements.find(e=>e.label==='Card'),plan={action:'fill',id:e.id,value:'4242424242424242',reply:'Test fill'};
@@ -25,7 +28,12 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
   return frameTestTools.execute(frameTestTab,frameTestPending,frameTestPolicy,async()=>true);
  });assert.equal(r.status,'success');
  assert.equal(await page.frames()[1].locator('[aria-label="Card"]').inputValue(),'4242424242424242');
+ const movesBeforeVerify=await moveCount();assert(movesBeforeVerify>0,'frame action provides pointer feedback');
  assert.equal((await worker.evaluate(()=>frameTestTools.verify(frameTestTab,{expected:frameTestPending.expected},frameTestPolicy))).status,'success');
+ await worker.evaluate(()=>frameTestTools.verify(frameTestTab,{expected:frameTestPending.expected},frameTestPolicy));
+ const unmet=await worker.evaluate(()=>frameTestTools.verify(frameTestTab,{expected:frameTestPending.expected.map(c=>({...c,value:'not-current-value'}))},frameTestPolicy));
+ assert.equal(unmet.status,'not_satisfied');
+ assert.equal(await moveCount(),movesBeforeVerify,'repeated verification must leave the pointer parked');
  assert.equal(await worker.evaluate(async()=>{try{await frameTestTools.execute(frameTestTab,frameTestPending,frameTestPolicy,async()=>true);return 'executed';}catch(e){return e.code;}}),'STALE');
  const recovery=await worker.evaluate(async()=>{
   const store=PageAgentTaskStore.createTaskStore(chrome);

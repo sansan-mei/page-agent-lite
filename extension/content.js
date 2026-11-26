@@ -39,7 +39,7 @@
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
-      if(message.type==='agent:frame-guard')return C.agentFrameGuard(message.key,message.frameURL,message.sensitiveFields===true);
+      if(message.type==='agent:frame-guard')return C.agentFrameGuard(message.key,message.frameURL,message.sensitiveFields===true,message.showPointer===true);
       if(message.type==='agent:document')return {documentId,url:location.href};
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});

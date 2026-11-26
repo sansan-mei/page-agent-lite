@@ -69,7 +69,7 @@
         if(!await permitted(route.origin,policy))throw fail('框架网站未授权','PERMISSION_DENIED');
         const frames=await chrome.webNavigation.getAllFrames({tabId});
         if(!frames.some(f=>f.frameId===route.frameId&&f.parentFrameId===0&&f.url===route.url))throw fail('框架已导航或移除');
-        await helpers.call(tabId,{type:'agent:frame-guard',sensitiveFields:policy.sensitiveFields===true,expectedOrigin:policy.origin,key:route.parentKey,frameURL:route.url});
+        await helpers.call(tabId,{type:'agent:frame-guard',showPointer:true,sensitiveFields:policy.sensitiveFields===true,expectedOrigin:policy.origin,key:route.parentKey,frameURL:route.url});
         await helpers.call(tabId,{type:'agent:consume',snapshotId:pending.snapshotId,documentId:pending.documentId,url:pending.url,expectedOrigin:policy.origin});
         plan.id=route.id;
       }

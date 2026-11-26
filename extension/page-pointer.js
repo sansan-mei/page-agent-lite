@@ -1,9 +1,9 @@
 (function(root){
  'use strict';
  if(root.PageAgentPointer)return;
- let host,arrow,box,ring,timer,previous,active=false;
+ let host,arrow,box,ring,timer,previous,movement,active=false;
  const persistent=!root.top||root===root.top;
- function clear(){clearTimeout(timer);host?.remove();host=arrow=box=ring=null;previous=null;active=false;}
+ function clear(){movement?.cancel();movement=null;clearTimeout(timer);host?.remove();host=arrow=box=ring=null;previous=null;active=false;}
  function node(doc,style){const n=doc.createElement('div');n.style.cssText=style+';pointer-events:none!important';return n;}
  function highlightsOff(){clearTimeout(timer);if(box)box.style.display='none';if(ring)ring.style.display='none';}
  function mount(doc){
@@ -21,6 +21,18 @@
   return true;
  }
  function start(doc){if(!persistent)return;active=true;mount(doc);}
+ function move(point,doc){
+  const reduced=doc.defaultView.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  // Core can locate the same target twice in one dispatch. Preserve the flight already in progress.
+  if(!reduced&&previous?.left===point.left&&previous?.top===point.top)return;
+  const current=arrow.getBoundingClientRect(),from={left:current.left+'px',top:current.top+'px'};
+  movement?.cancel();movement=null;
+  Object.assign(arrow.style,point);previous=point;
+  const distance=Math.hypot(parseFloat(point.left)-current.left,parseFloat(point.top)-current.top);
+  if(!reduced&&distance>1&&arrow.animate){
+   movement=arrow.animate([from,point],{duration:Math.min(600,Math.max(240,180+distance*.65)),easing:'cubic-bezier(.22,.61,.36,1)'});
+  }
+ }
  // rect is in the containing viewport; same-origin frame targets use the top layer.
  function show(target,doc,rect){
   if(!target?.getBoundingClientRect||doc.hidden)return;
@@ -30,21 +42,24 @@
   active=true;clearTimeout(timer);
   Object.assign(box.style,{display:'block',left:left+'px',top:top+'px',width:right-left+'px',height:bottom-top+'px'});
   const point={left:(left+right)/2+'px',top:(top+bottom)/2+'px'};
-  const reduced=win.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  if(previous&&!reduced)arrow.animate?.([previous,point],{duration:140,easing:'ease-out'});
-  Object.assign(arrow.style,point);previous=point;ring.style.display='none';
+  move(point,doc);ring.style.display='none';
   timer=setTimeout(persistent?highlightsOff:clear,900);
  }
  function click(){
   if(!host?.isConnected||!previous)return;
-  Object.assign(ring.style,{display:'block',left:(parseFloat(previous.left)-11)+'px',top:(parseFloat(previous.top)-11)+'px'});
-  if(!root.matchMedia?.('(prefers-reduced-motion: reduce)').matches)ring.animate?.([{transform:'scale(.5)',opacity:1},{transform:'scale(1.7)',opacity:0}],{duration:360,fill:'forwards'});
+  const layer=host,point=previous;
+  const pulse=()=>{
+   if(host!==layer||previous!==point||!ring)return;
+   Object.assign(ring.style,{display:'block',left:(parseFloat(point.left)-11)+'px',top:(parseFloat(point.top)-11)+'px'});
+   if(!root.matchMedia?.('(prefers-reduced-motion: reduce)').matches)ring.animate?.([{transform:'scale(.5)',opacity:1},{transform:'scale(1.7)',opacity:0}],{duration:360,fill:'forwards'});
+  };
+  if(movement?.playState==='running')void movement.finished.then(pulse,()=>{});
+  else pulse();
  }
  function reposition(){
   if(!active||!persistent){clear();return;}
   highlightsOff();if(!previous||!arrow)return;
-  previous={left:Math.max(0,Math.min(parseFloat(previous.left),root.innerWidth-14))+'px',top:Math.max(0,Math.min(parseFloat(previous.top),root.innerHeight-20))+'px'};
-  Object.assign(arrow.style,previous);
+  move({left:Math.max(0,Math.min(parseFloat(previous.left),root.innerWidth-14))+'px',top:Math.max(0,Math.min(parseFloat(previous.top),root.innerHeight-20))+'px'},root.document);
  }
  root.addEventListener?.('pagehide',clear);
  root.addEventListener?.('scroll',reposition,true);
