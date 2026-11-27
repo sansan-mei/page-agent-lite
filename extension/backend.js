@@ -71,10 +71,12 @@ function anthropicToChat(raw){
 function chatRequest(config,protocol,system,text,tools){
  const effort=config.reasoningEffort??'medium';
  if(config.apiFormat==='anthropic'){
-  // Thinking is not sent: tool_choice "any" cannot be combined with extended thinking.
+  // tool_choice stays "auto": some Claude models reject "any"/"tool", which would wrongly trigger the
+  // JSON fallback. The system prompt still demands exactly one tool; a text-only reply is handled by
+  // parseChatResponse. Thinking is not sent, keeping output bounded by max_tokens.
   return {url:'/messages',headers:{'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true',...(config.key?{'x-api-key':config.key}:{})},
    body:{model:config.model,system:[{type:'text',text:system,cache_control:{type:'ephemeral'}}],messages:[{role:'user',content:text}],max_tokens:4096,
-    ...(protocol==='native'?{tools:tools.map(t=>({name:t.function.name,description:t.function.description,input_schema:t.function.parameters})),tool_choice:{type:'any',disable_parallel_tool_use:true}}:{}),stream:false}};
+    ...(protocol==='native'?{tools:tools.map(t=>({name:t.function.name,description:t.function.description,input_schema:t.function.parameters})),tool_choice:{type:'auto',disable_parallel_tool_use:true}}:{}),stream:false}};
  }
  return {url:'/chat/completions',headers:config.key?{Authorization:'Bearer '+config.key}:{},
   body:{model:config.model,messages:[{role:'system',content:system},{role:'user',content:text}],...(protocol==='native'?{tools,tool_choice:'required',parallel_tool_calls:false}:{}),...(effort==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:effort}),stream:false}};
