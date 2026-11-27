@@ -118,22 +118,31 @@ test('background validates goal-mode commands and forwards the submit flag only 
  assert.equal(JSON.stringify(calls),JSON.stringify([['goal',1,'t',true],['submit',1,'x',{goalMode:true}],['submit',1,'y']]));
 });
 
-test('side panel goal toggle arms new tasks and switches live tasks through the trusted command',async()=>{
- const {document,window}=parseHTML(fs.readFileSync('extension/sidepanel.html','utf8'));
- let task=null;const calls=[];
- const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/cv',title:'CV'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(){}}},permissions:{async contains(){return true;},onAdded:{addListener(){}},onRemoved:{addListener(){}},request(){return Promise.resolve(true);}},runtime:{async sendMessage(m){calls.push(m);
-  if(m.type==='task:get')return {ok:true,value:task};
-  if(m.type==='task:submit'){task={taskId:'t1',goal:m.goal,goalMode:m.goalMode,status:'running',steps:0,prefs:{maxSteps:50},events:[]};return {ok:true,value:task};}
-  if(m.type==='task:goal-mode'){task={...task,goalMode:m.enabled};return {ok:true,value:task};}
-  return {ok:true,value:null};},async openOptionsPage(){}},storage:{onChanged:{addListener(){}}}};
- runUi('extension/sidepanel.js',{chrome,document,window,URL,Date});await flush();
- const toggle=document.getElementById('goal-mode');
- assert.equal(toggle.getAttribute('aria-pressed'),'false');assert.equal(toggle.textContent,'目标模式');
- toggle.dispatchEvent(new window.Event('click'));await flush();
- assert.equal(toggle.getAttribute('aria-pressed'),'true');assert.equal(calls.some(m=>m.type==='task:goal-mode'),false);
- document.getElementById('instruction').value='移动成果';document.getElementById('chat').dispatchEvent(new window.Event('submit',{cancelable:true}));await flush();
- assert.equal(calls.find(m=>m.type==='task:submit').goalMode,true);assert.equal(toggle.getAttribute('aria-pressed'),'true');
- toggle.dispatchEvent(new window.Event('click'));await flush();
- assert.deepEqual(calls.filter(m=>m.type==='task:goal-mode').map(({taskId,enabled})=>({taskId,enabled})),[{taskId:'t1',enabled:false}]);
- assert.equal(toggle.getAttribute('aria-pressed'),'false');
+test('side panel goal toggle persists across panels, arms every new task and switches live tasks',async()=>{
+ const local={};const calls=[];let task=null;
+ const openPanel=async()=>{
+  const {document,window}=parseHTML(fs.readFileSync('extension/sidepanel.html','utf8'));
+  const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/cv',title:'CV'}];},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(){}}},permissions:{async contains(){return true;},onAdded:{addListener(){}},onRemoved:{addListener(){}},request(){return Promise.resolve(true);}},runtime:{async sendMessage(m){calls.push(m);
+   if(m.type==='task:get')return {ok:true,value:task};
+   if(m.type==='task:submit'){task={taskId:'t'+calls.length,goal:m.goal,goalMode:m.goalMode,status:'running',steps:0,prefs:{maxSteps:50},events:[]};return {ok:true,value:task};}
+   if(m.type==='task:goal-mode'){task={...task,goalMode:m.enabled};return {ok:true,value:task};}
+   return {ok:true,value:null};},async openOptionsPage(){}},storage:{local:{async get(k){return k in local?{[k]:local[k]}:{};},async set(v){Object.assign(local,v);}},onChanged:{addListener(){}}}};
+  runUi('extension/sidepanel.js',{chrome,document,window,URL,Date});await flush();await flush();
+  const submit=async text=>{document.getElementById('instruction').value=text;document.getElementById('chat').dispatchEvent(new window.Event('submit',{cancelable:true}));await flush();return calls.filter(m=>m.type==='task:submit').at(-1);};
+  return {toggle:document.getElementById('goal-mode'),click:async()=>{document.getElementById('goal-mode').dispatchEvent(new window.Event('click'));await flush();},submit};
+ };
+ let panel=await openPanel();
+ assert.equal(panel.toggle.getAttribute('aria-pressed'),'false');assert.equal(panel.toggle.textContent,'目标模式');
+ await panel.click();
+ assert.equal(panel.toggle.getAttribute('aria-pressed'),'true');assert.equal(local.goalMode,true);assert.equal(calls.some(m=>m.type==='task:goal-mode'),false);
+ assert.equal((await panel.submit('移动成果')).goalMode,true);
+ task={...task,status:'ended'};
+ panel=await openPanel();
+ assert.equal(panel.toggle.getAttribute('aria-pressed'),'true','a reopened panel keeps the saved toggle');
+ assert.equal((await panel.submit('下一个任务')).goalMode,true,'later tasks stay in goal mode without re-arming');
+ await panel.click();
+ assert.equal(local.goalMode,false);assert.equal(panel.toggle.getAttribute('aria-pressed'),'false');
+ assert.deepEqual(calls.filter(m=>m.type==='task:goal-mode').map(({enabled})=>enabled),[false],'the live task is switched off too');
+ panel=await openPanel();
+ assert.equal(panel.toggle.getAttribute('aria-pressed'),'false');assert.equal((await panel.submit('普通任务')).goalMode,false);
 });

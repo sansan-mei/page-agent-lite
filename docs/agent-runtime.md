@@ -40,7 +40,7 @@
 
 ## 目标模式
 
-任务字段 `goalMode`（缺省 false）。新建任务时由侧栏「目标模式」开关经 `task:submit` 的 `goalMode` 带入；补充指令带布尔值时同步；进行中用 `task:goal-mode {taskId, enabled}`（仅可信侧栏，已结束拒绝）切换，不自动继续。跨来源切换保留。
+任务字段 `goalMode`（缺省 false）。侧栏「目标模式」开关是持久偏好（local `goalMode`），新建任务和补充指令都经 `task:submit` 的 `goalMode` 带入；补充指令带布尔值时同步；进行中用 `task:goal-mode {taskId, enabled}`（仅可信侧栏，已结束拒绝）切换，不自动继续。跨来源切换保留。
 
 | 项 | 默认 | 目标模式 |
 |---|---|---|

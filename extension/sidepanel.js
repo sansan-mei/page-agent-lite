@@ -2,9 +2,10 @@
 (() => {
   const $=id=>document.getElementById(id),t=PageAgentI18n.t;
   let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
-  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalDraft=false,shownPrompt='';
+  let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalMode=false,shownPrompt='';
   const ongoingTask=()=>!!task&&task.status!=='ended';
-  const goalOn=()=>ongoingTask()?task.goalMode===true:goalDraft;
+  // Goal mode is a persistent local preference: it arms every new task and supplement until toggled off.
+  const goalOn=()=>goalMode;
   const switchTab=$('use-current');switchTab.textContent=t('spSwitchTab');switchTab.title=t('spUseCurrentTab');document.querySelector('.app-header').prepend(switchTab);
   async function refreshTask(){
     const target=tabId,view=selection,version=++taskRefresh;if(target===null)return;
@@ -377,9 +378,13 @@
   $('member-list').addEventListener('click',event=>{const ref=event.target.dataset?.tabRef;if(ref)void editMembers({action:'remove',tabRef:ref},t('spMemberRemoved'));});
   $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim(),goalMode:goalOn()},draft);});
   $('goal-mode').addEventListener('click',()=>{
-    if(busy)return;goalDraft=!goalOn();
-    if(ongoingTask())void action('task:goal-mode',{taskId:task.taskId,enabled:goalDraft});else render();
+    if(busy)return;goalMode=!goalMode;
+    void chrome.storage.local?.set({goalMode})?.catch(()=>{});
+    if(ongoingTask()&&task.goalMode!==goalMode)void action('task:goal-mode',{taskId:task.taskId,enabled:goalMode});else render();
   });
+  async function loadGoalMode(){
+    try{const value=(await chrome.storage.local.get('goalMode')).goalMode;goalMode=value===true;render();}catch{}
+  }
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
   $('instruction').addEventListener('compositionend',()=>{composing=false;});
   $('instruction').addEventListener('keydown',e=>{
@@ -455,6 +460,7 @@
     try{const value=await send('agentPreferences');if(Number.isInteger(value?.inputChars)&&value.inputChars>0)$('instruction').setAttribute('maxlength',String(value.inputChars));}catch{}
   }
   chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==='local'&&changes.goalMode){goalMode=changes.goalMode.newValue===true;render();}
     if(area==='local'&&changes.agentPreferences){void loadInputLimit();return;}
     if(area!=='session'||tabId===null)return;
     const registry=changes.taskRegistry;
@@ -465,6 +471,6 @@
     }
     if(!scopePending&&task?.taskId&&changes['taskRoot:'+task.taskId])invalidateTask();
   });
-  void loadInputLimit();
+  void loadInputLimit();void loadGoalMode();
   void selectTab();
 })();
