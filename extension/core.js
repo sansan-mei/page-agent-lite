@@ -11,7 +11,7 @@ const agentToolRegistry=(()=>{
  const records=Object.create(null);
  const add=(names,policy)=>{for(const name of names)records[name]=Object.freeze({route:'runtime',effect:'read',target:'none',timeout:false,guard:false,...policy});};
  add(['done','pause','request_sensitive_access'],{effect:'control'});
- add(['observe','verify','history_read','site_skill_read'],{});add(['wait'],{timeout:true});
+ add(['observe','verify','history_read','site_skill_read','read_references'],{});add(['wait'],{timeout:true});
  add(['click','fill','check','select','wheel','press_key','double_click','right_click'],{route:'content',effect:'page',target:'required',timeout:true,guard:true});
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
  add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
@@ -253,6 +253,14 @@ function agentPlan(raw,snap){
   }
  }
  if(p.action==='observe'&&p.value!==undefined){if(typeof p.value==='object')agentReadOptions(p.value);else if(!Number.isSafeInteger(p.value)||p.value<0)throw new Error('Invalid text offset');}
+ if(p.action==='read_references'){
+  if(!Array.isArray(p.value)||p.value.length<2||p.value.length>8||p.id!==undefined||p.expected!==undefined)throw new Error('批量参考读取需要 2–8 项，且不带 id 或 expected');
+  const refs=new Set();
+  for(const r of p.value){
+   if(!r||typeof r!=='object'||Array.isArray(r)||Object.keys(r).sort().join()!=='action,id'||!['site_memory_read','global_memory_read','site_skill_read'].includes(r.action)||refs.has(r.action+':'+r.id))throw new Error('批量参考读取只允许不重复的笔记或技能读取');
+   agentPlan(JSON.stringify({reply:p.reply,...r}),snap);refs.add(r.action+':'+r.id);
+  }
+ }
  if(p.action==='fill_fields'){
   if(!Array.isArray(p.value)||p.value.length<2||p.value.length>8||p.id!==undefined||p.expected!==undefined)throw new Error('批量填写需要 2–8 个字段步骤，且不带 id 或 expected');
   const ids=new Set();

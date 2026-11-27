@@ -757,6 +757,17 @@
           const result=text?{id:archive.id,offset,text:text.slice(offset,offset+4000),nextOffset:offset+4000<text.length?offset+4000:null}:{error:'历史归档不存在'};
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'history_read',result});event(t,'读取任务历史：'+plan.id);});return;
         }
+        if(plan.action==='read_references'){
+          // Reuse single-read records so memory invalidation, review and compaction retain their existing semantics.
+          for(const reference of plan.value){
+            if(!await live())return;
+            const read={reply:plan.reply,...reference};
+            if(read.action==='global_memory_read')await globalMemoryAction(task,read,shared.version,controller.signal);
+            else if(read.action==='site_memory_read')await siteMemoryAction(task,read,durable.version,controller.signal);
+            else await siteSkillRead(task,read,controller.signal);
+          }
+          return;
+        }
         if(plan.action.startsWith('global_memory_')){await globalMemoryAction(task,plan,shared.version,controller.signal);return;}
         if(plan.action.startsWith('site_memory_')){await siteMemoryAction(task,plan,durable.version,controller.signal);return;}
         if(plan.action==='site_skill_read'){await siteSkillRead(task,plan,controller.signal);return;}
