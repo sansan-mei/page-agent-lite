@@ -18,6 +18,8 @@
 | native | `tools`（`prompts.agentTools()`：注册表每个动作一个 function，参数只描述 plan 字段，`reply` 必填，`additionalProperties:false`）、`tool_choice:"required"`、`parallel_tool_calls:false`；系统指令要求每轮恰好调用一个工具 | 恰好一个 `type:function` 的 tool_call；arguments 解析为对象后以工具名作 `action` 转成同一 JSON plan，交给 `agentPlan` 校验 |
 | json | 不带 tools；系统指令要求只返回严格 JSON | `content` 严格 JSON plan |
 
+接口格式 `apiFormat=anthropic` 时请求改走 `/messages`：native 的 tools 转成 `{name,description,input_schema}`，`tool_choice:{type:"any",disable_parallel_tool_use:true}`，系统指令作带 `cache_control` 的 system 块，不发送思考参数；`anthropicToChat` 把回复映射成 Chat Completions 形状（`stop_reason` end_turn/tool_use/max_tokens/refusal → stop/tool_calls/length/content_filter，其余为不支持；tool_use 块 → tool_calls；整段 ```json 围栏去掉；usage 含缓存读写 tokens），之后同样交给 `parseChatResponse`。
+
 `parseChatResponse(raw, protocol)` 统一解析并提取 usage。两种协议共用截断、拒绝、空值、超长、非法响应、结束状态的 code；native 另有多个调用 `MODEL_TOOL_CALL_MULTIPLE`（一个都不执行）、参数非对象/非法 JSON/含 `action` 键 `MODEL_TOOL_ARGUMENTS_INVALID`、调用格式或旧式 function_call `MODEL_TOOL_CALL_INVALID`、只有文本 `MODEL_TOOL_CALL_MISSING`；json 协议收到 tool_calls 为 `MODEL_TOOL_CALL_UNSUPPORTED`。都不修补成动作，也不回显响应正文（见 [运行器](agent-runtime.md#错误与恢复)）。
 
 auto 回退：回复只有文本但文本本身是严格 JSON 动作时，本轮直接按 json 解析使用，不记录；native 请求遇到 HTTP 400/422 且正文提到 tools/tool_choice/function，或回复是非 JSON 文本时，把当前 modelIdentity 记入 `nativeToolsUnsupported`，本轮报 `MODEL_PROTOCOL_FALLBACK`，之后该模型走 json。重新保存 API 设置会清空记录、重新尝试 native。native 模式下同样情况报 `MODEL_TOOLS_UNSUPPORTED` / `MODEL_TOOL_CALL_MISSING`，不记录。上下文估算在 native 下计入 tools schema。

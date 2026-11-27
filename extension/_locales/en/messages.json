@@ -239,6 +239,18 @@
   "optLanguage": {
     "message": "Reply language"
   },
+  "optApiFormat": {
+    "message": "API format"
+  },
+  "optApiFormatOpenai": {
+    "message": "OpenAI-compatible (Chat Completions)"
+  },
+  "optApiFormatAnthropic": {
+    "message": "Claude (Anthropic Messages)"
+  },
+  "optConnectionHintAnthropic": {
+    "message": "Ends with /v1, without /messages. The key stays on this device."
+  },
   "optConnectionHint": {
     "message": "Ends with /v1, without /chat/completions. The key stays on this device."
   },

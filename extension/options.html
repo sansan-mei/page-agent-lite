@@ -5,6 +5,7 @@
 <header class="settings-header"><img src="icons/logo.webp" alt="" width="40" height="40"><div><h1>Page Agent Lite</h1><p data-i18n="optIntro">连接你自己的模型，就能在侧栏开始使用。</p></div></header>
 <form id="config">
 <section id="connection" class="card"><h2 data-i18n="optConnectionTitle">连接模型</h2>
+<div class="field"><label for="apiFormat" data-i18n="optApiFormat">接口格式</label><select id="apiFormat"><option value="openai" selected data-i18n="optApiFormatOpenai">OpenAI 兼容（Chat Completions）</option><option value="anthropic" data-i18n="optApiFormatAnthropic">Claude（Anthropic Messages）</option></select></div>
 <div class="field"><label for="endpoint" data-i18n="optEndpoint">API 地址</label><input id="endpoint" type="url" required placeholder="https://api.openai.com/v1" autocomplete="off" aria-describedby="connection-hint"></div>
 <div class="field-row">
 <div class="field"><label for="model" data-i18n="optModel">模型</label><input id="model" required maxlength="120" placeholder="填写服务商提供的模型 ID" data-i18n-placeholder="optModelPlaceholder"></div>

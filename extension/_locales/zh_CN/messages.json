@@ -239,6 +239,18 @@
   "optLanguage": {
     "message": "回复语言"
   },
+  "optApiFormat": {
+    "message": "接口格式"
+  },
+  "optApiFormatOpenai": {
+    "message": "OpenAI 兼容（Chat Completions）"
+  },
+  "optApiFormatAnthropic": {
+    "message": "Claude（Anthropic Messages）"
+  },
+  "optConnectionHintAnthropic": {
+    "message": "地址填到 /v1，不含 /messages；密钥只存本机。"
+  },
   "optConnectionHint": {
     "message": "地址填到 /v1，不含 /chat/completions；密钥只存本机。"
   },

@@ -4,7 +4,7 @@
 
 | 位置 | 内容 | 生命周期 |
 |---|---|---|
-| local `config` | API 地址、模型、密钥、语言、思考强度、工具调用协议 `toolMode`（auto/native/json，缺省 auto） | 本机保留，不同步 |
+| local `config` | 接口格式 `apiFormat`（openai/anthropic，缺省 openai）、API 地址、模型、密钥、语言、思考强度、工具调用协议 `toolMode`（auto/native/json，缺省 auto） | 本机保留，不同步 |
 | local `nativeToolsUnsupported` | auto 下回退到 JSON 的 modelIdentity 哈希（最多 8 个） | 保存 API 设置时清空 |
 | local `agentPreferences` | maxSteps / contextTokens / compressionThreshold / inputChars，默认 100 / 100000 / 80 / 2000 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
 | local `frameSiteGrants` | 嵌入网站授权关系 `[{parent,frame}]`，完整 HTTP/HTTPS origin，最多 512 对；只存来源，不存正文、字段或敏感授权 | 本机保留，跨新任务与重启；可按对移除 |

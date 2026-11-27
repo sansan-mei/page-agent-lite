@@ -47,6 +47,38 @@ function parseChatResponse(raw,protocol='json'){
  }
  return {text,usage};
 }
+// Anthropic Messages replies are mapped onto the Chat Completions shape so parseChatResponse keeps
+// one set of checks and error codes for both API formats.
+function anthropicToChat(raw){
+ const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
+ let data;try{data=JSON.parse(raw);}catch{fail('MODEL_RESPONSE_INVALID','API 响应格式无效');}
+ if(!data||typeof data!=='object'||!Array.isArray(data.content))fail('MODEL_RESPONSE_INVALID','API 响应格式无效');
+ const finish={end_turn:'stop',stop_sequence:'stop',tool_use:'tool_calls',max_tokens:'length',refusal:'content_filter'}[data.stop_reason]??(data.stop_reason==null?null:'unsupported');
+ const texts=[],calls=[];
+ for(const block of data.content){
+  if(block?.type==='text'&&typeof block.text==='string')texts.push(block.text);
+  else if(block?.type==='tool_use')calls.push({type:'function',function:{name:block.name,arguments:block.input}});
+ }
+ // Claude often fences a JSON-only answer in ```json; strip one fence that wraps the whole text.
+ const text=texts.join('').trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/,'$1');
+ const u=data.usage,usage={};
+ if(u&&Number.isSafeInteger(u.input_tokens)){
+  const read=Number.isSafeInteger(u.cache_read_input_tokens)?u.cache_read_input_tokens:0,created=Number.isSafeInteger(u.cache_creation_input_tokens)?u.cache_creation_input_tokens:0;
+  usage.prompt_tokens=u.input_tokens+read+created;if(Number.isSafeInteger(u.output_tokens))usage.completion_tokens=u.output_tokens;if(read)usage.prompt_tokens_details={cached_tokens:read};
+ }
+ return JSON.stringify({choices:[{finish_reason:finish,message:{content:text,...(calls.length?{tool_calls:calls}:{})}}],usage});
+}
+function chatRequest(config,protocol,system,text,tools){
+ const effort=config.reasoningEffort??'medium';
+ if(config.apiFormat==='anthropic'){
+  // Thinking is not sent: tool_choice "any" cannot be combined with extended thinking.
+  return {url:'/messages',headers:{'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true',...(config.key?{'x-api-key':config.key}:{})},
+   body:{model:config.model,system:[{type:'text',text:system,cache_control:{type:'ephemeral'}}],messages:[{role:'user',content:text}],max_tokens:4096,
+    ...(protocol==='native'?{tools:tools.map(t=>({name:t.function.name,description:t.function.description,input_schema:t.function.parameters})),tool_choice:{type:'any',disable_parallel_tool_use:true}}:{}),stream:false}};
+ }
+ return {url:'/chat/completions',headers:config.key?{Authorization:'Bearer '+config.key}:{},
+  body:{model:config.model,messages:[{role:'system',content:system},{role:'user',content:text}],...(protocol==='native'?{tools,tool_choice:'required',parallel_tool_calls:false}:{}),...(effort==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:effort}),stream:false}};
+}
 // HTTP 400/422 bodies that name the tool parameters mean the API rejects function calling.
 function rejectsTools(status,body){return [400,422].includes(status)&&/\btools?\b|tool_choice|tool_calls|parallel_tool_calls|function/i.test(body);}
 function createService(chrome,fetcher=fetch){
@@ -76,13 +108,13 @@ function createService(chrome,fetcher=fetch){
    const previous=await preferences();
    await write({agentPreferences:{...previous,...p}});return {ok:true};
   }
-  if(m.type==='settings'){if(!opts)throw new Error('拒绝访问设置');return {reasoningEffort:'medium',toolMode:'auto',...await get('config')};}
+  if(m.type==='settings'){if(!opts)throw new Error('拒绝访问设置');return {apiFormat:'openai',reasoningEffort:'medium',toolMode:'auto',...await get('config')};}
   if(m.type==='configure'){
    if(!opts)throw new Error('拒绝修改设置');const c=m.config;
-   if(!c||Object.keys(c).some(k=>!['endpoint','key','language','model','reasoningEffort','toolMode'].includes(k))||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||!['auto','native','json'].includes(c.toolMode??'auto')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
+   if(!c||Object.keys(c).some(k=>!['apiFormat','endpoint','key','language','model','reasoningEffort','toolMode'].includes(k))||!['openai','anthropic'].includes(c.apiFormat??'openai')||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||!['auto','native','json'].includes(c.toolMode??'auto')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
    const endpoint=C.endpoint(c.endpoint);if(!await chrome.permissions.contains({origins:[new URL(endpoint).origin+'/*']}))throw new Error('请先授权 API 地址');
    // Saving settings again re-probes native tools for every model.
-   await write({config:{...c,endpoint,reasoningEffort:c.reasoningEffort??'medium',toolMode:c.toolMode??'auto'},nativeToolsUnsupported:[]});return {ok:true};
+   await write({config:{...c,endpoint,apiFormat:c.apiFormat??'openai',reasoningEffort:c.reasoningEffort??'medium',toolMode:c.toolMode??'auto'},nativeToolsUnsupported:[]});return {ok:true};
   }
   if(m.type==='model'){
    // Only the service worker's own agent turns reach the model; pages and extension pages cannot.
@@ -97,7 +129,8 @@ function createService(chrome,fetcher=fetch){
    if(options.signal?.aborted)controller.abort();
    options.signal?.addEventListener('abort',cancel,{once:true});
    const task=(async()=>{
-    let response;try{response=await fetcher(base+'/chat/completions',{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...(config.key?{Authorization:'Bearer '+config.key}:{})},body:JSON.stringify({model:config.model,messages:[{role:'system',content:system},{role:'user',content:m.text}],...(protocol==='native'?{tools:P.agentTools(options.capabilities||{}),tool_choice:'required',parallel_tool_calls:false}:{}),...((config.reasoningEffort??'medium')==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:config.reasoningEffort??'medium'}),stream:false}),signal:controller.signal});}catch{throw new Error('API 网络连接失败，请检查地址、权限与网络');}
+    const request=chatRequest(config,protocol,system,m.text,protocol==='native'?P.agentTools(options.capabilities||{}):[]);
+    let response;try{response=await fetcher(base+request.url,{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...request.headers},body:JSON.stringify(request.body),signal:controller.signal});}catch{throw new Error('API 网络连接失败，请检查地址、权限与网络');}
     // Auto mode: a tools rejection or a content-only reply executed nothing; remember it for this
     // model identity and let the runtime retry the turn with the strict-JSON protocol.
     const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
@@ -113,7 +146,8 @@ function createService(chrome,fetcher=fetch){
      throw new Error('API '+response.status+'：服务异常');
     }
     if(!response.ok){response.body?.cancel().catch(()=>{});const reason={401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常';throw new Error('API '+response.status+'：'+reason);}
-    const raw=await bounded(response,65536);
+    let raw=await bounded(response,65536);
+    if(config.apiFormat==='anthropic')raw=anthropicToChat(raw);
     let parsed;try{parsed=parseChatResponse(raw,protocol);}catch(error){
      if(error.code!=='MODEL_TOOL_CALL_MISSING'||mode!=='auto')throw error;
      // The model answered in text despite tools: if that text is already a strict JSON action, use it
@@ -142,10 +176,10 @@ function createService(chrome,fetcher=fetch){
  }
  async function identity(config=undefined){
   config=config||await get('config')||{};
-  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key,config.reasoningEffort??'medium'])));
+  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key,config.reasoningEffort??'medium',...(config.apiFormat==='anthropic'?['anthropic']:[])])));
   return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
  }
  return {init,handle,identity,agentProtocol,preferences,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true}}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
 }
-const api={createService,parseChatResponse};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
+const api={createService,parseChatResponse,anthropicToChat};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

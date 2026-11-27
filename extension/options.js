@@ -55,7 +55,7 @@
     status = event.submitter?.id === 'save-more' ? $('status-more') : $('status');
     // run invokes the callback synchronously up to the permission request, preserving user activation.
     void run(async () => {
-      const config = {endpoint: C.endpoint($('endpoint').value.trim()), model: $('model').value.trim(), key: $('key').value.trim(), language: language.value.trim(), reasoningEffort: $('reasoningEffort').value, toolMode: $('toolMode').value};
+      const config = {apiFormat: $('apiFormat').value, endpoint: C.endpoint($('endpoint').value.trim()), model: $('model').value.trim(), key: $('key').value.trim(), language: language.value.trim(), reasoningEffort: $('reasoningEffort').value, toolMode: $('toolMode').value};
       if (!config.model || config.model.length > 120 || !config.language || config.language.length > 60 || config.key.length > 4096 || /[\r\n]/.test(config.key)) throw new Error(t('optInvalidConfig'));
       const preferences = {maxSteps: Number($('max-steps').value), contextTokens: Number($('context-tokens').value), compressionThreshold: Number($('compression-threshold').value), inputChars: Number($('input-chars').value)};
       const granted = await chrome.permissions.request({origins: [new URL(config.endpoint).origin + '/*']});
@@ -65,13 +65,21 @@
       report(t('optSaved'));
     });
   });
+  // Endpoint placeholder and hint follow the chosen API format; the saved address is never rewritten.
+  function showApiFormat() {
+    const claude = $('apiFormat').value === 'anthropic';
+    $('endpoint').placeholder = claude ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1';
+    $('connection-hint').textContent = t(claude ? 'optConnectionHintAnthropic' : 'optConnectionHint');
+  }
+  $('apiFormat').addEventListener('change', showApiFormat);
   choice.querySelector('option[value="browser"]').textContent = t('optLanguageBrowser', browserLanguage);
   showLanguage(browserLanguage, false);
   controls();
   (async () => {
     const config = await send({type: 'settings'});
     for (const id of ['endpoint', 'model', 'key']) if (typeof config[id] === 'string') $(id).value = config[id];
-    for (const id of ['reasoningEffort', 'toolMode']) if (typeof config[id] === 'string') select($(id), config[id]);
+    for (const id of ['apiFormat', 'reasoningEffort', 'toolMode']) if (typeof config[id] === 'string') select($(id), config[id]);
+    showApiFormat();
     if (typeof config.language === 'string' && config.language) showLanguage(config.language, true);
     const preferences = await send({type: 'agentPreferences'});
     if (preferences.maxSteps !== undefined) $('max-steps').value = preferences.maxSteps;

@@ -24,7 +24,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `background.js` | 校验消息来源（仅顶层可信扩展页）、装配依赖、标签/权限事件、timer 与 alarm 调度 | [运行器](agent-runtime.md) |
 | `runtime.js` | 任务状态机：每 tick 推进一步、预算、检查点、等待、恢复、取消、跨来源切换、诊断 | [运行器](agent-runtime.md) |
 | `prompts.js` | 稳定系统指令与每轮上下文组装 | [上下文](context-and-skills.md) |
-| `backend.js` | 配置读写、OpenAI 兼容请求与响应解析（`parseChatResponse`）、文章存储（兼容） | [上下文](context-and-skills.md) |
+| `backend.js` | 配置读写、OpenAI 兼容 / Anthropic Messages 请求与响应解析（`chatRequest`、`anthropicToChat`、`parseChatResponse`）、文章存储（兼容） | [上下文](context-and-skills.md) |
 | `task-store.js` | session 任务根记录、归属索引、对话历史、迁移与中断对账 | [存储](storage.md) |
 | `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS；共用库的打开与升级 | [存储](storage.md) |
 | `history-store.js` | IndexedDB 对话历史：快照、脱敏、50 条上限、中断标记 | [存储](storage.md#对话历史) |
@@ -66,6 +66,6 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 取舍
 
-不引入服务端、Python、向量库、MCP 或子 Agent；保留非流式 OpenAI 兼容接口；动作默认走原生 function calling，不支持时回退严格 JSON，两者共用同一注册表与校验。后续计划见 [Roadmap](../ROADMAP.md)。
+不引入服务端、Python、向量库、MCP 或子 Agent；保留非流式 OpenAI 兼容接口，另支持非流式 Anthropic Messages；动作默认走原生 function calling，不支持时回退严格 JSON，两者共用同一注册表与校验。后续计划见 [Roadmap](../ROADMAP.md)。
 
 参考：[Hermes 架构](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)、[Chrome worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。
