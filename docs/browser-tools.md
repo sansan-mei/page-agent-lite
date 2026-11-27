@@ -14,6 +14,7 @@
 | wait | expected + 可选 timeoutMs；或仅 timeoutMs | runtime | 条件等待（默认 10s，最多 30s）；仅 timeoutMs 为纯延时（100–30000ms） |
 | history_read | id、value=offset | runtime | 读当前来源的压缩归档，每次 4000 字符 |
 | site_memory_* / global_memory_* | read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
+| read_references | value=2–8 个 `{action:site_memory_read/global_memory_read/site_skill_read, id}`，不重复，无 id/expected | runtime | 只读批量参考资料；沿用单条读取与来源分区，逐项返回错误，停止或代次变化不再读后续项 |
 | click | id | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click |
 | fill | id、字符串 value | content | input / textarea / 简单 contenteditable |
 | check | id、布尔 value | content | 原生 radio / checkbox |
