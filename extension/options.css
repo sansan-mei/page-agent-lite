@@ -74,9 +74,9 @@ details.more > :last-child { margin-bottom: 22px; }
 #management details > p { margin-top: 10px; }
 #management form label { margin: 14px 0 6px; }
 #management details button { margin: 12px 6px 0 0; }
-#global-memories p, #site-memories p, #site-skills p { white-space: pre-wrap; }
-#global-memories > div, #site-memories > div, #site-skills > div { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; }
-#global-memories button, #site-memories button, #site-skills button, #management details > button { font-size: 11px; padding: 7px 12px; }
+#global-memories p, #site-memories p, #skills p { white-space: pre-wrap; }
+#global-memories > div, #site-memories > div, #skills > div { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; }
+#global-memories button, #site-memories button, #skills button, #management details > button { font-size: 11px; padding: 7px 12px; }
 #management form > button[type="submit"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 textarea { min-height: 110px; }
 

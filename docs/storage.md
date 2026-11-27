@@ -18,7 +18,7 @@
 | session `task:<tabId>` / `chat:<tabId>` | 旧版记录，仅作迁移输入 | 迁移成功后删除 |
 | IndexedDB `page-agent-memory`（v4）`sites` | 按 origin 的长期笔记 | 跨重启；卸载/清理存储后丢失 |
 | IndexedDB `page-agent-memory`（v4）`global` | 唯一记录 `scope:'global'` | 同上 |
-| IndexedDB `page-agent-memory`（v4）`skills` | 按 origin 的网站技能 | 同上 |
+| IndexedDB `page-agent-memory`（v5）`skillLibrary` | 所有网站共用的技能库 | 同上 |
 | IndexedDB `page-agent-memory`（v4）`history` / `historyViews` | 对话历史摘要（含 updatedAt 索引）与只读正文，以 taskId 为主键 | 同上；最多 50 条 |
 
 - local 初始化时设为 `TRUSTED_CONTEXTS`，API 不可用则拒绝初始化；session 默认只对可信扩展上下文开放。都不是加密存储。
@@ -93,8 +93,8 @@ session 多键写入不是事务，所以归属变更（新建/替换、范围�
 
 ## IndexedDB 长期笔记
 
-- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储，v4 加 `skills`）保留原记录。
-- `sites` 以 origin 为主键 `{origin, version, notes}`；`global` 以 scope 为主键 `{scope:'global', version, notes}`。笔记字段 id/text/source/createdAt/updatedAt，source 为 user/model，只表示写入来源。`skills` 与 `sites` 结构相同（`{origin, version, notes}`），每项另有 description（`createSiteMemory({scope:'skill'})`）。
+- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储，v4 加 `skills`，v5 加 `skillLibrary` 并把 `skills` 中按 origin 的技能合并进来：sites 与 from 取原 origin，按 updatedAt 新到旧放入，id 重复时加 `_2` 等后缀，超出 32 个/96000 字符的旧技能丢弃，之后删除 `skills`）保留原记录。
+- `sites` 以 origin 为主键 `{origin, version, notes}`；`global` 以 scope 为主键 `{scope:'global', version, notes}`。笔记字段 id/text/source/createdAt/updatedAt，source 为 user/model，只表示写入来源。`skillLibrary` 以 scope 为主键，只有一条 `{scope:'skills', version, notes}`，每项另有 description、sites（origin 列表）、from（写入时来源或 null）（`createSiteMemory({scope:'skill'})`，读写忽略 origin 参数）。
 - 每个范围 32 条、64000 序列化字符，单条 2000 字符；不申请 unlimitedStorage。
 - readwrite 事务读版本后写入，不匹配返回 `MEMORY_CONFLICT`；事务完成才算成功，失败不改旧记录。clear 保留空记录并递增版本，防止旧请求按 version=0 写回。写入支持 AbortSignal。
 - 只有可信设置页/侧栏经后台管理；网站操作附期望 origin，导航后拒绝写到其他网站。导出只含对应范围笔记和 schema 标识。

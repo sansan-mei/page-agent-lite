@@ -878,19 +878,25 @@
   "spRememberedFrameTitle": {
     "message": "已记住的嵌入网站授权"
   },
-  "optSiteSkills": {
-    "message": "网站技能"
+  "optSkills": {
+    "message": "技能"
   },
-  "optSiteSkillsHint": {
-    "message": "任务复盘自动保存的本站做法，执行时按需读取；可删除。"
+  "optSkillsHint": {
+    "message": "任务复盘自动保存的可复用做法，所有网站共用，执行时按需读取；可删除。"
   },
-  "optSiteSkillClear": {
-    "message": "清空本站技能"
+  "optSkillClear": {
+    "message": "清空全部技能"
   },
   "mgSkillCount": {
-    "message": "本站技能 {1}/16 个"
+    "message": "技能 {1}/32 个"
   },
   "mgSkillEmpty": {
-    "message": "本站暂无技能"
+    "message": "暂无技能"
+  },
+  "mgSkillSites": {
+    "message": "适用网站：{1}"
+  },
+  "mgSkillGeneral": {
+    "message": "通用（所有网站）"
   }
 }

@@ -44,6 +44,36 @@
     const url=URL.createObjectURL(new Blob([JSON.stringify({schema:'page-agent-global-memory',version:1,exportedAt:new Date().toISOString(),scope:'global',notes:globalData.notes},null,2)],{type:'application/json'}));
     const a=document.createElement('a');a.href=url;a.download='page-agent-global-memory.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
+  // Skills are one cross-site library saved by the task review; the page only lists and deletes them.
+  let skillVersion=null,skillNotes=[],skillRead=0,skillBusy=false;
+  function skillControls(){$('skill-clear').disabled=skillBusy||skillVersion===null||!skillNotes.length;for(const button of $('skills').querySelectorAll('button'))button.disabled=skillBusy;}
+  async function refreshSkills(){
+    const read=++skillRead;
+    try{
+      const data=await send('task:skills');if(read!==skillRead)return;
+      if(!data||data.scope!=='skills'||!Array.isArray(data.notes))throw new Error(t('commonMemoryReadFailed'));
+      skillVersion=data.version;skillNotes=data.notes;$('skills').replaceChildren();
+      for(const skill of data.notes){
+        const item=document.createElement('div'),title=document.createElement('p'),where=document.createElement('p'),steps=document.createElement('p');
+        title.textContent=t('commonLabelValue',skill.id,skill.description);
+        where.className='hint';where.textContent=skill.sites?.length?t('mgSkillSites',skill.sites.join(', ')):t('mgSkillGeneral');
+        steps.textContent=skill.text;item.append(title,where,steps);
+        const remove=document.createElement('button');remove.type='button';remove.textContent=t('commonDelete');remove.addEventListener('click',()=>void changeSkills('delete',{id:skill.id}));item.append(remove);
+        $('skills').append(item);
+      }
+      $('skill-status').textContent=data.notes.length?t('mgSkillCount',data.notes.length):t('mgSkillEmpty');
+    }catch(e){if(read===skillRead){skillVersion=null;skillNotes=[];$('skill-status').textContent=e.message;}}
+    finally{skillControls();}
+  }
+  async function changeSkills(action,extra={}){
+    if(skillBusy||skillVersion===null)return;
+    skillBusy=true;skillControls();
+    try{await send('task:skill-change',{action,expectedVersion:skillVersion,...extra});}
+    catch(e){$('skill-status').textContent=e.message;}
+    finally{skillBusy=false;}
+    await refreshSkills();
+  }
+  $('skill-clear').addEventListener('click',()=>void changeSkills('clear'));
 
-  globalControls();void refreshGlobalMemory();
+  globalControls();void refreshGlobalMemory();skillControls();void refreshSkills();
 })();

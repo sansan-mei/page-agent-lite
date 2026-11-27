@@ -27,7 +27,7 @@ const store=PageAgentTaskStore.createTaskStore(chrome);
 const tools=PageAgentBrowserTools.createBrowserTools(chrome);
 const siteMemory=PageAgentSiteMemory.createSiteMemory();
 const globalMemory=PageAgentSiteMemory.createSiteMemory({scope:'global'});
-const siteSkills=PageAgentSiteMemory.createSiteMemory({scope:'skill'});
+const skills=PageAgentSiteMemory.createSiteMemory({scope:'skill'});
 const history=PageAgentHistoryStore.createHistoryStore();
 const historyTimers=new Map(),forgottenHistory=new Set();let historyQueue=Promise.resolve();
 // Session conversations are copied to IndexedDB through one queue, so a delete is never overtaken by an older save.
@@ -59,7 +59,7 @@ async function cancelSchedule(tabId){
     await chrome.alarms.clear('task:'+tabId);
   });
 }
-const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemory,siteSkills,schedule,cancelSchedule,
+const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemory,skills,schedule,cancelSchedule,
   preferences:()=>service.preferences(),
   model:(text,signal,capabilities)=>service.generateAgent(text,signal,capabilities),
   summarize:(text,signal)=>service.summarizeAgent(text,signal),
@@ -103,14 +103,16 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(task?.origin===new URL(s.url).origin&&['running','waiting_page'].includes(task.status))schedule(s.tab.id);
       return {ready:true};
     }
-    if(['task:global-memory','task:global-memory-change'].includes(m.type)){
+    if(['task:global-memory','task:global-memory-change','task:skills','task:skill-change'].includes(m.type)){
       const optionsSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0);
       if(!panelSender(s)&&!optionsSender)throw new Error('拒绝访问全局记忆');
+      if(m.type==='task:skills')return runtime.getSkills();
+      if(m.type==='task:skill-change')return runtime.editSkills({action:m.action,id:m.id,expectedVersion:m.expectedVersion});
       if(m.type==='task:global-memory')return runtime.getGlobalMemory();
       return runtime.editGlobalMemory({action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
     }
     if(m.type.startsWith('task:')){
-      const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change','task:site-skills','task:site-skill-change'].includes(m.type);
+      const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; notes stay per tab.
       const taskTab=['task:get','task:sensitive-access','task:tab-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
@@ -152,8 +154,6 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
         await store.deleteConversation(m.taskId);await forgetHistory(m.taskId);return true;
       }
       if(m.type==='task:site-memory')return runtime.getSiteMemory(m.tabId);
-      if(m.type==='task:site-skills')return runtime.getSiteSkills(m.tabId);
-      if(m.type==='task:site-skill-change')return runtime.editSiteSkills(m.tabId,{origin:m.origin,action:m.action,id:m.id,expectedVersion:m.expectedVersion});
       if(m.type==='task:site-memory-change')return runtime.editSiteMemory(m.tabId,{origin:m.origin,action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
       if(m.type==='task:start'||m.type==='task:submit')return typeof m.goalMode==='boolean'?runtime.submit(m.tabId,m.goal,{goalMode:m.goalMode}):runtime.submit(m.tabId,m.goal);
