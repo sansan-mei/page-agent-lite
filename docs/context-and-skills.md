@@ -6,6 +6,7 @@
 
 - 每轮输入是一个 JSON，字段顺序为：`taskScope`（当前来源与授权集合，只读）、`goal`、`instructions`（按时间排序）、`taskPlan`、`taskSummary`、`historyIndex`、`results`、`siteMemoryIndex`、`globalMemoryIndex`、`memoryReview`、`uncertainClicks`……最后是当前页面快照。稳定内容在前，变化内容在后，便于服务商前缀缓存。
 - 较新的用户纠正优先；网页、笔记、摘要都作为不可信资料。不设置服务商专用缓存参数，摘要更新时间不发给模型。
+- 系统指令（`agentSystem`）参照 Hermes：开头是身份和 reply 规范（篇幅随问题分量，完成时说明做了什么、页面确认了什么、还剩什么，不客套、不复述每次点击，未核实就明说），其后分为「每轮」「读取页面」「操作」「导航与标签」「记忆与技能」「安全」六节，约 1 万字符。工具 schema 只描述字段，数量上限写在系统指令里、由 `agentPlan` 校验；`notice` 只出现在有副作用的工具上。
 - 仓库 `AGENTS.md` 只约束开发，扩展不读取。
 - 导航无需逐站申请任务授权，`taskScope.allowedOrigins` 记录任务来源，不是导航白名单。行动请求须返回实际动作，不能把“准备去做”当作完成；受阻时须说明未完成和具体原因。这是提示约束，不能保证模型始终遵守。
 

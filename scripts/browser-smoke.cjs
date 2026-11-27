@@ -250,7 +250,7 @@ async function startServer() {
       const task = sysPrompt.startsWith('Translate ')  ? 'translate'
                  : sysPrompt.startsWith('Summarize browser task history') ? 'context-summary'
                  : sysPrompt.startsWith('Summarize ')    ? 'summary'
-                 : sysPrompt.startsWith('You are a browser') ? 'agent'
+                 : sysPrompt.startsWith('You are Page Agent Lite') ? 'agent'
                  : sysPrompt.startsWith('You review a finished') ? 'review'
                  : sysPrompt.startsWith('You are a')      ? 'edit'
                  : null;
