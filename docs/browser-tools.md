@@ -152,11 +152,11 @@ observe 的 value：
 
 - 前提：可选权限 `userScripts`（设置页「脚本执行」由点击申请）、Chrome 135+（`userScripts.execute`），且扩展详情页「允许用户脚本」已打开（Chrome 138+；135–137 为开发者模式）。`status(chrome)` 返回 `{permission, api, available}`。
 - 暴露：后台每轮计算一次 `available`，作为 `capabilities.scripts` 同时决定系统提示词末尾的 run_script 说明、原生 tools 列表和 JSON 模式的动作列表。不可用的轮次模型看不到该工具（不占 schema 上下文，也不会请求用户无法批准的脚本）。注册表始终含 run_script，`agentPlan` 照常校验参数；模型在不可用的轮次仍返回它时不执行，暂停为 `access`，消息写明缺权限还是缺浏览器开关。
-- 参数：value 为代码字符串（≤ 20000 字符）或 `{code, world}`，world 为 `USER_SCRIPT`（默认，隔离环境、可访问 DOM、不受网页 CSP 限制）或 `MAIN`（可访问网页 JS 全局）；不接受 id。代码作为 async 函数体在当前标签顶层框架执行，`return` 的值转成字符串返回。
+- 参数：value 为代码字符串（≤ 20000 字符）或 `{code, world}`，world 为 `USER_SCRIPT`（默认，隔离环境、可访问 DOM、不受网页 CSP 限制）或 `MAIN`（可访问网页 JS 全局；改写 `window.confirm` 等网页函数只在 MAIN 生效）；不接受 id。代码作为 async 函数体在当前标签顶层框架执行，`return` 的值转成字符串返回。
 - 批准：商店包执行前暂停为 `script_approval`，侧栏显示完整代码，用户选择「允许一次」或「本任务内允许」（之后本任务在同一标签页、同一来源的脚本自动执行，完整代码仍记入对话，可随时撤销）；没有跨任务的「始终允许」。流程见 [运行器](agent-runtime.md#脚本批准)。
 - 执行：校验来源与主机权限、标签 URL 与待执行记录一致、`status` 可用，再用 `agent:document` 只读探测内容脚本的文档 ID（不一致或无响应记 `STALE`，不执行），之后调用一次 `chrome.userScripts.execute`；USER_SCRIPT 环境设置为允许 eval。结果 `SCRIPT_RESULT`（`observed.result` ≤ 4000 字符，`truncated`、`world`）、`SCRIPT_ERROR`（`observed.error`）、`SCRIPT_TIMEOUT`（30 秒未返回，status=unknown，不重发）。dispatch=sent、recovery=observe，执行后重新观察。
 - 未执行的回执（dispatch=not_sent）：`SCRIPT_REJECTED`（用户拒绝，recovery=replan）、`STALE`（页面或文档已变）、`SCRIPT_DISCARDED`（停止、接管、补充指令、导航、执行标签关闭使待批准请求作废）、`PERMISSION_DENIED`（执行前发现不可用）。
 
 ## 未支持
 
-快照差异、点击/导航类批量动作、截图/视觉、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。
+快照差异、点击/导航类批量动作、截图/视觉、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。其中同源 iframe、开放式 Shadow DOM 等可由 run_script 处理，范围见[使用指南](usage.md#脚本执行)。
