@@ -47,7 +47,7 @@
 | 分组上下文（fieldset、radiogroup、题目容器、listbox） | 5000 字符 |
 | 元素语义 context（≤3 层具名祖先 + aria-describedby ≤ 300 字符） | 合计 4000 字符 |
 
-- 排序：弹窗（open dialog、role=dialog/alertdialog、aria-modal）优先，其次与视口相交（考虑 overflow 祖先裁剪）。`inViewport` 只是几何相交。
+- 排序：弹窗（open dialog、role=dialog/alertdialog、aria-modal）优先，其次与视口相交（考虑 overflow 祖先裁剪），视口外的按与视口的距离由近到远（同距离保持文档顺序）。`inViewport` 只是几何相交。
 - 识别的交互元素：原生控件、role=link/menuitem/switch/combobox/option/tab、onclick、非负 tabindex、pointer 样式边界。可点击行内的子元素若自带交互线索（a、label、summary、aria-haspopup/expanded/pressed、data-testid）单独列出，如悬浮才显形的「添加/更多」。onclick 只用于识别，不读取执行。标签来自 label、aria-labelledby、title。
 - 元素可带 `scroll {x,y,maxX,maxY}`、expanded/selected/haspopup、`controlledLabels`、`editable`（plain_text / unsupported_structure）、`context {path, description}`。
 - `coverage` 分别标注元素、区域、正文、框架是否完整；`page.viewport` 给出窗口尺寸与滚动范围。没读到不等于不存在。

@@ -118,6 +118,19 @@ test('durable memory tools validate note identifiers and bounded plain text',()=
 });
 
 
+test('off-screen controls are ordered by distance from the viewport, so a button just below the fold survives the 120 cap',()=>{
+ // Quiz layout: a long side menu earlier in the DOM, the answer just below the fold, and the Next button under it.
+ const {document,window}=parseHTML('<html><body><nav>'+Array.from({length:150},(_,i)=>`<a href="/q${i}">Quiz ${i}</a>`).join('')+'</nav><main><button id="next">Next</button></main></body></html>');
+ window.innerWidth=800;window.innerHeight=600;
+ [...document.querySelectorAll('a')].forEach((n,i)=>{const top=i<20?20+i*25:2000+i*25;n.getBoundingClientRect=()=>({left:0,right:100,top,bottom:top+20,width:100,height:20});});
+ document.getElementById('next').getBoundingClientRect=()=>({left:300,right:380,top:700,bottom:730,width:80,height:30});
+ const snap=C.agentSnapshot(document),labels=snap.page.elements.map(e=>e.label);
+ assert.equal(labels.length,120);assert.deepEqual(labels.slice(0,20),Array.from({length:20},(_,i)=>'Quiz '+i),'viewport controls first');
+ assert.equal(labels[20],'Next','the nearest off-screen control comes before far menu items');
+ assert.equal(snap.page.coverage.elementsComplete,false);
+});
+
+
 test('viewport targets escape the first-120 cap while dialogs retain priority and absence stays unknown',()=>{
  const {document,window}=parseHTML('<html><body>'+Array.from({length:130},(_,i)=>`<button>Old ${i}</button>`).join('')+'<button id="later">Later</button><div role="dialog" aria-label="Confirm"><button id="confirm">Confirm</button></div></body></html>');
  window.innerWidth=800;window.innerHeight=600;

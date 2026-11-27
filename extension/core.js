@@ -142,7 +142,13 @@ function agentSnapshot(doc, textOffset=0, policy={}){
  const geometry=new Map(),scrollables=new Set();
  const inViewport=n=>{if(!geometry.has(n))geometry.set(n,agentGeometry(n));return geometry.get(n)?.inViewport;};
  for(const n of all){const info=agentScrollInfo(n),own=n.ownerDocument;if(n===own.body||n===own.documentElement||(!info.maxX&&!info.maxY))continue;const style=own.defaultView?.getComputedStyle?.(n);if((info.maxX&&/auto|scroll/.test(style?.overflowX))||(info.maxY&&/auto|scroll/.test(style?.overflowY)))scrollables.add(n);}
- const prioritize=items=>[...items].sort((a,b)=>Number(inDialog(b))-Number(inDialog(a))||Number(!!inViewport(b))-Number(!!inViewport(a)));
+ // Off-screen controls follow by distance from the viewport, so a button just below the fold
+ // (e.g. Next under a quiz) is not pushed past the 120 cap by long menus earlier in the DOM.
+ const distances=new Map(),distance=n=>{
+  if(!distances.has(n)){let d=0;try{const r=n.getBoundingClientRect?.(),w=n.ownerDocument.defaultView;if(r&&Number.isFinite(w?.innerHeight)&&Number.isFinite(w?.innerWidth)&&(r.width||r.height))d=Math.max(0,r.top-w.innerHeight,-r.bottom)+Math.max(0,r.left-w.innerWidth,-r.right);}catch{}distances.set(n,d);}
+  return distances.get(n);
+ };
+ const prioritize=items=>[...items].sort((a,b)=>Number(inDialog(b))-Number(inDialog(a))||Number(!!inViewport(b))-Number(!!inViewport(a))||(inViewport(a)?0:distance(a)-distance(b)));
  let fullText='';
  if(reading.includeText!==false){
   const read=d=>{const copy=d.body.cloneNode(true);for(const n of copy.querySelectorAll(blocked))n.remove();return (copy.innerText||copy.textContent||'').replace(/\s+/g,' ').trim();};
