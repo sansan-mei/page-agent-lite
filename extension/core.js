@@ -424,7 +424,9 @@ function agentInput(p,n,doc,signature,snap){
   n.focus?.({preventScroll:true});guard();
   if(doc.activeElement!==n)throw Object.assign(new Error('目标无法获得键盘焦点'),{code:'TARGET_CHANGED'});
   n.dispatchEvent(new win.KeyboardEvent('keydown',{...opts,bubbles:true,cancelable:true,composed:true}));
-  guard();if(doc.activeElement!==n)throw Object.assign(new Error('按键期间焦点变化，停止后续事件'),{code:'TARGET_CHANGED'});
+  // The key is delivered: value, text or focus changes are its effect (Enter adds a todo and clears the input),
+  // not a replaced target. Send keyup only while the target still holds focus; verification comes from expected.
+  if(!agentLive(n)||doc.activeElement!==n)return {input:'keyboard',key:opts.key,keyup:false};
   n.dispatchEvent(new win.KeyboardEvent('keyup',{...opts,bubbles:true,cancelable:true,composed:true}));
   return {input:'keyboard',key:opts.key};
  }

@@ -70,6 +70,7 @@
 | `MODEL_PROTOCOL_FALLBACK`（auto 下接口不支持原生工具调用，未执行任何动作） | 与上行共用 2 次重试额度，下一轮改用 JSON 协议，记 `dispatch=not_sent`，计轮数 |
 | 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_TOOL_CALL_MULTIPLE`、`MODEL_TOOL_CALL_INVALID`、`MODEL_TOOL_ARGUMENTS_INVALID`、`MODEL_TOOL_CALL_MISSING`（native 模式）、`MODEL_TOOLS_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |
+| 操作期间目标变化（`TARGET_CHANGED`，`dispatch=unknown`，`recovery=observe`） | 最多两次（目标模式五次）重新观察，由模型按新页面核对结果；运行时不重放该动作，超过上限暂停为 recovery |
 | 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划；模型按回执中的遮挡层 `key` 先关闭或完成遮挡层 |
 | 动作核对到期仍未核实（not_satisfied 或 unknown） | 最多两次回到 observe（`recovery=replan`，`CONDITION_TIMEOUT`），结果照实记录，运行时不重发；成功核对后计数清零，继续/补充指令/选择也清零。unknown 或非字段动作记入 `uncertainClicks`；字段值明确不符时模型可重写 |
 | 完成条件或 wait 条件未核实 | 暂停；目标模式下按上一行重新规划 |

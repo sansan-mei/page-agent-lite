@@ -395,6 +395,19 @@ test('blocked click replans with current page evidence, bounded retries never cl
 });
 
 
+test('a target that changes mid-input re-reads the page instead of failing and never replays the action',async()=>{
+ const T=require('../extension/tool-protocol.js');let attempts=0,turn=0;
+ const plans=[{reply:'Enter',action:'press_key',id:'t0',value:'Enter'},{reply:'Added',action:'done'}];
+ const f=fixture({tools:{async execute(){attempts++;const error=Object.assign(new Error('输入期间目标变化，停止后续事件'),{code:'TARGET_CHANGED'});error.result=T.failure(error);throw error;}},model:async()=>({text:JSON.stringify(plans[Math.min(turn++,1)])})});
+ await f.runtime.start(1,'Add a todo');await f.runtime.tick(1);
+ let task=await f.runtime.get(1);
+ assert.equal(task.status,'running');assert.equal(task.phase,'observe');
+ assert.deepEqual([task.lastOutcome.code,task.lastOutcome.dispatch,task.lastOutcome.recovery],['TARGET_CHANGED','unknown','observe']);
+ await f.runtime.tick(1);task=await f.runtime.get(1);
+ assert.equal(task.status,'completed');assert.equal(attempts,1,'the uncertain key press is not replayed');
+});
+
+
 test('tool requests survive success and errors with canonical dispatch outcomes',async()=>{
  const plan={reply:'Fill',action:'fill',id:'t0',value:'4'};
  for(const fails of [false,true]){

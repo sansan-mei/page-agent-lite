@@ -91,7 +91,7 @@ observe 的 value：
 - **fill**：原型 value setter（绕过实例 value 跟踪器，不注入主世界）。先用脱离文档的同类型 input 检查浏览器值清洗，不能原样保留则 `INVALID_FIELD_VALUE`、not_sent。聚焦后重核签名，派发可取消 beforeinput（`insertReplacementText`）；被取消 → `INPUT_CANCELLED`、dispatch=unknown，不再写值。之后 setter + input/change。事件处理中节点被替换/隐藏/禁用 → `TARGET_CHANGED`。
 - **contenteditable**：仅 `contenteditable` 为 true/空/plaintext-only，且只含文本节点和无属性 `<br>`。写入 textContent（≤ 4000 字符），不解析 HTML、不用 execCommand。其他结构 → `UNSUPPORTED_EDITABLE`、not_sent，不改节点。
 - **ARIA 选择控件**：先 click 打开，再按新快照选项点击。选项按 listbox 分组，名称取自身标签或唯一可见 combobox（aria-controls/aria-owns）；多个 owner 不任选。
-- **press_key / double_click / right_click**：先做命中检查并聚焦，事件间目标、焦点或遮挡变化即中断；双击中断时第一次点击可能已生效。
+- **press_key / double_click / right_click**：先做命中检查并聚焦，派发前或事件之间目标、焦点或遮挡变化即中断（`TARGET_CHANGED`）；双击中断时第一次点击可能已生效。press_key 的 keydown 发出后，值、文字或焦点的变化算按键效果（如 Enter 添加待办并清空输入框），不再中断；目标仍有焦点才补发 keyup，否则回执带 `keyup:false`。
 
 ## 导航
 

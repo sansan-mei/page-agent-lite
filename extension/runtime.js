@@ -840,6 +840,11 @@
         if (['STALE','TARGET_BLOCKED'].includes(error.code)) {
           if((task.recoveryCount||0)>=caps(task).recovery){await pause(task,'连续目标失效，已达到重新定位上限','recovery');return;}
           await update(tabId,token,t=>{t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.check=null;event(t,error.code==='TARGET_BLOCKED'?'目标被遮挡，重新读取后先处理遮挡层':'目标已变化，重新读取后规划');});
+        } else if (error.code==='TARGET_CHANGED') {
+          // The target changed mid-input, so the action may already have taken effect: re-read and let the
+          // model check the page. The uncertain action is recorded above and is never replayed by the runtime.
+          if((task.recoveryCount||0)>=caps(task).recovery){await pause(task,'目标在操作期间多次变化，已达到重新核对上限','recovery');return;}
+          await update(tabId,token,t=>{t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.check=null;event(t,'操作期间目标变化，结果未确认；重新读取页面核对，不会重复执行');});
         } else if (['NAVIGATION','PAGE_BUSY'].includes(error.code)) {
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面连接或忙碌等待超时，未重复操作','timeout');return;}
