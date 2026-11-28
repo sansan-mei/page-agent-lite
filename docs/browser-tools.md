@@ -90,6 +90,7 @@ observe 的 value：
 
 - **命中检查**（click/hover/wheel/press_key/double_click/right_click）：在目标可见框内依次探测中心和 8 个偏移点，取第一个属于目标的点派发；全部被挡则滚到视野中央再探测一次。仍被挡 → `TARGET_BLOCKED`、`dispatch=not_sent`，`observed` 含 `blocker`（遮挡元素）、`layer`（遮挡层：与目标不共祖先的最高节点）和 `layerControls`（层内最多 8 个未禁用的快照控件），均用跨快照稳定的 `key` 和快照已有的 role/label，不读取额外页面文本。
 - **点击**：hover/down/focus/up 发出后目标被替换或遮挡 → `TARGET_CHANGED`、`dispatch=unknown`，不继续 click。命中目标内部无 click 方法的 SVG/path 时，向命中元素派发一次冒泡 MouseEvent。
+- **目标外观**（click/hover/double_click/right_click，含真实输入）：派发前记下目标、2 层祖先和前 50 个后代的 class、style、aria-pressed/checked/selected/current、data-*（表单控件不取 data-*；不读字段值；每值截 120 字符），以及目标计算样式 background-color、border-color、outline、opacity、transform、box-shadow。稳定观察后快照未变但这些变了 → `TARGET_VISUAL_CHANGED`（unknown、sent、observe），message 提示可能已选中/切换、不要重复点击；焦点移动时忽略计算样式（`:focus` 样式不算）。记录只在内容脚本内比较，不进回执。带 expected 时仍按条件回报。
 - **fill**：原型 value setter（绕过实例 value 跟踪器，不注入主世界）。先用脱离文档的同类型 input 检查浏览器值清洗，不能原样保留则 `INVALID_FIELD_VALUE`、not_sent。聚焦后重核签名，派发可取消 beforeinput（`insertReplacementText`）；被取消 → `INPUT_CANCELLED`、dispatch=unknown，不再写值。之后 setter + input/change。事件处理中节点被替换/隐藏/禁用 → `TARGET_CHANGED`。
 - **contenteditable**：仅 `contenteditable` 为 true/空/plaintext-only，且只含文本节点和无属性 `<br>`。写入 textContent（≤ 4000 字符），不解析 HTML、不用 execCommand。其他结构 → `UNSUPPORTED_EDITABLE`、not_sent，不改节点。
 - **ARIA 选择控件**：先 click 打开，再按新快照选项点击。选项按 listbox 分组，名称取自身标签或唯一可见 combobox（aria-controls/aria-owns）；多个 owner 不任选。
@@ -105,7 +106,7 @@ observe 的 value：
 - 何时用（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不支持）。已发出的合成事件从不由运行时改用真实输入重发：页面没变化不能证明没效果（效果可能延迟或不可见）。
   - 到不了（`unreachable`，自动）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent）并记住目标，后台经 `agent:point` 取坐标后用真实输入。
   - 模型请求（`trusted`）：计划带 `trusted:true`（`agentPlan` 只接受 click/hover 的布尔值）时不发合成事件；后台发 `agent:aim`，内容脚本按 `agent:execute` 的规则核对快照与计划、消费快照、记住目标并返回坐标。核对失败（`STALE`、`TARGET_BLOCKED` 等）与合成路径一样抛给运行器。`executing` 检查点照常先写。
-  - 合成点击回执为 `NO_CHANGE` 时，message 末尾提示可在重新观察后加 `trusted:true` 再试一次；运行时不自动重试。
+  - 合成点击/悬停回执为 `NO_CHANGE` 时，message 末尾提示：选中/切换类目标可能已变化而文字不变，再点会撤销；先截图或观察核实，确认没反应才加 `trusted:true` 再试一次。运行时不自动重试。
   - 坐标：`agent:point`/`agent:aim` 对同一节点核对存活、签名、可见、未变为敏感字段，再走合成点击的命中检查（滚入视野、遮挡、iframe 可见框），返回顶层视口 CSS 像素，同源框架加 iframe 偏移；遮挡（`TARGET_BLOCKED`）不派发，因为真实点击同样落在遮挡层上。新 observe 清除记住的目标；合成事件已派发的目标不给坐标。
   - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`（`unreachable`/`trusted`），message 前缀说明输入方式。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
   - 未发送时：到不了类返回 `SYNTHETIC_UNREACHABLE`，`trusted` 类返回 `REAL_INPUT_NOT_SENT`（unsupported、not_sent、replan），都带 `observed.input='none'` 与 `cdp {code,message}`，运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
@@ -161,7 +162,7 @@ observe 的 value：
 - dispatch：not_sent / sent / unknown。scope：dispatch / ui / page。success 只对应本次 expected，不代表服务器成功或任务完成。
 - 控制流只看 code/status，不解析 message。旧 navigation/connection/verification 返回由 `tool-protocol.js` 适配；回执丢失一律 unknown。只读 verify 的 not_sent 不覆盖原动作的 dispatch。
 - scroll 回执 observed 含 axis/before/after/delta/atStart/atEnd；wheel 回执的 deltaX/deltaY 是输入量，defaultPrevented 不是成功证据。
-- 常见 code：`SYNTHETIC_UNREACHABLE`、`CDP_*`（见[真实输入](#真实输入)）、`STALE`、`NAVIGATION`、`PAGE_BUSY`、`NO_CHANGE`、`TARGET_BLOCKED`、`TARGET_CHANGED`、`TARGET_MISSING`、`AMBIGUOUS_TARGET`、`CONDITION_TIMEOUT`、`DELAY_ELAPSED`、`INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE`、`NAVIGATION_DISPATCHED`、`NAVIGATION_UNKNOWN`。
+- 常见 code：`SYNTHETIC_UNREACHABLE`、`CDP_*`（见[真实输入](#真实输入)）、`STALE`、`NAVIGATION`、`PAGE_BUSY`、`NO_CHANGE`、`TARGET_VISUAL_CHANGED`、`TARGET_BLOCKED`、`TARGET_CHANGED`、`TARGET_MISSING`、`AMBIGUOUS_TARGET`、`CONDITION_TIMEOUT`、`DELAY_ELAPSED`、`INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE`、`NAVIGATION_DISPATCHED`、`NAVIGATION_UNKNOWN`。
 
 ## expected 条件
 

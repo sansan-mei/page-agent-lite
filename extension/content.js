@@ -22,6 +22,36 @@
     return current;
   }
   function fingerprint(){return JSON.stringify(capture().page);}
+  // Selection-style clicks (image-grid tiles, toggles) may change only class/style/aria/data-* on or near the target,
+  // which the text snapshot cannot show. Compared before/after in this script only, never returned; no field values.
+  const LOOK_STYLE=['background-color','border-color','outline','opacity','transform','box-shadow'];
+  function look(node){
+    if(!node?.isConnected)return null;
+    const attrs=n=>{let s=n.tagName||'';if(n.hasAttribute?.('data-page-agent'))return s;
+      const control=/^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName||'');
+      for(const a of n.attributes||[]){const name=a.name;
+        if(name==='class'||name==='style'||/^aria-(pressed|checked|selected|current)$/.test(name)||!control&&name.startsWith('data-'))s+='|'+name.slice(0,40)+'='+String(a.value).slice(0,120);}
+      return s;};
+    const parts=[];let up=node;
+    for(let i=0;i<3&&up?.nodeType===1;i++,up=up.parentElement)parts.push(attrs(up));
+    // First 50 descendants in document order, walked without collecting the whole subtree.
+    for(let n=node.firstElementChild,count=0;n&&count<50;count++){
+      parts.push(attrs(n));
+      if(n.firstElementChild){n=n.firstElementChild;continue;}
+      while(n&&n!==node&&!n.nextElementSibling)n=n.parentElement;
+      n=n&&n!==node?n.nextElementSibling:null;
+    }
+    const doc=node.ownerDocument||document;let style='';
+    try{const cs=doc.defaultView?.getComputedStyle?.(node);if(cs)style=LOOK_STYLE.map(k=>cs.getPropertyValue(k)).join('|');}catch{}
+    return {attrs:parts.join('\n'),style,focus:doc.activeElement};
+  }
+  // Computed style alone is ignored when focus moved (a :focus outline is not a selection).
+  function lookChanged(before,node){
+    if(!before)return false;
+    const after=look(node);
+    if(!after)return true;
+    return after.attrs!==before.attrs||after.style!==before.style&&after.focus===before.focus;
+  }
   // view_image: opaque boxes over sensitive fields while the background takes the screenshot. Removed by
   // agent:unshot (always sent in a finally) or after 15 s if that message never arrives.
   let shield=null;
@@ -46,16 +76,17 @@
     const check=expected.length?G.evaluate(expected,captureForChecks(expected)):null;
     return T.result({operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
       evidence:check?.evidence||[],observed,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
-      message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'操作已发出，暂未观察到页面变化':'操作已发出，页面有变化；具体效果待核对'});
+      message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'操作已发出，暂未观察到页面变化':changed==='TARGET_VISUAL_CHANGED'?'操作已发出，目标外观已变化（可能已选中/切换）；先观察或看截图确认，不要重复点击同一目标':'操作已发出，页面有变化；具体效果待核对'});
   }
-  async function settle(before){
+  async function settle(before,target=null){
     const start=Date.now();let last=before,stable=0;
     while(Date.now()-start<600){
       await new Promise(resolve=>setTimeout(resolve,100));
       const next=fingerprint();stable=next===last?stable+1:0;last=next;
       if(stable>=1&&next!==before)break;
     }
-    return last===before?'NO_CHANGE':'PAGE_CHANGED';
+    if(last!==before)return 'PAGE_CHANGED';
+    return target&&lookChanged(target.look,target.node)?'TARGET_VISUAL_CHANGED':'NO_CHANGE';
   }
   // The developer build swaps the service worker entry, so trust whichever worker the manifest declares.
   const worker=chrome.runtime.getURL(chrome.runtime.getManifest?.().background?.service_worker||'background.js');
@@ -108,10 +139,10 @@
         if(!action||message.operationId!==action.operationId||message.url!==location.href)throw Object.assign(new Error('真实输入目标已失效，请重新观察'),{code:'STALE'});
         if(message.type==='agent:point'){
           // The page right after measuring becomes the agent:settle baseline.
-          const point=C.agentInputPoint(action.ref.node,action.snap,action.ref.signature);action.before=fingerprint();return point;
+          const point=C.agentInputPoint(action.ref.node,action.snap,action.ref.signature);action.before=fingerprint();action.look=look(action.ref.node);return point;
         }
         lastAction=null;executing=true;
-        try{return report(action.operationId,action.expected,await settle(action.before),{input:'cdp'});}finally{executing=false;sensitiveFields=false;}
+        try{return report(action.operationId,action.expected,await settle(action.before,{node:action.ref.node,look:action.look}),{input:'cdp'});}finally{executing=false;sensitiveFields=false;}
       }
       if(!snapshot||message.snapshotId!==snapshotId||message.url!==location.href||message.documentId&&message.documentId!==documentId)throw Object.assign(new Error('页面快照已失效'),{code:'STALE'});
       if(message.type==='agent:consume'){snapshot=null;snapshotId=null;return {consumed:true};}
@@ -129,17 +160,18 @@
         if(!['click','hover'].includes(plan.action)||plan.trusted!==true)throw Object.assign(new Error('真实输入请求无效'),{code:'STALE',beforeDispatch:true});
         const ref=captured.nodes.get(plan.id);snapshot=null;snapshotId=null;
         const point=C.agentInputPoint(ref.node,captured,ref.signature);
-        lastAction={operationId:message.operationId,ref,snap:captured,before:fingerprint(),expected};
+        lastAction={operationId:message.operationId,ref,snap:captured,before:fingerprint(),look:look(ref.node),expected};
         return point;
       }
       snapshot=null;snapshotId=null;executing=true;
       const aimed=['click','hover'].includes(plan.action)?{operationId:message.operationId,ref:captured.nodes.get(plan.id),snap:captured,before,expected}:null;
       lastAction=null;
+      const pointed=['click','hover','double_click','right_click'].includes(plan.action)?captured.nodes.get(plan.id)?.node:null,target=pointed?{node:pointed,look:look(pointed)}:null;
       try{
         dispatched=true;let interaction;
         // Only an unreachable attempt (nothing dispatched) keeps the target for agent:point; a dispatched synthetic event is never re-sent.
         try{interaction=C.agentExecute(plan,captured,document);}catch(error){if(error.code==='SYNTHETIC_UNREACHABLE')lastAction=aimed;throw error;}
-        const changed=await settle(before),verification=C.agentVerify(plan,captured);
+        const changed=await settle(before,target),verification=C.agentVerify(plan,captured);
         const r=report(message.operationId,expected,changed,verification?{actual:verification.actual??null}:interaction||null);
         // pageChange is internal: the background uses it for the trusted:true hint and strips it.
         return {...r,verification,navigation:false,pageChange:changed};

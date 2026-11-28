@@ -151,10 +151,10 @@
         await observe(tabId,0,policy);
         return T.normalize({navigation:false,connection:'reconnected',message:'操作回执丢失，但页面已重新连接；下一轮根据当前页面核对操作结果，连接问题已恢复，不重复点击'},{operationId:pending.operationId});
       }
-      // No automatic real-input retry: a delayed or invisible effect makes "no effect" unprovable. The model may re-observe
-      // and ask for trusted:true itself.
+      // No automatic real-input retry: a delayed or invisible effect makes "no effect" unprovable. The model may verify
+      // (screenshot or observe) and ask for trusted:true itself.
       const {pageChange,...result}=synthetic;
-      if(['click','hover'].includes(pending.plan?.action)&&pageChange==='NO_CHANGE'&&result.code==='NO_CHANGE')result.message=(result.message+'；重新观察后仍无效，可加 trusted:true 再试一次').slice(0,500);
+      if(['click','hover'].includes(pending.plan?.action)&&pageChange==='NO_CHANGE'&&result.code==='NO_CHANGE')result.message=(result.message+'；选中/切换类目标（图块、勾选、开关）可能已变化但文字不变，再点会撤销；先截图或观察核实，确认没反应才加 trusted:true 再试一次').slice(0,500);
       return result;
     }
     async function verify(tabId,operation,policy=null){

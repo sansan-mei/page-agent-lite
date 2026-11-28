@@ -201,6 +201,7 @@ test('tool summaries distinguish dispatch, scroll boundaries, stale targets and 
  const receipt={status:'unknown',dispatch:'sent',scope:'dispatch',code:'PAGE_CHANGED'};
  const cases=[
   {action:'click',outcome:receipt,label:'已派发，待核对'},
+  {action:'click',outcome:{...receipt,code:'TARGET_VISUAL_CHANGED'},label:'已派发，待核对'},
   {action:'wheel',outcome:{...receipt,observed:{input:'wheel',deltaY:600}},label:'已派发，待核对'},
   {action:'click',outcome:{...receipt,scope:'page',code:'CONDITION_TIMEOUT'},label:'结果未知'},
   {action:'click',outcome:{...receipt,dispatch:'not_sent',code:'STALE'},label:'目标过期，未执行'},

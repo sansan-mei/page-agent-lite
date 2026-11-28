@@ -39,7 +39,7 @@
       return t('outcomeNotSent');
     }
     // Only ordinary dispatch receipts qualify; lost replies and failed checks stay unknown.
-    if(outcome.dispatch==='sent'&&outcome.scope==='dispatch'&&['PAGE_CHANGED','NO_CHANGE'].includes(outcome.code)){
+    if(outcome.dispatch==='sent'&&outcome.scope==='dispatch'&&['PAGE_CHANGED','NO_CHANGE','TARGET_VISUAL_CHANGED'].includes(outcome.code)){
       const scroll=outcome.observed;
       if(entry.action==='scroll'&&scroll&&Number.isFinite(scroll.delta)){
         if(scroll.delta!==0)return t('outcomeScrolled');

@@ -78,7 +78,7 @@
 | 动作核对到期仍未核实（not_satisfied 或 unknown） | 最多两次回到 observe（`recovery=replan`，`CONDITION_TIMEOUT`），结果照实记录，运行时不重发；成功核对后计数清零，继续/补充指令/选择也清零。unknown 或非字段动作记入 `uncertainClicks`；字段值明确不符时模型可重写 |
 | 完成条件或 wait 条件未核实 | 暂停；目标模式下按上一行重新规划 |
 | 页面加载/忙碌 | 最多等 30 秒或沿用更早 deadline；地址一致、无 pendingUrl、readyState 为 interactive/complete 即可只读核对 |
-| 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停（目标模式 6 条） |
+| 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停（目标模式 6 条）；`TARGET_VISUAL_CHANGED` 不计入并打断连续计数（同名图块逐个选中是正常进展） |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
 | run_script | 本轮不可用则暂停为 access；否则暂停为 script_approval，见 [脚本批准](#脚本批准) |
