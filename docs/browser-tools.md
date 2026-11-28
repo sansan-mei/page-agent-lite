@@ -17,11 +17,11 @@
 | site_memory_* / global_memory_* | read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
 | read_references | value=2–8 个 `{action:site_memory_read/global_memory_read/skill_read, id}`，不重复，无 id/expected | runtime | 只读批量参考资料；沿用单条读取与来源分区，逐项返回错误，停止或代次变化不再读后续项 |
 | click_point | value=`{x,y}`（最新视口截图像素），可选 expected；只对能看图的模型提供 | browser | 按截图坐标真实点击一次，见 [坐标点击](#坐标点击) |
-| click | id | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click；到不了或确认无效时改用[真实输入](#真实输入) |
+| click | id，可选 `trusted` | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click；到不了或 `trusted:true` 时用[真实输入](#真实输入) |
 | fill | id、字符串 value | content | input / textarea / 简单 contenteditable |
 | check | id、布尔 value | content | 原生 radio / checkbox |
 | select | id、字符串 value | content | 存在且未禁用的 option |
-| hover | id | content | pointer/mouse over/enter/move，无 down/up/click；确认无效时改用真实鼠标移动 |
+| hover | id，可选 `trusted` | content | pointer/mouse over/enter/move，无 down/up/click；到不了或 `trusted:true` 时用真实鼠标移动 |
 | scroll | value=up/down/left/right，可选容器 id | content | 600px；不传 id 滚窗口 |
 | wheel | id、value=方向 | content | 一次可取消 WheelEvent（±600 像素），只触发监听器，无原生滚动 |
 | press_key | id、value | content | keydown/keyup，见下 |
@@ -35,7 +35,7 @@
 
 - content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。除 `click_point` 外不接受坐标；不接受选择器、脚本或 HTML。
 - press_key：修饰键 Control/Alt/Shift/Meta（不可重复）；主键 Enter/Escape/Tab/Space/方向键/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a–z。不保持按下状态，不触发浏览器原生编辑/快捷键；文本用 fill。
-- 合成事件都不是 `isTrusted` 输入；只有 click/hover 有[真实输入](#真实输入)回退。拖拽、长按、系统输入不支持。
+- 合成事件都不是 `isTrusted` 输入；只有 click/hover 有[真实输入](#真实输入)。拖拽、长按、系统输入不支持。
 
 ## observe 快照
 
@@ -102,12 +102,13 @@ observe 的 value：
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
 - 命令白名单：`Input.dispatchMouseEvent` 与[截图](#截图)用的 `Page.captureScreenshot`。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法或参数；坐标来自快照目标，或来自运行时核对换算后的 [坐标点击](#坐标点击)。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
-- 回退（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不回退）：
-  - 到不了（`unreachable`）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent），后台直接用真实输入。
-  - 确认无效（`no_effect`）：合成回执 dispatch=sent、status≠success、页面指纹（快照 JSON）在约 600ms 稳定观察后与动作前相同、未导航，且目标 label 不含提交/删除/支付/购买/发布/发送等字样、计划没有 `notice`；再等 800ms，`agent:point` 确认指纹仍未变才回退。任何一项不满足（页面有变化、目标变化 `TARGET_CHANGED`、回执丢失、代次变化）都保留合成结果，不重试。动作前把目标滚入视野导致的变化也算有变化。
-  - 坐标：内容脚本记住上次 click/hover 的快照目标（新 observe 即清除），`agent:point` 对同一节点核对存活、签名、可见，再走合成点击的命中检查（滚入视野、遮挡、iframe 可见框），返回顶层视口 CSS 像素，同源框架加 iframe 偏移；遮挡（`TARGET_BLOCKED`）不回退，因为真实点击同样落在遮挡层上。模型工具不接受坐标。
-  - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`，message 前缀说明已改用真实输入。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
-  - 没回退时：确认无效类保持原回执（`observed.input='synthetic'`，尝试过回退则带 `observed.cdp {code,message}`）；到不了类返回 `SYNTHETIC_UNREACHABLE`（`observed.input='none'` + `cdp`），运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
+- 何时用（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不支持）。已发出的合成事件从不由运行时改用真实输入重发：页面没变化不能证明没效果（效果可能延迟或不可见）。
+  - 到不了（`unreachable`，自动）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent）并记住目标，后台经 `agent:point` 取坐标后用真实输入。
+  - 模型请求（`trusted`）：计划带 `trusted:true`（`agentPlan` 只接受 click/hover 的布尔值）时不发合成事件；后台发 `agent:aim`，内容脚本按 `agent:execute` 的规则核对快照与计划、消费快照、记住目标并返回坐标。核对失败（`STALE`、`TARGET_BLOCKED` 等）与合成路径一样抛给运行器。`executing` 检查点照常先写。
+  - 合成点击回执为 `NO_CHANGE` 时，message 末尾提示可在重新观察后加 `trusted:true` 再试一次；运行时不自动重试。
+  - 坐标：`agent:point`/`agent:aim` 对同一节点核对存活、签名、可见、未变为敏感字段，再走合成点击的命中检查（滚入视野、遮挡、iframe 可见框），返回顶层视口 CSS 像素，同源框架加 iframe 偏移；遮挡（`TARGET_BLOCKED`）不派发，因为真实点击同样落在遮挡层上。新 observe 清除记住的目标；合成事件已派发的目标不给坐标。
+  - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`（`unreachable`/`trusted`），message 前缀说明输入方式。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
+  - 未发送时：到不了类返回 `SYNTHETIC_UNREACHABLE`，`trusted` 类返回 `REAL_INPUT_NOT_SENT`（unsupported、not_sent、replan），都带 `observed.input='none'` 与 `cdp {code,message}`，运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
 - 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
 
 ## 坐标点击

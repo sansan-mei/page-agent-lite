@@ -103,7 +103,7 @@ function browser({viewport={documentId:'d1',url:'https://a.test/',viewport:{widt
     debugger:{onDetach:{addListener(){}},async attach({tabId}){attached.add(tabId);},async detach({tabId}){attached.delete(tabId);},
       async sendCommand({tabId},method,p){log.push([method,p.type,p.x,p.y]);if(send)await send(p);return {};}},
     tabs:{async get(){return {url:'https://a.test/',status:'complete'};},async sendMessage(id,m){messages.push(m);return m.type==='agent:viewport'?{ok:true,value:structuredClone(viewport)}:{ok:false,error:'unexpected'};}}};
-  return {tools:createBrowserTools(chrome,{confirmDelay:0}),log,messages};
+  return {tools:createBrowserTools(chrome),log,messages};
 }
 const policy={taskId:'task-1',origin:'https://a.test',allowedOrigins:['https://a.test']};
 const pending={operationId:'op1',documentId:'d1',snapshotId:'s1',url:'https://a.test/',label:'坐标 (100,50)',plan:{action:'click_point',value:{x:100,y:50},reply:'x'},expected:[],point:{x:200,y:100},view:{viewport:{width:1600,height:1200},scroll:{x:0,y:300}}};

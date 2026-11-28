@@ -28,3 +28,11 @@ test('worker recovery releases sessions of tasks that are no longer running',asy
  const t=await f.store.get(2);t.status='paused';t.reason='user_takeover';await f.store.set(2,t);
  await f.runtime.recover();assert.deepEqual(f.released,[2]);
 });
+
+test('a model-requested trusted:true click writes the executing checkpoint and reaches the executor once',async()=>{
+ let stored=null,f;
+ f=fixture({model:async()=>({text:'{"reply":"Click","action":"click","id":"t0","trusted":true}'}),tools:{async execute(id,pending,policy){stored=(await f.store.get(1)).pending;f.executed.push({pending,policy});return {version:2,status:'unknown',dispatch:'sent',scope:'dispatch',code:'PAGE_CHANGED',recovery:'observe',observed:{input:'cdp',fallback:'trusted'},message:'x'};}}});
+ await f.runtime.start(1,'Work');await f.runtime.tick(1);
+ assert.equal(f.executed.length,1);assert.equal(f.executed[0].pending.plan.trusted,true);assert.equal(typeof f.executed[0].policy.taskId,'string');
+ assert.equal(stored?.operationId,f.executed[0].pending.operationId,'executing checkpoint stored before the side effect');
+});

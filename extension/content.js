@@ -5,7 +5,8 @@
   const C=globalThis.PageAgentCore,G=globalThis.PageAgentConditions,T=globalThis.PageAgentProtocol;
   const documentId=crypto.randomUUID();
   // lastAction: the last click/hover target, kept only until the next observe so the background can ask for a
-  // real-input point (agent:point) and the settled result (agent:settle) of that same target.
+  // real-input point (agent:point after an unreachable synthetic attempt, agent:aim for trusted:true) and the settled
+  // result (agent:settle) of that same target.
   let snapshot=null,snapshotId=null,executing=false,sensitiveFields=false,lastAction=null;
   function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset,{sensitiveFields,skipFrames:!!globalThis.top&&globalThis!==globalThis.top}),documentId,url:location.href};}
   function captureForChecks(expected){
@@ -63,7 +64,7 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:settle','agent:shot','agent:unshot','agent:viewport'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:aim','agent:settle','agent:shot','agent:unshot','agent:viewport'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
@@ -91,7 +92,7 @@
         return {area,viewport,scroll:{x:win.scrollX||0,y:win.scrollY||0},dpr:win.devicePixelRatio||1,masked:shield?shield.host.children.length:0};
       }
       const authorized=message.sensitiveFields===true;
-      if(message.type==='agent:execute'&&snapshot?.sensitiveFields!==authorized)throw Object.assign(new Error('敏感字段授权已变化，请重新观察'),{code:'STALE'});
+      if(['agent:execute','agent:aim'].includes(message.type)&&snapshot?.sensitiveFields!==authorized)throw Object.assign(new Error('敏感字段授权已变化，请重新观察'),{code:'STALE'});
       sensitiveFields=authorized;
       if(message.type==='agent:observe'){
         globalThis.PageAgentPointer?.start?.(document);
@@ -106,9 +107,7 @@
         const action=lastAction;
         if(!action||message.operationId!==action.operationId||message.url!==location.href)throw Object.assign(new Error('真实输入目标已失效，请重新观察'),{code:'STALE'});
         if(message.type==='agent:point'){
-          // After an ineffective attempt, real input only if nothing changed since before it; the point comes from the same
-          // target, and the page right after measuring becomes the baseline for agent:settle.
-          if(message.reason!=='unreachable'&&fingerprint()!==action.before)throw Object.assign(new Error('页面已有变化，不改用真实输入'),{code:'PAGE_CHANGED'});
+          // The page right after measuring becomes the agent:settle baseline.
           const point=C.agentInputPoint(action.ref.node,action.snap,action.ref.signature);action.before=fingerprint();return point;
         }
         lastAction=null;executing=true;
@@ -125,13 +124,24 @@
       const captured=snapshot,before=fingerprint();
       const expected=message.expected||G.bind(plan.expected||G.automatic(plan),captured);
       if(expected.length)G.validate(expected);
+      if(message.type==='agent:aim'){
+        // trusted:true click/hover: no synthetic events; consume the snapshot and return the real-input point of the target.
+        if(!['click','hover'].includes(plan.action)||plan.trusted!==true)throw Object.assign(new Error('真实输入请求无效'),{code:'STALE',beforeDispatch:true});
+        const ref=captured.nodes.get(plan.id);snapshot=null;snapshotId=null;
+        const point=C.agentInputPoint(ref.node,captured,ref.signature);
+        lastAction={operationId:message.operationId,ref,snap:captured,before:fingerprint(),expected};
+        return point;
+      }
       snapshot=null;snapshotId=null;executing=true;
-      lastAction=['click','hover'].includes(plan.action)?{operationId:message.operationId,ref:captured.nodes.get(plan.id),snap:captured,before,expected}:null;
+      const aimed=['click','hover'].includes(plan.action)?{operationId:message.operationId,ref:captured.nodes.get(plan.id),snap:captured,before,expected}:null;
+      lastAction=null;
       try{
-        dispatched=true;const interaction=C.agentExecute(plan,captured,document);
+        dispatched=true;let interaction;
+        // Only an unreachable attempt (nothing dispatched) keeps the target for agent:point; a dispatched synthetic event is never re-sent.
+        try{interaction=C.agentExecute(plan,captured,document);}catch(error){if(error.code==='SYNTHETIC_UNREACHABLE')lastAction=aimed;throw error;}
         const changed=await settle(before),verification=C.agentVerify(plan,captured);
         const r=report(message.operationId,expected,changed,verification?{actual:verification.actual??null}:interaction||null);
-        // pageChange is internal: the background uses it to decide on the real-input fallback and strips it.
+        // pageChange is internal: the background uses it for the trusted:true hint and strips it.
         return {...r,verification,navigation:false,pageChange:changed};
       }finally{executing=false;sensitiveFields=false;}
     })().then(value=>respond({ok:true,value}),error=>{

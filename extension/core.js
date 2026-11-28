@@ -255,7 +255,7 @@ function agentVerify(plan,snap){
 function agentSignature(n){return JSON.stringify([n.localName,agentString(n.type),n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),agentString(n.name),agentString(n.value),n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),n.getAttribute('autocomplete'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals','handoff','progress'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals','handoff','progress','trusted'].includes(k)))throw new Error('模型操作格式无效');
  if(p.subgoals!==undefined){
   if(!Array.isArray(p.subgoals)||p.subgoals.length>8||new Set(p.subgoals.map(g=>g?.id)).size!==p.subgoals.length)throw new Error('子目标列表无效');
   for(const g of p.subgoals){
@@ -280,6 +280,8 @@ function agentPlan(raw,snap){
    ids.add(s.id);agentPlan(JSON.stringify({reply:p.reply,action:s.action,id:s.id,value:s.value}),snap);
   }
  }
+ // trusted:true asks for real mouse input instead of synthetic events (click/hover only).
+ if(p.trusted!==undefined&&(typeof p.trusted!=='boolean'||!['click','hover'].includes(p.action)))throw new Error('trusted 只用于 click/hover，取值为布尔');
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
  if(p.choices!==undefined&&(p.action!=='pause'||!Array.isArray(p.choices)||p.choices.length<2||p.choices.length>8||p.choices.some(v=>typeof v!=='string'||!v.trim()||v.length>120)||new Set(p.choices).size!==p.choices.length))throw new Error('用户选项无效');
@@ -492,7 +494,8 @@ function agentClick(n,doc,hover=false,snap,reach=false){
 // synthetic hit test (scroll into view, occlusion, iframe box) all apply; frame targets add the iframe offset.
 function agentInputPoint(n,snap,signature){
  const frame=n&&agentFrame(n.ownerDocument);
- if(!agentLive(n)||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||agentHidden(n,n.ownerDocument.defaultView)||frame&&agentHidden(frame,frame.ownerDocument.defaultView))throw Object.assign(new Error('页面目标已变化，未发送真实输入'),{code:'STALE'});
+ const excluded=snap?.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector;
+ if(!agentLive(n)||agentSignature(n)!==signature||n.closest(excluded)||frame?.closest(excluded)||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||agentHidden(n,n.ownerDocument.defaultView)||frame&&agentHidden(frame,frame.ownerDocument.defaultView))throw Object.assign(new Error('页面目标已变化，未发送真实输入'),{code:'STALE'});
  if(!n.ownerDocument.elementFromPoint)throw Object.assign(new Error('无法计算目标位置'),{code:'STALE'});
  const {x,y}=agentHitPoint(n,n.ownerDocument,snap,'目标被遮挡，未发送真实输入'),o=frame?agentFrameOffset(frame):{x:0,y:0};
  return {x:x+o.x,y:y+o.y};

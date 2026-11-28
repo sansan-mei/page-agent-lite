@@ -17,72 +17,82 @@ const policy={taskId:'task-1',origin:'https://example.test',allowedOrigins:['htt
 const pendingFor=(action='click',extra={})=>({operationId:'op1',documentId:'d1',snapshotId:'s1',url:URL1,label:'Go',plan:{action,id:'t0',reply:'x'},expected:[],...extra});
 const synthetic=(extra={})=>({version:2,operationId:'op1',documentId:'d1',status:'unknown',dispatch:'sent',scope:'dispatch',code:'NO_CHANGE',observed:{input:'synthetic'},evidence:[],recovery:'observe',message:'操作已发出，暂未观察到页面变化',navigation:false,pageChange:'NO_CHANGE',...extra});
 // Content-script replies are scripted per message type; every message is recorded.
-function tools({execute=()=>({ok:true,value:synthetic()}),point=()=>({ok:true,value:{x:60,y:40}}),settle=()=>({ok:true,value:{...synthetic({observed:{input:'cdp'},code:'PAGE_CHANGED',message:'操作已发出，页面有变化；具体效果待核对'}),pageChange:undefined}}),debug=fakeDebugger(),url=()=>URL1}={}){
+function tools({execute=()=>({ok:true,value:synthetic()}),point=()=>({ok:true,value:{x:60,y:40}}),aim=()=>({ok:true,value:{x:60,y:40}}),settle=()=>({ok:true,value:{...synthetic({observed:{input:'cdp'},code:'PAGE_CHANGED',message:'操作已发出，页面有变化；具体效果待核对'}),pageChange:undefined}}),debug=fakeDebugger(),url=()=>URL1}={}){
  const messages=[];
  const chrome={debugger:debug.api,permissions:{async contains(){return true;}},tabs:{async get(){return {url:url(),status:'complete'};},async sendMessage(id,m){messages.push(m);
-  const reply=m.type==='agent:execute'?execute(m):m.type==='agent:point'?point(m):m.type==='agent:settle'?settle(m):{ok:true,value:{page:{}}};
+  const reply=m.type==='agent:execute'?execute(m):m.type==='agent:point'?point(m):m.type==='agent:aim'?aim(m):m.type==='agent:settle'?settle(m):{ok:true,value:{page:{}}};
   if(reply instanceof Error)throw reply;return reply;}}};
- return {tools:createBrowserTools(chrome,{confirmDelay:0}),messages,debug};
+ return {tools:createBrowserTools(chrome),messages,debug};
 }
 const types=messages=>messages.map(m=>m.type);
 const sends=log=>log.filter(e=>e[0]==='send').map(e=>e[1]);
 
-test('confirmed ineffective synthetic click falls back to real input at the runtime-computed point',async()=>{
- const f=tools(),r=await f.tools.execute(1,pendingFor(),policy,async()=>true);
- assert.deepEqual(types(f.messages),['agent:execute','agent:point','agent:settle']);
- assert.equal(f.messages[1].reason,'no_effect');assert.equal(f.messages[1].operationId,'op1');assert.equal(f.messages[1].expectedOrigin,'https://example.test');
- assert.deepEqual(f.debug.log.filter(e=>e[0]==='send'),[['send','mouseMoved',60,40],['send','mousePressed',60,40],['send','mouseReleased',60,40]]);
- assert.equal(r.observed.input,'cdp');assert.equal(r.observed.fallback,'no_effect');assert.equal(r.dispatch,'sent');assert.equal(r.code,'PAGE_CHANGED');
- assert.match(r.message,/已改用真实输入/);assert.equal(r.pageChange,undefined);
- // Hover uses one real mouse move.
- const h=tools();await h.tools.execute(1,pendingFor('hover'),policy,async()=>true);
- assert.deepEqual(sends(h.debug.log),['mouseMoved']);
-});
+const trustedPlan=(action='click')=>pendingFor(action,{plan:{action,id:'t0',reply:'x',trusted:true}});
 
-test('uncertain, changed, successful or high-risk synthetic attempts never get a real-input retry',async()=>{
+test('a synthetic click with no visible change is never re-sent; the result only hints trusted:true',async()=>{
+ const f=tools(),r=await f.tools.execute(1,pendingFor(),policy,async()=>true);
+ assert.deepEqual(types(f.messages),['agent:execute']);assert.deepEqual(f.debug.log,[]);
+ assert.equal(r.code,'NO_CHANGE');assert.equal(r.dispatch,'sent');assert.match(r.message,/trusted:true/);assert.equal(r.pageChange,undefined);
  const cases=[
   ['page changed',{execute:()=>({ok:true,value:synthetic({code:'PAGE_CHANGED',pageChange:'PAGE_CHANGED'})})}],
   ['expected met',{execute:()=>({ok:true,value:synthetic({status:'success',code:'CONDITIONS_MATCH',recovery:'none'})})}],
   ['high-risk label',{},pendingFor('click',{label:'提交订单'})],
-  ['model notice',{},pendingFor('click',{plan:{action:'click',id:'t0',reply:'x',notice:'付款'}})],
-  ['not a click',{},pendingFor('press_key',{plan:{action:'press_key',id:'t0',value:'Enter',reply:'x'}})],
-  ['changed during the confirm delay',{point:()=>({ok:false,code:'PAGE_CHANGED',error:'页面已有变化'})}],
-  ['url changed during the confirm delay',{url:()=>URL1+'#next'}]
+  ['hover',{},pendingFor('hover')],
+  ['not a click',{},pendingFor('press_key',{plan:{action:'press_key',id:'t0',value:'Enter',reply:'x'}})]
  ];
  for(const [name,options,pending] of cases){
-  const f=tools(options),r=await f.tools.execute(1,pending||pendingFor(),policy,async()=>true);
-  assert.deepEqual(sends(f.debug.log),[],name);assert.equal(f.debug.log.filter(e=>e[0]==='attach').length,0,name);
-  assert.ok(!types(f.messages).includes('agent:settle'),name);assert.notEqual(r.observed?.input,'cdp',name);
+  const g=tools(options),out=await g.tools.execute(1,pending||pendingFor(),policy,async()=>true);
+  assert.deepEqual(types(g.messages),['agent:execute'],name);assert.deepEqual(g.debug.log,[],name);assert.notEqual(out.observed?.input,'cdp',name);
  }
  // TARGET_CHANGED (dispatch unknown) is thrown to the runtime as before; a lost reply only reconnects.
  const changed=tools({execute:()=>({ok:false,code:'TARGET_CHANGED',error:'变化',result:{code:'TARGET_CHANGED',dispatch:'unknown'}})});
  await assert.rejects(()=>changed.tools.execute(1,pendingFor(),policy,async()=>true),e=>e.code==='TARGET_CHANGED');
  const lost=tools({execute:()=>Error('port closed')});
- const r=await lost.tools.execute(1,pendingFor(),policy,async()=>true);
- assert.equal(r.connection,'reconnected');assert.deepEqual(sends(changed.debug.log).concat(sends(lost.debug.log)),[]);
- // Without a task identity (and run token) the background never attaches.
- const anonymous=tools();await anonymous.tools.execute(1,pendingFor(),{...policy,taskId:undefined},async()=>true);
- assert.deepEqual(anonymous.debug.log,[]);
+ assert.equal((await lost.tools.execute(1,pendingFor(),policy,async()=>true)).connection,'reconnected');
+ assert.deepEqual(changed.debug.log.concat(lost.debug.log),[]);
 });
 
-test('a run stopped before the fallback, or a disconnect mid-click, never dispatches again',async()=>{
- let live=true;const f=tools({point:()=>{live=false;return {ok:true,value:{x:1,y:1}};}});
- const r=await f.tools.execute(1,pendingFor(),policy,async()=>live);
- assert.deepEqual(sends(f.debug.log),[]);assert.equal(r.observed.input,'synthetic');assert.equal(r.observed.cdp.code,'CANCELLED');
+test('trusted:true sends only real input at the content-computed point, then settles without events',async()=>{
+ const f=tools({aim:m=>{assert.equal(m.plan.trusted,true);assert.equal(m.snapshotId,'s1');assert.equal(m.expectedOrigin,'https://example.test');return {ok:true,value:{x:60,y:40}};}});
+ const r=await f.tools.execute(1,trustedPlan(),policy,async()=>true);
+ assert.deepEqual(types(f.messages),['agent:aim','agent:settle']);
+ assert.deepEqual(f.debug.log.filter(e=>e[0]==='send'),[['send','mouseMoved',60,40],['send','mousePressed',60,40],['send','mouseReleased',60,40]]);
+ assert.equal(r.observed.input,'cdp');assert.equal(r.observed.fallback,'trusted');assert.equal(r.dispatch,'sent');assert.match(r.message,/已发送真实输入/);
+ const h=tools();await h.tools.execute(1,trustedPlan('hover'),policy,async()=>true);
+ assert.deepEqual(sends(h.debug.log),['mouseMoved']);
+ // Not sent: no task identity, frame-routed target, stopped run, lost aim reply. Stale/blocked targets throw like synthetic ones.
+ for(const [name,opts,pending,pol,code] of [
+  ['no task identity',{},trustedPlan(),{...policy,taskId:undefined},'CDP_UNAVAILABLE'],
+  ['frame route',{},{...trustedPlan(),frameRoute:{frameId:3}},policy,'CDP_UNAVAILABLE'],
+  ['lost aim reply',{aim:()=>Error('port closed')},trustedPlan(),policy,'CDP_SKIPPED']]){
+  const g=tools(opts),out=await g.tools.execute(1,pending,pol,async()=>true);
+  assert.equal(out.dispatch,'not_sent',name);assert.equal(out.code,'REAL_INPUT_NOT_SENT',name);assert.equal(out.observed.input,'none',name);assert.equal(out.observed.cdp.code,code,name);
+  assert.deepEqual(sends(g.debug.log),[],name);assert.ok(!types(g.messages).includes('agent:execute'),name);
+ }
+ const stopped=tools(),gone=await stopped.tools.execute(1,trustedPlan(),policy,async()=>false);
+ assert.equal(gone.observed.cdp.code,'CANCELLED');assert.deepEqual(stopped.messages,[]);
+ const blocked=tools({aim:()=>({ok:false,code:'TARGET_BLOCKED',error:'遮挡',result:{code:'TARGET_BLOCKED',dispatch:'not_sent'}})});
+ await assert.rejects(()=>blocked.tools.execute(1,trustedPlan(),policy,async()=>true),e=>e.code==='TARGET_BLOCKED');assert.deepEqual(blocked.debug.log,[]);
+});
+
+test('a run stopped before real input, or a disconnect mid-click, never dispatches again',async()=>{
+ let live=true;const f=tools({aim:()=>{live=false;return {ok:true,value:{x:1,y:1}};}});
+ const r=await f.tools.execute(1,trustedPlan(),policy,async()=>live);
+ assert.deepEqual(sends(f.debug.log),[]);assert.equal(r.dispatch,'not_sent');assert.equal(r.observed.cdp.code,'CANCELLED');
  let debug;debug=fakeDebugger({send:(tabId,p)=>{if(p.type==='mousePressed')debug.detach(tabId,'target_closed');}});
- const g=tools({debug}),broken=await g.tools.execute(1,pendingFor(),policy,async()=>true);
+ const g=tools({debug}),broken=await g.tools.execute(1,trustedPlan(),policy,async()=>true);
  assert.equal(broken.status,'unknown');assert.equal(broken.dispatch,'unknown');assert.equal(broken.code,'CDP_DETACHED');assert.equal(broken.recovery,'observe');
  assert.deepEqual(sends(debug.log),['mouseMoved','mousePressed']);assert.ok(!types(g.messages).includes('agent:settle'));
  // The real click navigated: report unknown and let the runtime wait for the page, never repeat.
- let url=URL1;const nav=tools({point:()=>({ok:true,value:{x:3,y:4}}),settle:()=>{url='https://example.test/next';return Error('port closed');},url:()=>url});
- const moved=await nav.tools.execute(1,pendingFor(),policy,async()=>true);
+ let url=URL1;const nav=tools({settle:()=>{url='https://example.test/next';return Error('port closed');},url:()=>url});
+ const moved=await nav.tools.execute(1,trustedPlan(),policy,async()=>true);
  assert.equal(moved.code,'DOCUMENT_CHANGED');assert.equal(moved.navigation,true);assert.equal(moved.dispatch,'sent');assert.equal(sends(nav.debug.log).length,3);
 });
 
 test('unreachable target goes straight to real input; a cancelled infobar reports a stable code without sending',async()=>{
  const unreachable=()=>({ok:false,code:'SYNTHETIC_UNREACHABLE',error:'嵌入文档',result:{version:2,operationId:'op1',documentId:'d1',status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'SYNTHETIC_UNREACHABLE',observed:null,evidence:[],recovery:'replan',message:'嵌入文档'}});
  const f=tools({execute:unreachable}),r=await f.tools.execute(1,pendingFor(),policy,async()=>true);
- assert.equal(f.messages[1].reason,'unreachable');assert.deepEqual(sends(f.debug.log),['mouseMoved','mousePressed','mouseReleased']);
+ assert.deepEqual(types(f.messages),['agent:execute','agent:point','agent:settle']);assert.deepEqual(sends(f.debug.log),['mouseMoved','mousePressed','mouseReleased']);
  assert.equal(r.observed.input,'cdp');assert.equal(r.observed.fallback,'unreachable');assert.match(r.message,/合成事件无法到达/);
  // The user cancelled the infobar earlier in this task: no re-attach, the action stays not sent.
  const debug=fakeDebugger(),g=tools({execute:unreachable,debug});
@@ -106,26 +116,41 @@ function page(html,setup){
  const send=m=>new Promise(r=>listener(m,{id:'test',url:'chrome-extension://test/background.js'},r));
  return {document,send};
 }
-test('content reports no effect, then measures the same target and settles the real input',async()=>{
+const goButton=(onClick)=>d=>{const b=d.querySelector('button');b.getBoundingClientRect=()=>({left:10,right:110,top:20,bottom:60,width:100,height:40});d.elementFromPoint=()=>b;b.addEventListener('click',onClick);};
+
+test('regression: a synthetic click whose effect appears after 3 s is dispatched exactly once',async()=>{
+ // Like the smoke "Filter" fixture: the click handler updates the page only after a 3000 ms timer.
+ let clicks=0;const later=[];
+ const {document,send}=page('<button>Filter</button><p id="out">Idle</p>',goButton(()=>{later.push(()=>{clicks++;document.getElementById('out').textContent='Filtered';});}));
+ const debug=fakeDebugger(),messages=[];
+ const chrome={debugger:debug.api,permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://example.test/',status:'complete'};},async sendMessage(id,m){messages.push(m.type);return send(m);}}};
+ const t=createBrowserTools(chrome),snap=(await send({type:'agent:observe'})).value;
+ const r=await t.execute(1,{operationId:'op1',documentId:snap.documentId,snapshotId:snap.snapshotId,url:snap.url,label:'Filter',plan:{action:'click',id:'t0',reply:'x'},expected:[]},policy,async()=>true);
+ assert.equal(r.code,'NO_CHANGE');assert.equal(r.dispatch,'sent');
+ assert.deepEqual(messages,['agent:execute']);assert.deepEqual(debug.log,[],'no real-input re-click');
+ for(const fn of later.splice(0))fn();
+ assert.equal(clicks,1);assert.equal(document.getElementById('out').textContent,'Filtered');
+ // After a dispatched synthetic click the content script refuses a real-input point for it.
+ assert.equal((await send({type:'agent:point',operationId:'op1',url:snap.url})).code,'STALE');
+});
+
+test('content aims a trusted:true target without synthetic events and settles the real input once',async()=>{
  let clicks=0;
- const {document,send}=page('<button>Go</button><p id="out"></p>',d=>{const b=d.querySelector('button');b.getBoundingClientRect=()=>({left:10,right:110,top:20,bottom:60,width:100,height:40});d.elementFromPoint=()=>b;b.addEventListener('click',()=>clicks++);});
- const snap=(await send({type:'agent:observe'})).value;
- const done=await send({type:'agent:execute',operationId:'op1',snapshotId:snap.snapshotId,url:snap.url,plan:{action:'click',id:'t0',reply:'x'}});
- assert.equal(clicks,1);assert.equal(done.value.pageChange,'NO_CHANGE');assert.deepEqual(done.value.observed,{input:'synthetic'});
- assert.equal((await send({type:'agent:point',operationId:'other',url:snap.url})).code,'STALE');
- assert.deepEqual((await send({type:'agent:point',operationId:'op1',url:snap.url,reason:'no_effect'})).value,{x:60,y:40});
+ const {document,send}=page('<button>Go</button><p id="out"></p>',goButton(()=>clicks++));
+ const snap=(await send({type:'agent:observe'})).value,base={operationId:'op1',snapshotId:snap.snapshotId,url:snap.url};
+ assert.equal((await send({type:'agent:aim',...base,plan:{action:'click',id:'t0',reply:'x'}})).code,'STALE','aim needs trusted:true');
+ const again=(await send({type:'agent:observe'})).value,msg={operationId:'op1',snapshotId:again.snapshotId,url:again.url};
+ assert.deepEqual((await send({type:'agent:aim',...msg,plan:{action:'click',id:'t0',reply:'x',trusted:true}})).value,{x:60,y:40});
+ assert.equal(clicks,0,'no synthetic events');
+ assert.equal((await send({type:'agent:aim',...msg,plan:{action:'click',id:'t0',reply:'x',trusted:true}})).code,'STALE','snapshot consumed');
+ assert.equal((await send({type:'agent:point',operationId:'other',url:again.url})).code,'STALE');
  document.getElementById('out').textContent='Opened';
- const settled=await send({type:'agent:settle',operationId:'op1',url:snap.url});
- assert.equal(settled.value.code,'PAGE_CHANGED');assert.equal(JSON.stringify(settled.value.observed),'{"input":"cdp"}');assert.equal(clicks,1,'settle sends no events');
- assert.equal((await send({type:'agent:point',operationId:'op1',url:snap.url})).code,'STALE','one real input per action');
- // A page that changed after an ineffective attempt is no longer "confirmed no effect".
- const again=(await send({type:'agent:observe'})).value;
- await send({type:'agent:execute',operationId:'op2',snapshotId:again.snapshotId,url:again.url,plan:{action:'click',id:'t0',reply:'x'}});
- document.getElementById('out').textContent='Late update';
- assert.equal((await send({type:'agent:point',operationId:'op2',url:again.url,reason:'no_effect'})).code,'PAGE_CHANGED');
+ const settled=await send({type:'agent:settle',operationId:'op1',url:again.url});
+ assert.equal(settled.value.code,'PAGE_CHANGED');assert.equal(JSON.stringify(settled.value.observed),'{"input":"cdp"}');assert.equal(clicks,0,'settle sends no events');
+ assert.equal((await send({type:'agent:settle',operationId:'op1',url:again.url})).code,'STALE','one real input per action');
  // A new observation drops the remembered target.
  const third=(await send({type:'agent:observe'})).value;
- assert.equal((await send({type:'agent:point',operationId:'op2',url:third.url,reason:'unreachable'})).code,'STALE');
+ assert.equal((await send({type:'agent:point',operationId:'op1',url:third.url})).code,'STALE');
 });
 
 test('an embedded document under the hit point is unreachable for synthetic events and nothing is dispatched',async()=>{
@@ -155,6 +180,14 @@ test('frame targets add the iframe offset; covered or changed targets get no poi
  assert.throws(()=>C.agentInputPoint(ref.node,snap,ref.signature),e=>e.code==='STALE');
  // Coordinates are not part of any tool: the plan validator rejects them.
  assert.throws(()=>C.agentPlan(JSON.stringify({action:'click',id:'t0',reply:'x',x:5,y:6}),snap));
+ // trusted is a boolean for click/hover only, in the plan whitelist and the native schema.
+ const id=snap.page.elements.find(e=>e.label==='Pay').id;
+ assert.equal(C.agentPlan(JSON.stringify({action:'click',id,reply:'x',trusted:true}),snap).trusted,true);
+ assert.equal(C.agentPlan(JSON.stringify({action:'hover',id,reply:'x',trusted:false}),snap).trusted,false);
+ assert.throws(()=>C.agentPlan(JSON.stringify({action:'click',id,reply:'x',trusted:'yes'}),snap));
+ assert.throws(()=>C.agentPlan(JSON.stringify({action:'double_click',id,reply:'x',trusted:true}),snap));
+ const tool=name=>require('../extension/prompts.js').agentTools().find(t=>t.function.name===name).function.parameters.properties;
+ assert.deepEqual(tool('click').trusted,{type:'boolean'});assert.deepEqual(tool('hover').trusted,{type:'boolean'});assert.equal(tool('fill').trusted,undefined);
 });
 
 test('runtime passes its task identity and does not wait on an action that was not sent',async()=>{
