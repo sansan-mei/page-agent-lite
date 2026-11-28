@@ -320,7 +320,7 @@ function agentExecute(p,snap,doc){
  if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature,snap);
  // Visual feedback never gates or changes the actual operation.
  try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,top,agentVisibleRect(n));}catch{}
- if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover',snap);return;}
+ if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover',snap,true);return {input:'synthetic'};}
  if(p.action==='check'){
   if(n.localName!=='input'||!['checkbox','radio'].includes(n.type))throw new Error('目标不是可勾选选项');
   if(n.type==='radio'&&!p.value)throw new Error('不能直接取消单选项');
@@ -456,12 +456,14 @@ function agentWheel(p,n,doc,snap){
  // Synthetic wheel invokes page listeners, never claims native default scrolling.
  return {input:'wheel',deltaX,deltaY,defaultPrevented:!accepted};
 }
-function agentClick(n,doc,hover=false,snap){
+function agentClick(n,doc,hover=false,snap,reach=false){
  const win=doc.defaultView;
  const r=n.getBoundingClientRect?.();
  let target=n,x=0,y=0;
  if(r&&doc.elementFromPoint)({x,y,hit:target}=agentHitPoint(n,doc,snap,'目标被遮挡或不在可点击区域，请重新观察'));
  else n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
+ // Synthetic events never enter an embedded document: report it before dispatching so real input can be used instead.
+ if(reach&&['iframe','frame','embed','object'].includes(target?.localName))throw Object.assign(new Error('点击位置是嵌入的其他文档，合成事件无法到达'),{code:'SYNTHETIC_UNREACHABLE',beforeDispatch:true});
  const send=(type,pointer=false,bubbles=true)=>{
   const EventClass=pointer?win.PointerEvent:win.MouseEvent;
   if(!EventClass)return true;
@@ -479,6 +481,15 @@ function agentClick(n,doc,hover=false,snap){
  else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
  try{root.PageAgentPointer?.click();}catch{}
 }
+// Real-input point in top-level viewport CSS px for the same snapshot target: liveness, signature, visibility and the
+// synthetic hit test (scroll into view, occlusion, iframe box) all apply; frame targets add the iframe offset.
+function agentInputPoint(n,snap,signature){
+ const frame=n&&agentFrame(n.ownerDocument);
+ if(!agentLive(n)||agentSignature(n)!==signature||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||agentHidden(n,n.ownerDocument.defaultView)||frame&&agentHidden(frame,frame.ownerDocument.defaultView))throw Object.assign(new Error('页面目标已变化，未发送真实输入'),{code:'STALE'});
+ if(!n.ownerDocument.elementFromPoint)throw Object.assign(new Error('无法计算目标位置'),{code:'STALE'});
+ const {x,y}=agentHitPoint(n,n.ownerDocument,snap,'目标被遮挡，未发送真实输入'),o=frame?agentFrameOffset(frame):{x:0,y:0};
+ return {x:x+o.x,y:y+o.y};
+}
 function agentFrameGuard(key,url,sensitiveFields=false,showPointer=false){
  const f=[...document.querySelectorAll('iframe,frame')].find(n=>agentNodeKey(n)===key);
  if(!f||!agentLive(f)||f.src!==url)throw Object.assign(new Error('框架已变化'),{code:'STALE',beforeDispatch:true});
@@ -490,7 +501,7 @@ function agentFrameGuard(key,url,sensitiveFields=false,showPointer=false){
  if(showPointer)try{root.PageAgentPointer?.show(f,document);}catch{}
  return {visible:true};
 }
-const api={agentFrameGuard,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
+const api={agentFrameGuard,agentInputPoint,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;
 if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

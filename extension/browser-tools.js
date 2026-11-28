@@ -2,8 +2,10 @@
   'use strict';
   const T=typeof module!=='undefined'?require('./tool-protocol.js'):root.PageAgentProtocol;
   const scripts=()=>typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools;
-  function createBrowserTools(chrome) {
+  function createBrowserTools(chrome,{confirmDelay=800}={}) {
     const F=(typeof module!=='undefined'?require('./frame-tools.js'):root.PageAgentFrameTools).create(chrome,T);
+    // Real-input sessions (chrome.debugger): attached on first use for a task, released by the runtime.
+    const D=(typeof module!=='undefined'?require('./cdp-tools.js'):root.PageAgentCdp).create(chrome);
     // Trusted startup inventory contains IDs only and is never offered to the model.
     async function existingTabIds(){return (await chrome.tabs.query({})).map(t=>t.id).filter(Number.isInteger);}
     // Trusted side-panel member picker only; tab titles and URLs are never offered to the model.
@@ -71,12 +73,46 @@
       try{await chrome.tabs.update(tabId,{url:destination.href});}catch{dispatch='unknown';code='NAVIGATION_UNKNOWN';}
       return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch,scope:'dispatch',code,recovery:'wait',message:'导航已请求；重新观察并核对 URL，不重发结果不确定的导航'}),navigation:true};
     }
+    // Real-input fallback (click/hover on a top-document or same-origin frame target): only when synthetic events
+    // cannot reach the target (nothing was sent), or a synthetic attempt is confirmed ineffective — same document and
+    // URL, page fingerprint unchanged right after it and again after confirmDelay, expected not met, no high-risk label.
+    // Anything uncertain keeps the synthetic result. The point comes from the content script for the same target.
+    const RISKY=/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i;
+    async function realInput(tabId,pending,policy,live,synthetic,reason){
+      const {pageChange,...base}=synthetic,action=pending.plan?.action,unreachable=reason==='unreachable';
+      const note=cdp=>({...base,observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:unreachable?'none':'synthetic',...(cdp?{cdp:{code:cdp.code||'CDP_SKIPPED',message:String(cdp.message||'').slice(0,160)}}:{})}});
+      if(!['click','hover'].includes(action)||pending.frameRoute)return unreachable?note({code:'CDP_UNAVAILABLE',message:'该目标不支持真实输入'}):base;
+      if(!unreachable&&!(base.dispatch==='sent'&&base.status!=='success'&&pageChange==='NO_CHANGE'&&!base.navigation&&!pending.plan.notice&&!RISKY.test(pending.label||'')))return base;
+      if(!D.available()||typeof policy?.taskId!=='string')return unreachable?note({code:'CDP_UNAVAILABLE',message:'真实输入不可用'}):base;
+      if(!unreachable&&confirmDelay)await new Promise(resolve=>setTimeout(resolve,confirmDelay));
+      if(live&&!await live())return base;
+      const message={operationId:pending.operationId,url:pending.url,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})};
+      let point;
+      try{await checkOrigin(tabId,policy);if((await tab(tabId)).url!==pending.url)throw Object.assign(new Error('页面地址已变化'),{code:'PAGE_CHANGED'});point=await call(tabId,{type:'agent:point',reason,...message});}
+      catch(error){return note(error);}
+      try{await D.input(tabId,policy.taskId,action,point,live);}
+      catch(error){
+        if(error.dispatch!=='unknown')return note(error);
+        return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'unknown',scope:'dispatch',code:/^CDP_/.test(error.code)?error.code:'CDP_COMMAND_FAILED',recovery:'observe',observed:{input:'cdp',fallback:reason},message:'真实输入中途失败，结果不确定；重新读取页面核对，不会重发'});
+      }
+      const lead=unreachable?'合成事件无法到达目标，已改用真实输入：':'合成操作无效，已改用真实输入：';
+      try{
+        const settled=T.normalize(await call(tabId,{type:'agent:settle',...message}),{operationId:pending.operationId,documentId:pending.documentId});
+        return {...settled,observed:{...(settled.observed||{}),input:'cdp',fallback:reason},message:(lead+settled.message).slice(0,500)};
+      }catch{
+        // The real click may have navigated the page: re-read and check, never replay.
+        const current=await tab(tabId).catch(()=>null),moved=!current||current.status==='loading'||current.url!==pending.url;
+        return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'sent',scope:'dispatch',code:moved?'DOCUMENT_CHANGED':'CDP_RESULT_UNKNOWN',recovery:'observe',observed:{input:'cdp',fallback:reason},message:lead+'回执未返回；重新读取页面核对，不重复操作'}),navigation:moved};
+      }
+    }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
       // run_script runs through userScripts after the runtime's approval step (auto-approved only in the developer build).
       const S=scripts();if(S?.handles(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return S.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab,live,documentId});}
       if(pending.frameRoute||pending.expected?.some(c=>c.target?.frame?.startsWith('remote:')))return F.execute(tabId,pending,policy,live,{checkOrigin,call,observe});
-      try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
+      let synthetic;
+      try{synthetic=T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
+        if(error.code==='SYNTHETIC_UNREACHABLE'&&error.result)return realInput(tabId,pending,policy,live,error.result,'unreachable');
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect
         // observation only, NEVER replay the side effect.
@@ -85,6 +121,7 @@
         await observe(tabId,0,policy);
         return T.normalize({navigation:false,connection:'reconnected',message:'操作回执丢失，但页面已重新连接；下一轮根据当前页面核对操作结果，连接问题已恢复，不重复点击'},{operationId:pending.operationId});
       }
+      return realInput(tabId,pending,policy,live,synthetic,'no_effect');
     }
     async function verify(tabId,operation,policy=null){
       await checkOrigin(tabId,policy);
@@ -115,7 +152,7 @@
       try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }
       try{const frames=await chrome.webNavigation?.getAllFrames({tabId});await Promise.allSettled((frames||[]).filter(f=>f.frameId!==0).map(f=>chrome.tabs.sendMessage(tabId,{type:'agent:clear-pointer'},{frameId:f.frameId})));}catch{ /* No live frame inventory. */ }
     }
-    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab};
+    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,releaseInput:tabId=>D.release(tabId)};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

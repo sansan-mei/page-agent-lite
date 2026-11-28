@@ -30,6 +30,8 @@
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const PLAN_RETRIES=2; // consecutive INVALID_PLAN results returned to the model before pausing
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
+    // Detach the task's debugger session (if any) whenever the tab stops being actively driven.
+    const releaseInput=tabId=>Promise.resolve(tools.releaseInput?.(tabId)).catch(()=>false);
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
     function enqueue(map,key,fn){const operation=(map.get(key)||Promise.resolve()).catch(()=>{}).then(fn);map.set(key,operation);operation.finally(()=>{if(map.get(key)===operation)map.delete(key);}).catch(()=>{});return operation;}
     function serial(tabId,fn){
@@ -459,7 +461,7 @@
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
-      await tools.clearPointer?.(tabId);
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
         controllerForTab(tabId)?.abort();discardScript(task,'任务已结束，待批准的脚本已作废，未执行',now());task.scriptApproval=null;task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
@@ -470,7 +472,7 @@
       await cancelSchedule(tabId);return saved;
     }
     async function stop(tabId) {
-      await tools.clearPointer?.(tabId);
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);
       controllerForTab(tabId)?.abort();
       const task = await store.get(tabId); if (!task) return null;
       const saved = await update(tabId, task.token, t => {discardScript(t,'已停止，待批准的脚本已作废，未执行',now());t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
@@ -487,7 +489,7 @@
         t.token=uuid();t.status='paused';t.reason='user_takeover';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.question=null;t.contextUsage=null;
         event(t,'用户接管网页；完成手动操作后点击继续，助手将重新观察，未确定动作不会重放');await store.set(tabId,t);return t;
       });
-      await tools.clearPointer?.(tabId);await cancelSchedule(tabId);return saved;
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);return saved;
     }
     async function resume(tabId) {
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
@@ -1007,7 +1009,7 @@
       const outcome=T.result({status:'success',dispatch:'not_sent',scope:'dispatch',code:'TAB_SWITCHED',recovery:'observe',message:'用户已允许，'+request.tabRef+' 加入任务为 '+ref+'，执行目标已切换（未切换浏览器前台）；重新观察'});
       const moved=await switchTo(joined,request.tabId,{...call,action:'tab_switch',outcome,result:outcome.message});
       if(!moved)throw new Error('任务已变化，请刷新后重试');
-      await tools.clearPointer?.(tabId);schedule(request.tabId);return moved;
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);schedule(request.tabId);return moved;
     }
     // Bouncing between tabs without page work is a loop, even when every switch succeeds.
     async function hopLimit(task){
@@ -1149,12 +1151,13 @@
         t.check=pending.expected?.length?{tabId:task.tabId,origin:task.origin,scopeRevision:task.scopeRevision,operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',dispatch:'unknown',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
       });
       if (!await live()) return;
-      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,policyFor(task),live),live),{operationId:pending.operationId,documentId:pending.documentId});
+      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,{...policyFor(task),taskId:task.taskId},live),live),{operationId:pending.operationId,documentId:pending.documentId});
       if (!await live()) return;
       await update(task.tabId,task.token,t=>{
         t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;t.tabHops=0;
         if(t.check)t.check.dispatch=result.dispatch;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
+        else if(t.check&&result.dispatch==='not_sent')t.check=null; // e.g. unreachable target, real input unavailable: nothing to wait for
         else if(t.check){t.phase='verifying';t.status='waiting_page';}
         const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,sensitive:pending.sensitive,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
         t.results=t.results.concat(entry);event(t,entry.result);
@@ -1218,7 +1221,7 @@
         const task=await store.get(tabId);
         if(task&&ACTIVE.has(task.status))schedule(tabId,task.retries?2000:task.status==='waiting_page'?1000:100);
         else {
-          await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
+          await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);
           // tab_switch / tab_open moved the binding: continue on the new executing tab.
           const moved=!task&&store.getByTaskId?await store.getByTaskId(taskId).catch(()=>null):null;
           if(moved&&moved.tabId!==tabId&&ACTIVE.has(moved.status))schedule(moved.tabId);
@@ -1268,7 +1271,7 @@
       const current=await store.get(tabId);
       if(current?.status==='completed'&&current.reviewState==='running'&&controllers.has(current.taskId)){
         detachedReviews.add(current.taskId);if(controllerTasks.get(tabId)===current.taskId)controllerTasks.delete(tabId);
-        await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
+        await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);
       }else{controllerForTab(tabId)?.abort();await stop(tabId);}
       await serial(tabId,()=>store.remove(tabId));
       if(current?.attachments?.length)await images?.remove(current.taskId)?.catch?.(()=>{});
@@ -1280,7 +1283,7 @@
       for(const task of await store.list()){
         if(existing&&!existing.has(task.tabId)){await memberClosed(task.tabId);continue;}
         if(existing)for(const member of task.members||[])if(member.tabId!==task.tabId&&!existing.has(member.tabId))await memberClosed(member.tabId);
-        if(ACTIVE.has(task.status))schedule(task.tabId);
+        if(ACTIVE.has(task.status))schedule(task.tabId);else await releaseInput(task.tabId);
       }
       await pruneImages();
     }

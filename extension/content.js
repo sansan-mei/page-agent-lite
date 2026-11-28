@@ -4,7 +4,9 @@
   globalThis.__pageAgentTools = true;
   const C=globalThis.PageAgentCore,G=globalThis.PageAgentConditions,T=globalThis.PageAgentProtocol;
   const documentId=crypto.randomUUID();
-  let snapshot=null,snapshotId=null,executing=false,sensitiveFields=false;
+  // lastAction: the last click/hover target, kept only until the next observe so the background can ask for a
+  // real-input point (agent:point) and the settled result (agent:settle) of that same target.
+  let snapshot=null,snapshotId=null,executing=false,sensitiveFields=false,lastAction=null;
   function capture(textOffset=0){return {...C.agentSnapshot(document,textOffset,{sensitiveFields,skipFrames:!!globalThis.top&&globalThis!==globalThis.top}),documentId,url:location.href};}
   function captureForChecks(expected){
     G.validate(expected);
@@ -19,6 +21,12 @@
     return current;
   }
   function fingerprint(){return JSON.stringify(capture().page);}
+  function report(operationId,expected,changed,observed){
+    const check=expected.length?G.evaluate(expected,captureForChecks(expected)):null;
+    return T.result({operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
+      evidence:check?.evidence||[],observed,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
+      message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'操作已发出，暂未观察到页面变化':'操作已发出，页面有变化；具体效果待核对'});
+  }
   async function settle(before){
     const start=Date.now();let last=before,stable=0;
     while(Date.now()-start<600){
@@ -35,7 +43,7 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:settle'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
@@ -48,12 +56,24 @@
       sensitiveFields=authorized;
       if(message.type==='agent:observe'){
         globalThis.PageAgentPointer?.start?.(document);
-        snapshot=capture(message.textOffset??0);snapshotId=crypto.randomUUID();
+        snapshot=capture(message.textOffset??0);snapshotId=crypto.randomUUID();lastAction=null;
         return {snapshotId,documentId,url:location.href,readyState:document.readyState,page:snapshot.page};
       }
       if(message.type==='agent:verify'){
         const current=captureForChecks(message.expected),check=G.evaluate(message.expected,current);
         return T.result({...check,operationId:message.operationId,documentId,dispatch:'not_sent',scope:'page',code:check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET',recovery:check.status==='success'?'none':'wait',message:check.status==='success'?'预期条件已满足':'预期条件尚未满足或证据不足'});
+      }
+      if(message.type==='agent:point'||message.type==='agent:settle'){
+        const action=lastAction;
+        if(!action||message.operationId!==action.operationId||message.url!==location.href)throw Object.assign(new Error('真实输入目标已失效，请重新观察'),{code:'STALE'});
+        if(message.type==='agent:point'){
+          // After an ineffective attempt, real input only if nothing changed since before it; the point comes from the same
+          // target, and the page right after measuring becomes the baseline for agent:settle.
+          if(message.reason!=='unreachable'&&fingerprint()!==action.before)throw Object.assign(new Error('页面已有变化，不改用真实输入'),{code:'PAGE_CHANGED'});
+          const point=C.agentInputPoint(action.ref.node,action.snap,action.ref.signature);action.before=fingerprint();return point;
+        }
+        lastAction=null;executing=true;
+        try{return report(action.operationId,action.expected,await settle(action.before),{input:'cdp'});}finally{executing=false;sensitiveFields=false;}
       }
       if(!snapshot||message.snapshotId!==snapshotId||message.url!==location.href||message.documentId&&message.documentId!==documentId)throw Object.assign(new Error('页面快照已失效'),{code:'STALE'});
       if(message.type==='agent:consume'){snapshot=null;snapshotId=null;return {consumed:true};}
@@ -67,15 +87,13 @@
       const expected=message.expected||G.bind(plan.expected||G.automatic(plan),captured);
       if(expected.length)G.validate(expected);
       snapshot=null;snapshotId=null;executing=true;
+      lastAction=['click','hover'].includes(plan.action)?{operationId:message.operationId,ref:captured.nodes.get(plan.id),snap:captured,before,expected}:null;
       try{
         dispatched=true;const interaction=C.agentExecute(plan,captured,document);
         const changed=await settle(before),verification=C.agentVerify(plan,captured);
-        const current=expected.length?captureForChecks(expected):capture();
-        const check=expected.length?G.evaluate(expected,current):null;
-        const r=T.result({operationId:message.operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
-          evidence:check?.evidence||[],observed:verification?{actual:verification.actual??null}:interaction||null,recovery:check?.status==='success'?'none':expected.length?'wait':'observe',
-          message:check?.status==='success'?'指定预期已核实（不代表服务端保存或整个任务完成）':expected.length?'操作已发出，正在等待预期结果':changed==='NO_CHANGE'?'操作已发出，暂未观察到页面变化':'操作已发出，页面有变化；具体效果待核对'});
-        return {...r,verification,navigation:false};
+        const r=report(message.operationId,expected,changed,verification?{actual:verification.actual??null}:interaction||null);
+        // pageChange is internal: the background uses it to decide on the real-input fallback and strips it.
+        return {...r,verification,navigation:false,pageChange:changed};
       }finally{executing=false;sensitiveFields=false;}
     })().then(value=>respond({ok:true,value}),error=>{
       const result=T.failure(error,{operationId:message.operationId,documentId,dispatch:dispatched&&error.code!=='STALE'&&!error.beforeDispatch?'unknown':'not_sent'});

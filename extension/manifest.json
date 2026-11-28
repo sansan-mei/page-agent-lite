@@ -11,7 +11,8 @@
     "webNavigation",
     "storage",
     "sidePanel",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "optional_permissions": [
     "userScripts"
