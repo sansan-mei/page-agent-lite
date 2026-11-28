@@ -342,17 +342,17 @@ async function startServer() {
         }
         if(data.goal.startsWith('Global smoke')){
           let plan={reply:'global done',action:'done'};
-          if(data.goal==='Global smoke save'&&!data.globalMemoryIndex.some(n=>n.id==='format'))plan={reply:'save preference',action:'global_memory_write',id:'format',value:'User preference: Chinese tables'};
-          if(data.goal==='Global smoke recall'&&!data.results.some(r=>r.action==='global_memory_read')){
-            assert.ok(data.globalMemoryIndex.some(n=>n.id==='format'));assert.ok(!input.includes('User preference: Chinese tables'));plan={reply:'read preference',action:'global_memory_read',id:'format'};
+          if(data.goal==='Global smoke save'&&!data.globalMemoryIndex.some(n=>n.id==='format'))plan={reply:'save preference',action:'global_memory',op:'write',id:'format',value:'User preference: Chinese tables'};
+          if(data.goal==='Global smoke recall'&&!data.results.some(r=>r.action==='global_memory'&&r.op==='read')){
+            assert.ok(data.globalMemoryIndex.some(n=>n.id==='format'));assert.ok(!input.includes('User preference: Chinese tables'));plan={reply:'read preference',action:'global_memory',op:'read',id:'format'};
           }
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
         if(data.goal.startsWith('Durable smoke')){
           let plan={reply:'durable done',action:'done'};
-          if(data.goal==='Durable smoke save'&&!data.siteMemoryIndex.some(n=>n.id==='workflow'))plan={reply:'save durable',action:'site_memory_write',id:'workflow',value:'Verified workflow: review before saving'};
-          if(data.goal==='Durable smoke recall'&&!data.results.some(r=>r.action==='site_memory_read')){
-            assert.ok(data.siteMemoryIndex.some(n=>n.id==='workflow'));assert.ok(!input.includes('Verified workflow: review before saving'));plan={reply:'read durable',action:'site_memory_read',id:'workflow'};
+          if(data.goal==='Durable smoke save'&&!data.siteMemoryIndex.some(n=>n.id==='workflow'))plan={reply:'save durable',action:'site_memory',op:'write',id:'workflow',value:'Verified workflow: review before saving'};
+          if(data.goal==='Durable smoke recall'&&!data.results.some(r=>r.action==='site_memory'&&r.op==='read')){
+            assert.ok(data.siteMemoryIndex.some(n=>n.id==='workflow'));assert.ok(!input.includes('Verified workflow: review before saving'));plan={reply:'read durable',action:'site_memory',op:'read',id:'workflow'};
           }
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
