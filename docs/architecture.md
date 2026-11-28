@@ -30,6 +30,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `history-store.js` | IndexedDB 对话历史：快照、脱敏、50 条上限、中断标记 | [存储](storage.md#对话历史) |
 | `frame-tools.js` | 授权跨源直接子框架发现、快照汇总、动作路由与核对 | [网页工具](browser-tools.md#iframe) |
 | `browser-tools.js` | 标签检查、脚本注入、权限/来源门禁、导航派发、网页工具消息适配 | [网页工具](browser-tools.md) |
+| `cdp-tools.js` | `chrome.debugger` 会话：按任务按需 attach、释放即 detach、方法白名单（仅 `Input.dispatchMouseEvent`）、稳定错误 code | [网页工具](browser-tools.md#真实输入) |
 | `content.js` | 一次性快照、执行白名单动作、动作后短观察、只读核对 | [网页工具](browser-tools.md) |
 | `core.js` | DOM 抽取、动作校验与执行、静态工具注册表 `agentToolRegistry`、敏感字段排除 | [网页工具](browser-tools.md) |
 | `conditions.js` | expected 条件校验、语义目标绑定、唯一匹配核对 | [网页工具](browser-tools.md) |
@@ -52,7 +53,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入，不能设为可选权限；按需连接，见[真实输入](browser-tools.md#真实输入)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源；跨源嵌入框架可沿用用户已记住的顶层来源→框架来源授权，见[网页工具](browser-tools.md#iframe)。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。

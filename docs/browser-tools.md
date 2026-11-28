@@ -93,6 +93,15 @@ observe 的 value：
 - **ARIA 选择控件**：先 click 打开，再按新快照选项点击。选项按 listbox 分组，名称取自身标签或唯一可见 combobox（aria-controls/aria-owns）；多个 owner 不任选。
 - **press_key / double_click / right_click**：先做命中检查并聚焦，派发前或事件之间目标、焦点或遮挡变化即中断（`TARGET_CHANGED`）；双击中断时第一次点击可能已生效。press_key 的 keydown 发出后，值、文字或焦点的变化算按键效果（如 Enter 添加待办并清空输入框），不再中断；目标仍有焦点才补发 keyup，否则回执带 `keyup:false`。
 
+## 真实输入
+
+`cdp-tools.js`（`PageAgentCdp`，后台在 `browser-tools.js` 之前加载）经 `chrome.debugger` 发送真实鼠标输入。
+
+- 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
+- 命令白名单：只有 `Input.dispatchMouseEvent`，参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
+- attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
+- 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
+
 ## 导航
 
 内部页启动的浏览器对话只读取标签 URL 元数据；导航来源由可信后台标记为 `browser`，跳过 DOM 快照消费和内部页主机授权，但仍校验目标主机权限、来源 URL 和运行代次。

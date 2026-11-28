@@ -4,6 +4,8 @@
   const scripts=()=>typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools;
   function createBrowserTools(chrome) {
     const F=(typeof module!=='undefined'?require('./frame-tools.js'):root.PageAgentFrameTools).create(chrome,T);
+    // Real-input sessions (chrome.debugger): attached on first use for a task, released by the runtime.
+    const D=(typeof module!=='undefined'?require('./cdp-tools.js'):root.PageAgentCdp).create(chrome);
     // Trusted startup inventory contains IDs only and is never offered to the model.
     async function existingTabIds(){return (await chrome.tabs.query({})).map(t=>t.id).filter(Number.isInteger);}
     // Trusted side-panel member picker only; tab titles and URLs are never offered to the model.
@@ -115,7 +117,7 @@
       try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }
       try{const frames=await chrome.webNavigation?.getAllFrames({tabId});await Promise.allSettled((frames||[]).filter(f=>f.frameId!==0).map(f=>chrome.tabs.sendMessage(tabId,{type:'agent:clear-pointer'},{frameId:f.frameId})));}catch{ /* No live frame inventory. */ }
     }
-    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab};
+    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,releaseInput:tabId=>D.release(tabId)};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

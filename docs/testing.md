@@ -63,4 +63,5 @@ git diff --check
 - `run_script`：注册与按可用性暴露、参数校验、结果截断/异常/超时、批准/拒绝/过期/作废、本任务内允许（同来源免暂停、跨来源/撤销/结束/权限移除后恢复暂停）、仅可信侧栏可批准、设置页权限申请与状态只有 Node 模拟（真实 runtime + browser-tools，`userScripts`、`permissions` 为替身）。真实 Chrome 中的 `userScripts.execute`、可选权限弹窗、「允许用户脚本」开关（无头 Chromium 无法打开）、MAIN/USER_SCRIPT 差异、侧栏批准卡片的真实布局，以及真实模型是否在合适场景选用并写出可读脚本均未验证。
 - 英文界面只有 Node + linkedom 检查与一次英文侧栏截图；真实 Chrome 中 `__MSG_*__` 名称、`chrome.i18n` 语言切换与设置页英文布局未在浏览器验证。`ui-preview.cjs` 的长对话步骤仍用旧 `task:1` 存储键推送更新，当前会在该步失败。
 - 目标模式与核对后重新规划：次数上限、未确定点击放行、完成条件重规划、侧栏开关与后台命令校验只有 Node 模拟；真实模型在目标模式下是否会重复副作用、真实富文本编辑器的空白改写是否都被宽松比较覆盖均未验证。
+- `debugger` 真实输入：会话按需 attach/复用/释放、提示条取消、占用、中途断开、代次变化不发送只有 Node 替身（假 `chrome.debugger`）；真实 Chrome 的提示条、取消行为、DevTools 同时打开、worker 终止后会话是否保留、坐标在缩放/高 DPI 下的准确性均未验证。
 - 多成员任务：成员加入/移出/关闭、otherTabs 列表与读取授权、tab_switch、tab_open/tab_close、执行标签关闭改绑、切换中断对账只有 Node 模拟（真实 store + 假浏览器）与侧栏 stub 测试；真实浏览器中的 `tabs.create`/`tabs.remove`、后台标签加载与注入、原生侧栏在成员标签上的表现、侧栏读取授权卡片的真实渲染、真实模型是否合理选用标签工具均未验证。
