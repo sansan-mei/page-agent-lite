@@ -72,6 +72,8 @@ const JUDGMENT_HTML='<html><body><h1>Judgment fixture</h1><fieldset><legend>Q1: 
 const DIALOG_HTML=`<html><body><button id="start" onclick="window.openCount=(window.openCount||0)+1;document.getElementById('confirm').hidden=false;this.remove()">Submit</button>${'<button>Background</button>'.repeat(130)}<div id="confirm" role="dialog" aria-label="Confirm changes" hidden><button onclick="window.confirmCount=(window.confirmCount||0)+1;document.getElementById('result').textContent='Saved';document.getElementById('confirm').hidden=true">Submit</button></div><section id="result" aria-label="Confirmation result">Waiting</section></body></html>`;
 const GENERAL_HTML=`<html><body><h1>General workflow</h1><form aria-label="Profile"><label>Name<input name="name" type="text" value="old" onchange="this.replaceWith(this.cloneNode(true))"></label></form><button onclick="window.filterCount=(window.filterCount||0)+1;setTimeout(()=>document.getElementById('rows').textContent='Filtered rows',3000)">Filter</button><section id="rows" aria-label="Results">Waiting</section><button onclick="fetch('/persist',{method:'POST'}).then(()=>document.getElementById('save-status').textContent='Saved')">Save</button><section id="save-status" role="status" aria-label="Save status">Not saved</section><section aria-label="Advertisement">Saved</section><section id="delayed" aria-label="Delayed">Waiting</section><script>setTimeout(()=>document.getElementById('delayed').textContent='Ready',5000)</script></body></html>`;
 
+// Image-grid selection: a click only toggles the tile's class (computed background/border change, no text change).
+const GRID_HTML=`<html><head><style>.tile{display:inline-block;width:60px;height:60px;margin:4px;background:#eee;border:2px solid #ccc}.tile.selected{background:#36c;border-color:#003}</style></head><body><h1>Select all squares</h1><div id="grid">${Array.from({length:9},(_,i)=>`<div class="tile" role="button" aria-label="tile ${i+1}" onclick="window.tileClicks[${i+1}]=(window.tileClicks[${i+1}]||0)+1;this.classList.toggle('selected')"></div>`).join('')}</div><div class="tile" role="button" aria-label="Inert tile" onclick="window.inertClicks=(window.inertClicks||0)+1"></div><button>Verify</button><script>window.tileClicks={}</script></body></html>`;
 const COVERAGE_HTML=`<!doctype html><html><body style="margin:0"><div id="rows" aria-label="Scrollable rows" style="height:180px;width:300px;overflow:auto">${Array.from({length:135},(_,i)=>`<button style="display:block;height:30px;width:600px">Row ${i}</button>`).join('')}<div role="combobox" aria-label="Choose city" aria-expanded="false" onpointerdown="window.pointerReady=true" onmousedown="window.mouseReady=true" onclick="if(window.pointerReady&&window.mouseReady){this.setAttribute('aria-expanded','true');document.getElementById('feedback').textContent='Opened'}" style="height:40px">Choose city</div></div><section id="feedback" aria-label="Interaction feedback">Waiting</section><button id="covered" style="position:fixed;left:400px;top:30px;width:100px;height:40px" onclick="window.coveredClicks=(window.coveredClicks||0)+1">Covered save</button><div id="cover" style="position:fixed;left:390px;top:20px;width:130px;height:70px;background:gray"></div></body></html>`;
 
 // ── Report accumulator ──────────────────────────────────────────────────
@@ -223,11 +225,11 @@ async function startServer() {
         crossHits[req.url]=(crossHits[req.url]||0)+1;res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end('<html><body><h1>'+(req.url==='/cross-a'?'A_PAGE_PRIVATE':req.url==='/cross-b'?'B_PAGE_PRIVATE':'Returned to A')+'</h1></body></html>');return;
       }
       if(req.method==='POST'&&req.url==='/persist'){persistedCount++;res.writeHead(200);res.end('ok');return;}
-      if (req.method === 'GET' && ['/article','/task-one','/task-two','/judgment','/general','/dialog','/coverage'].includes(req.url)) {
+      if (req.method === 'GET' && ['/article','/task-one','/task-two','/judgment','/general','/dialog','/coverage','/grid'].includes(req.url)) {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
         });
-        res.end(req.url==='/coverage'?COVERAGE_HTML:req.url==='/dialog'?DIALOG_HTML:req.url==='/general'?GENERAL_HTML:req.url==='/judgment'?JUDGMENT_HTML:req.url==='/task-one'?'<html><body><h1>Task page one</h1><input aria-label="Answer" type="text"><a href="/task-two">Next page</a></body></html>':req.url==='/task-two'?'<html><body><h1>Task page two complete</h1></body></html>':FIXTURE_HTML); return;
+        res.end(req.url==='/grid'?GRID_HTML:req.url==='/coverage'?COVERAGE_HTML:req.url==='/dialog'?DIALOG_HTML:req.url==='/general'?GENERAL_HTML:req.url==='/judgment'?JUDGMENT_HTML:req.url==='/task-one'?'<html><body><h1>Task page one</h1><input aria-label="Answer" type="text"><a href="/task-two">Next page</a></body></html>':req.url==='/task-two'?'<html><body><h1>Task page two complete</h1></body></html>':FIXTURE_HTML); return;
       }
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
         res.writeHead(404); res.end(); return;
@@ -314,6 +316,13 @@ async function startServer() {
             for(const marker of ['A_BODY_PRIVATE','A_PAGE_PRIVATE','A_SUMMARY_PRIVATE'])assert.equal(text.includes(marker),false,'B excludes '+marker);
             plan={reply:'Return to A B_BODY_PRIVATE',action:'navigate',value:'http://'+server.address().address+':'+server.address().port+'/cross-a-return'};
           }else{for(const marker of ['A_BODY_PRIVATE','B_BODY_PRIVATE','B_PAGE_PRIVATE','A_SUMMARY_PRIVATE'])assert.equal(text.includes(marker),false,'A return excludes cached '+marker);assert.deepEqual(data.historyIndex,[]);plan={reply:'Fresh A context confirmed',action:'done'};}
+          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
+        }
+        if(data.goal==='Grid smoke'){
+          // Select tiles 2 and 5 once each, then click a tile whose handler changes nothing; never re-click.
+          const clicked=label=>data.results.some(r=>r.action==='click'&&r.label===label);
+          const next=['tile 2','tile 5','Inert tile'].find(label=>!clicked(label));
+          const plan=next?{reply:'Select '+next,action:'click',id:data.page.elements.find(e=>e.label===next).id}:{reply:'Tiles selected',action:'done'};
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
         if(data.goal==='Dialog recovery'){
@@ -725,6 +734,15 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   const dialogTask=(await command('task:get')).value;assert.equal(dialogTask.completionEvidence,'verified');
   assert.ok(dialogTask.results.some(r=>r.outcome?.code==='CONDITION_TIMEOUT'&&r.outcome.recovery==='replan'));
   pass('unknown click expectation automatically rereads a late dialog beyond 120 background controls and confirms once without user continuation');
+  await command('task:clear');
+  await page.goto(origin+'/grid');await page.bringToFront();
+  assert.equal((await command('task:submit',{goal:'Grid smoke'})).ok,true);
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','grid tiles selected once each',20000);
+  const grid=(await command('task:get')).value,gridClicks=grid.results.filter(r=>r.action==='click');
+  assert.deepEqual(gridClicks.map(r=>[r.label,r.outcome?.code]),[['tile 2','TARGET_VISUAL_CHANGED'],['tile 5','TARGET_VISUAL_CHANGED'],['Inert tile','NO_CHANGE']]);
+  assert.ok(gridClicks.every(r=>r.request?.trusted!==true&&(r.outcome?.observed?.input??'synthetic')==='synthetic'),'synthetic input only');
+  assert.deepEqual(await page.evaluate(()=>[window.tileClicks,window.inertClicks,[...document.querySelectorAll('.tile.selected')].map(n=>n.getAttribute('aria-label'))]),[{2:1,5:1},1,['tile 2','tile 5']]);
+  pass('class-only tile selection reports TARGET_VISUAL_CHANGED with synthetic input, each tile is clicked once and stays selected; an inert tile stays NO_CHANGE');
   await command('task:clear');await page.goto(origin+'/cross-a');await page.bringToFront();
   await panel.evaluate(async({tabId,origin,secondaryOrigin})=>{
     await import(chrome.runtime.getURL('task-store.js'));const store=PageAgentTaskStore.createTaskStore(chrome);
