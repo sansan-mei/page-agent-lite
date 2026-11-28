@@ -16,7 +16,7 @@ function fakeDebugger({send}={}){
   return {api,log,commands:()=>log.filter(e=>e[0]==='send')};
 }
 const URL1='https://example.test/page';
-const policy={taskId:'task-1',origin:'https://example.test',allowedOrigins:['https://example.test'],sensitiveFields:false};
+const policy={taskId:'task-1',origin:'https://example.test',allowedOrigins:['https://example.test'],sensitiveFields:false,inputApproval:'action'};
 
 test('cdp: Page.captureScreenshot is allow-listed only as a bounded JPEG clip of the viewport',async()=>{
   const ok={format:'jpeg',quality:70,clip:{x:0,y:100,width:800,height:600,scale:1},captureBeyondViewport:false,fromSurface:true};
@@ -151,3 +151,9 @@ test('content: an element target is scrolled into view and measured from the sna
   }finally{f.restore();}
 });
 
+
+test('screenshot without an approval from the runtime measures, masks and attaches nothing',async()=>{
+  const f=shotTools();
+  await assert.rejects(()=>f.tools.screenshot(1,{operationId:'op1',id:null,snapshotId:'s1',url:URL1},{...policy,inputApproval:undefined},async()=>true),e=>e.code==='REAL_INPUT_APPROVAL_REQUIRED');
+  assert.deepEqual(f.debug.log,[]);assert.deepEqual(f.messages,[]);
+});

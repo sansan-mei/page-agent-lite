@@ -47,7 +47,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 消息入口
 
-- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:history-delete`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
+- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:history-delete`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`、`task:script-revoke`、`task:input-approval`、`task:input-revoke`。
 - 设置页 → 后台：`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`、`task:skills`、`task:skill-change`（只接受 delete/clear；后两者不带 tabId）。
 - 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:document`（只读文档 ID 探测）、`agent:frame-guard`（框架可见与遮挡检查）、`agent:consume`（消费顶层快照）、`agent:clear-pointer`。
 
@@ -55,7 +55,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入（含 `click_point` 坐标点击）和截取 `view_image` 截图，不能设为可选权限；只在设置开关 `debuggerEnabled` 开启后按需连接，见[真实输入](browser-tools.md#真实输入)与[截图](browser-tools.md#截图)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页「脚本执行」点击或侧栏开启目标模式时申请（安装不提示）。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入（含 `click_point` 坐标点击）和截取 `view_image` 截图，不能设为可选权限；只在设置开关 `debuggerEnabled` 开启且用户在侧栏批准后按需连接，见[真实输入](browser-tools.md#真实输入)与[截图](browser-tools.md#截图)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页「脚本执行」点击或侧栏开启目标模式时申请（安装不提示）。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源；跨源嵌入框架可沿用用户已记住的顶层来源→框架来源授权，见[网页工具](browser-tools.md#iframe)。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。

@@ -73,9 +73,13 @@ test('switch off: unreachable fallback, trusted:true, click_point and screenshot
  const plain=browser();assert.doesNotMatch((await plain.tools.execute(1,pending(),policy,async()=>true)).message,/trusted/);
 });
 
-test('switch on: the unreachable fallback still uses real input',async()=>{
+test('switch on: the unreachable fallback uses real input only under a task-scope approval',async()=>{
+ for(const inputApproval of [undefined,'action']){
+  const asked=browser({on:true,execute:unreachable}),r=await asked.tools.execute(1,pending(),{...policy,inputApproval},async()=>true);
+  assert.equal(r.code,'REAL_INPUT_APPROVAL_REQUIRED');assert.equal(r.dispatch,'not_sent');assert.match(r.message,/trusted:true/);assert.deepEqual(asked.debug.log,[],'nothing attached');
+ }
  const f=browser({on:true,execute:unreachable});
- const r=await f.tools.execute(1,pending(),policy,async()=>true);
+ const r=await f.tools.execute(1,pending(),{...policy,inputApproval:'task'},async()=>true);
  assert.equal(r.observed.input,'cdp');assert.equal(r.observed.fallback,'unreachable');
  assert.deepEqual(f.debug.log.filter(e=>e[0]==='send').map(e=>e[2]),['mouseMoved','mousePressed','mouseReleased']);
  assert.match((await browser({on:true}).tools.execute(1,pending(),policy,async()=>true)).message,/trusted:true/);
@@ -96,6 +100,7 @@ test('prompt and native tools: page screenshots, click_point and trusted:true ex
  assert.ok(P.estimateTokens(P.agentSystem('简体中文','native'))<P.estimateTokens(P.agentSystem('简体中文','native',{realInput:true})));
 });
 
+const {preapprove}=require('./real-input-helper.js');
 // Runtime: capabilities.realInput follows tools.realInputEnabled() every turn.
 function fixture(replies,{on=false}={}){
  const data=new Map(),models=[],shots=[],executed=[];let seq=0;
@@ -106,8 +111,8 @@ function fixture(replies,{on=false}={}){
   async execute(id,p){executed.push(p);return {version:2,status:'success',dispatch:'sent',scope:'ui',code:'CONDITIONS_MATCH',recovery:'none',message:'ok'};},
   async realInputEnabled(){return on;},async releaseInput(){return true;}};
  const service={mode:async()=>'supported',async claim(ids){return ids.map(id=>({id,type:'image/jpeg',width:10,height:10,size:9}));},async recognize(){return 'TEXT';},async saveShot(){return 'shot_00000001';},async dropShots(){},async present(ids){return ids;},async remove(){},async prune(){}};
- const runtime=createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),
-  model:async(text,signal,capabilities)=>{models.push(capabilities);return {text:JSON.stringify(replies.shift()||{reply:'ok',action:'done'})};}});
+ const runtime=preapprove(createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),
+  model:async(text,signal,capabilities)=>{models.push(capabilities);return {text:JSON.stringify(replies.shift()||{reply:'ok',action:'done'})};}}),store);
  return {runtime,models,shots,executed};
 }
 

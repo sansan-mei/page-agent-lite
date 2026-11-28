@@ -997,5 +997,32 @@
   },
   "spRealInputEnable": {
     "message": "开启"
+  },
+  "spInputTitle": {
+    "message": "允许截图/真实输入？"
+  },
+  "spInputText": {
+    "message": "将通过浏览器调试通道操作该网页，浏览器会显示调试提示条，用完自动断开。「本任务内允许」仅限本任务的同一标签页和网站，可随时撤销。"
+  },
+  "spInputShotViewport": {
+    "message": "截图可见区域"
+  },
+  "spInputShot": {
+    "message": "截图元素：{1}"
+  },
+  "spInputPoint": {
+    "message": "按截图坐标点击 ({1}, {2})"
+  },
+  "spInputClick": {
+    "message": "真实点击：{1}"
+  },
+  "spInputHover": {
+    "message": "真实悬停：{1}"
+  },
+  "spInputTarget": {
+    "message": "网站：{1}"
+  },
+  "spInputGrant": {
+    "message": "本任务已允许截图与真实输入（{1}）"
   }
 }

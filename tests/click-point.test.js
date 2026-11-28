@@ -25,6 +25,7 @@ test('click_point is offered only with the vision and real-input capabilities, i
   assert.ok(text.startsWith('You are Page Agent Lite'));assert.doesNotMatch(text,/hermes|claude|chatgpt|openai|captcha|验证码/i);
 });
 
+const {preapprove}=require('./real-input-helper.js');
 // Runtime with an in-memory store, a scripted page, an image service and a recording executor.
 function fixture(replies,{mode='supported',documentId=()=>'d1',clock=null,view={area:{left:0,top:0,width:1600,height:1200},viewport:{width:1600,height:1200},scroll:{x:0,y:300}}}={}){
   const data=new Map(),models=[],executed=[],stored=new Set();let seq=0;
@@ -37,9 +38,9 @@ function fixture(replies,{mode='supported',documentId=()=>'d1',clock=null,view={
     async execute(tabId,pending,policy){executed.push({pending:structuredClone(pending),policy,phase:data.get(tabId).phase});
       return {version:2,operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'sent',scope:'dispatch',code:'POINT_CLICKED',observed:{input:'cdp',target:'point',...pending.plan.value},evidence:[],recovery:'observe',message:'已按截图坐标发送真实点击'};},
     async realInputEnabled(){return true;},async releaseInput(){return true;}};
-  const runtime=createRuntime({store,tools,images,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),...(clock?{now:clock}:{}),
-    model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),capabilities:{...capabilities}});const next=replies.shift();return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
-  return {runtime,models,executed,data};
+  const runtime=preapprove(createRuntime({store,tools,images,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),...(clock?{now:clock}:{}),
+    model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),capabilities:{...capabilities}});const next=replies.shift();return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}}),store);
+  return {runtime,models,executed,data,store};
 }
 const last=task=>task.results.at(-1);
 const look={reply:'look',action:'view_image',id:'viewport'},tap=(x,y)=>({reply:'tap',action:'click_point',value:{x,y}});
@@ -105,7 +106,7 @@ function browser({viewport={documentId:'d1',url:'https://a.test/',viewport:{widt
     tabs:{async get(){return {url:'https://a.test/',status:'complete'};},async sendMessage(id,m){messages.push(m);return m.type==='agent:viewport'?{ok:true,value:structuredClone(viewport)}:{ok:false,error:'unexpected'};}}};
   return {tools:createBrowserTools(chrome),log,messages};
 }
-const policy={taskId:'task-1',origin:'https://a.test',allowedOrigins:['https://a.test']};
+const policy={taskId:'task-1',origin:'https://a.test',allowedOrigins:['https://a.test'],inputApproval:'action'};
 const pending={operationId:'op1',documentId:'d1',snapshotId:'s1',url:'https://a.test/',label:'坐标 (100,50)',plan:{action:'click_point',value:{x:100,y:50},reply:'x'},expected:[],point:{x:200,y:100},view:{viewport:{width:1600,height:1200},scroll:{x:0,y:300}}};
 
 test('browser-tools click_point: checks the page still matches the screenshot, then sends one real click',async()=>{
@@ -139,4 +140,9 @@ test('backend passes the vision capability through to the native tools of the re
   await s.generateAgent('observe',null,{vision:true,realInput:true});await s.generateAgent('observe',null,{});
   assert.ok(bodies[0].tools.some(t=>t.function.name==='click_point'));assert.match(bodies[0].messages[0].content,/click_point/);
   assert.ok(!bodies[1].tools.some(t=>t.function.name==='click_point'));assert.doesNotMatch(bodies[1].messages[0].content,/click_point/);
+});
+
+test('browser-tools click_point without an approval from the runtime attaches nothing',async()=>{
+  const f=browser(),r=await f.tools.execute(1,structuredClone(pending),{...policy,inputApproval:undefined},async()=>true);
+  assert.equal(r.code,'REAL_INPUT_APPROVAL_REQUIRED');assert.equal(r.dispatch,'not_sent');assert.deepEqual(f.log,[]);assert.deepEqual(f.messages,[]);
 });

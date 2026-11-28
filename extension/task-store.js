@@ -165,8 +165,8 @@
         if(toTabId===id||!members.some(member=>member.tabId===toTabId)||registry.bindings[toTabId]||registry.tabOwners[toTabId]?.taskId!==taskId)throw Object.assign(new Error('目标标签页不属于本任务'),{code:'TAB_NOT_MEMBER'});
         const revision=registry.revision+1,next={taskId,revision},nextOwners={...registry.tabOwners};
         delete nextOwners[toTabId];if(!closed)nextOwners[id]={taskId,revision};
-        const fields=['status','reason','phase','pending','check','waitDeadline','nextObservation','results','events','uncertainClicks','lastOutcome','contextUsage','retries','tabTrail','handoffs','tabHops'];
-        const record={...task,...Object.fromEntries(Object.entries(patch).filter(([name])=>fields.includes(name))),token,tabId:toTabId,activeTabId:toTabId,scopeRevision:revision,scriptApproval:null,tabRequest:null,tabCandidates:[],members:closed?members.filter(member=>member.tabId!==id):members,membersRevision:closed?revision:task.membersRevision,updatedAt};
+        const fields=['status','reason','phase','pending','check','waitDeadline','nextObservation','results','events','uncertainClicks','lastOutcome','contextUsage','retries','tabTrail','handoffs','tabHops','scriptRequest','inputRequest'];
+        const record={...task,...Object.fromEntries(Object.entries(patch).filter(([name])=>fields.includes(name))),token,tabId:toTabId,activeTabId:toTabId,scopeRevision:revision,scriptApproval:null,inputApproval:null,tabRequest:null,tabCandidates:[],members:closed?members.filter(member=>member.tabId!==id):members,membersRevision:closed?revision:task.membersRevision,updatedAt};
         const bindings={...registry.bindings};delete bindings[id];bindings[toTabId]=next;
         await area.set({taskRegistry:{...registry,pending:{kind:'tab_switched',tabId:id,toTabId,binding:next,previousTaskId:taskId,nextOwners}}});
         await area.set({[rootKey(taskId)]:record});

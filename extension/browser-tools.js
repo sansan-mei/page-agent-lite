@@ -74,7 +74,8 @@
       return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch,scope:'dispatch',code,recovery:'wait',message:'导航已请求；重新观察并核对 URL，不重发结果不确定的导航'}),navigation:true};
     }
     // Real input (click/hover on a top-document or same-origin frame target), never a resend of a dispatched synthetic event:
-    // 'unreachable' - synthetic events cannot reach the hit point (embedded document) and nothing was dispatched;
+    // 'unreachable' - synthetic events cannot reach the hit point (embedded document), nothing was dispatched, and the
+    // task holds a task-scope real-input approval for this tab and origin;
     // 'trusted' - the model asked for real input (trusted:true), so no synthetic events are sent at all.
     // The point comes from the content script for the same snapshot target; uncertain outcomes are never replayed.
     async function realInput(tabId,pending,policy,live,base,reason){
@@ -83,6 +84,9 @@
       if(!['click','hover'].includes(action)||pending.frameRoute)return note({code:'CDP_UNAVAILABLE',message:'该目标不支持真实输入'});
       // Settings switch off: one stable not_sent code, nothing measured or attached.
       if(!await D.enabled())return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'REAL_INPUT_DISABLED',recovery:'replan',observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none'},message:(trusted?'':'合成事件无法到达目标；')+'真实输入未开启（可在设置中开启「真实输入与截图」），未发送'});
+      // Approval (runtime side panel): a trusted action needs its own approval or a task-scope grant; the unreachable
+      // fallback only runs under a task-scope grant and otherwise asks the model to retry with trusted:true.
+      if(!(trusted?['action','task']:['task']).includes(policy?.inputApproval))return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'REAL_INPUT_APPROVAL_REQUIRED',recovery:'replan',observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none'},message:trusted?'真实输入未获用户批准，未发送':'合成事件无法到达目标，未发送；如需真实点击，加 trusted:true 重试（需用户在侧栏批准）'});
       if(!D.available()||typeof policy?.taskId!=='string')return note({code:'CDP_UNAVAILABLE',message:'真实输入不可用'});
       if(live&&!await live())return note({code:'CANCELLED',message:'运行已停止'});
       const message={operationId:pending.operationId,url:pending.url,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})};
@@ -117,6 +121,7 @@
       const skip=(code,message)=>T.result({...base,status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',observed:{...target,input:'none'},message});
       const codeOf=(error,fallback)=>/^[A-Z][A-Z0-9_]{0,60}$/.test(error?.code||'')?error.code:fallback;
       if(!await D.enabled())return skip('REAL_INPUT_DISABLED','真实输入未开启（可在设置中开启「真实输入与截图」），未点击');
+      if(!['action','task'].includes(policy?.inputApproval))return skip('REAL_INPUT_APPROVAL_REQUIRED','坐标点击未获用户批准，未点击');
       if(!D.available()||typeof policy?.taskId!=='string'||!pending.view)return skip('CDP_UNAVAILABLE','真实输入不可用，未点击');
       let view;
       try{
@@ -187,6 +192,7 @@
     }
     async function screenshot(tabId,shot,policy,live=null){
       if(!await D.enabled())throw Object.assign(new Error('真实输入与截图未开启，可在设置中开启'),{code:'REAL_INPUT_DISABLED'});
+      if(!['action','task'].includes(policy?.inputApproval))throw Object.assign(new Error('截图未获用户批准'),{code:'REAL_INPUT_APPROVAL_REQUIRED'});
       if(!D.available()||typeof policy?.taskId!=='string')throw Object.assign(new Error('浏览器不支持截图'),{code:'CDP_UNAVAILABLE'});
       await checkOrigin(tabId,policy);
       if((await tab(tabId)).url!==shot.url)throw Object.assign(new Error('页面地址已变化，未截图'),{code:'STALE'});

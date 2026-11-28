@@ -15,7 +15,7 @@ function fakeDebugger(hooks={}){
  return {api,log,detach:(tabId,reason)=>{attached.delete(tabId);onDetach({tabId},reason);}};
 }
 const URL1='https://example.test/page';
-const policy={taskId:'task-1',origin:'https://example.test',allowedOrigins:['https://example.test']};
+const policy={taskId:'task-1',origin:'https://example.test',allowedOrigins:['https://example.test'],inputApproval:'task'};
 const pendingFor=(action='click',extra={})=>({operationId:'op1',documentId:'d1',snapshotId:'s1',url:URL1,label:'Go',plan:{action,id:'t0',reply:'x'},expected:[],...extra});
 const synthetic=(extra={})=>({version:2,operationId:'op1',documentId:'d1',status:'unknown',dispatch:'sent',scope:'dispatch',code:'NO_CHANGE',observed:{input:'synthetic'},evidence:[],recovery:'observe',message:'操作已发出，暂未观察到页面变化',navigation:false,pageChange:'NO_CHANGE',...extra});
 // Content-script replies are scripted per message type; every message is recorded.
@@ -207,4 +207,13 @@ test('runtime passes its task identity and does not wait on an action that was n
  assert.equal(calls[0].taskId,task.taskId);
  assert.equal(t.status,'running');assert.equal(t.phase,'observe');assert.equal(t.check,null);
  assert.equal(t.results.at(-1).outcome.observed.cdp.code,'CDP_CANCELLED');
+});
+
+test('trusted:true without an approval from the runtime attaches nothing and sends nothing',async()=>{
+ for(const inputApproval of [undefined,null,'other']){
+  const f=tools(),r=await f.tools.execute(1,trustedPlan(),{...policy,inputApproval},async()=>true);
+  assert.equal(r.code,'REAL_INPUT_APPROVAL_REQUIRED');assert.equal(r.dispatch,'not_sent');assert.deepEqual(f.debug.log,[]);assert.ok(!types(f.messages).includes('agent:aim'));
+ }
+ const once=tools(),sent=await once.tools.execute(1,trustedPlan(),{...policy,inputApproval:'action'},async()=>true);
+ assert.equal(sent.observed.input,'cdp');assert.deepEqual(sends(once.debug.log),['mouseMoved','mousePressed','mouseReleased']);
 });

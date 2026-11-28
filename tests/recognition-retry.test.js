@@ -1,6 +1,7 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {createRuntime}=require('../extension/runtime.js');
 
+const {preapprove}=require('./real-input-helper.js');
 // Non-vision model: view_image screenshots and attached images go through recognition, which may fail.
 function fixture(recognize,{backoff=0,replies=[{reply:'look',action:'view_image',id:'viewport'}]}={}){
   const data=new Map(),models=[],calls=[];let seq=0;
@@ -10,8 +11,8 @@ function fixture(recognize,{backoff=0,replies=[{reply:'look',action:'view_image'
   const tools={async tab(id){return {id,url:'https://a.test/',status:'complete'};},
     async observe(){return {url:'https://a.test/',documentId:'d1',snapshotId:'s'+(++seq),page:{text:'page',elements:[],regions:[]}};},
     async screenshot(){return {data:'SlBFRw==',masked:0,width:8,height:6};},async realInputEnabled(){return true;},async releaseInput(){return true;},async clearPointer(){}};
-  const runtime=createRuntime({store,tools,images,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),recognitionBackoff:backoff,
-    model:async text=>{models.push(JSON.parse(text));const next=replies.shift();return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
+  const runtime=preapprove(createRuntime({store,tools,images,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),recognitionBackoff:backoff,
+    model:async text=>{models.push(JSON.parse(text));const next=replies.shift();return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}}),store);
   return {runtime,models,calls,data};
 }
 const last=task=>task.results.at(-1);

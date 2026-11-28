@@ -997,5 +997,32 @@
   },
   "spRealInputEnable": {
     "message": "Turn on"
+  },
+  "spInputTitle": {
+    "message": "Allow screenshot / real input?"
+  },
+  "spInputText": {
+    "message": "This uses the browser debugging channel on this page; the browser shows a debugging bar and it detaches when done. \"Allow for this task\" covers only this task on the same tab and site; you can revoke it anytime."
+  },
+  "spInputShotViewport": {
+    "message": "Screenshot of the visible area"
+  },
+  "spInputShot": {
+    "message": "Screenshot of element: {1}"
+  },
+  "spInputPoint": {
+    "message": "Click at screenshot point ({1}, {2})"
+  },
+  "spInputClick": {
+    "message": "Real click: {1}"
+  },
+  "spInputHover": {
+    "message": "Real hover: {1}"
+  },
+  "spInputTarget": {
+    "message": "Site: {1}"
+  },
+  "spInputGrant": {
+    "message": "Screenshots and real input allowed for this task ({1})"
   }
 }

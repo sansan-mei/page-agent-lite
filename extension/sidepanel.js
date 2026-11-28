@@ -110,6 +110,14 @@
     // Task-scoped script approval stays visible with a Revoke control while the task keeps it.
     const scriptGrant=!historyOpen&&current?.scriptApproval?.scope==='task'&&current.status!=='ended'?current.scriptApproval:null;
     $('script-grant').hidden=!scriptGrant;$('script-grant-text').textContent=scriptGrant?t('spScriptGrant',scriptGrant.origin):'';$('script-revoke').disabled=busy||!scriptGrant;
+    // Pending chrome.debugger use (screenshot, coordinate click, real click/hover): what, where, and the same three choices.
+    const inputRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='real_input_approval'?current.inputRequest:null,r=inputRequest;
+    $('input-approval').hidden=!r;
+    $('input-action').textContent=!r?'':r.kind==='shot'?(r.label?t('spInputShot',r.label):t('spInputShotViewport')):r.kind==='point'?t('spInputPoint',r.x,r.y):t(r.kind==='hover'?'spInputHover':'spInputClick',r.label||'');
+    $('input-target').textContent=r?t('spInputTarget',r.origin||''):'';
+    for(const id of ['input-approve','input-approve-task','input-reject'])$(id).disabled=busy||!r;
+    const inputGrant=!historyOpen&&current?.inputApproval?.scope==='task'&&current.status!=='ended'?current.inputApproval:null;
+    $('input-grant').hidden=!inputGrant;$('input-grant-text').textContent=inputGrant?t('spInputGrant',inputGrant.origin):'';$('input-revoke').disabled=busy||!inputGrant;
     const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
     if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
@@ -271,14 +279,14 @@
     $('takeover').disabled=busy;
     $('resume').textContent=task?.reason==='user_takeover'?t('spTakeoverDone'):t('spResume');
     $('stop').hidden=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
-    $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status)||task.reason==='script_approval'&&!!task.scriptRequest;
+    $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status)||task.reason==='script_approval'&&!!task.scriptRequest||task.reason==='real_input_approval'&&!!task.inputRequest;
     $('stop').disabled=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
     $('resume').disabled=busy||!task||['running','waiting_page','ended'].includes(task.status);
     $('finish').disabled=busy||!current||current.status==='ended';
     $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
     // A decision card can appear while the conversation is scrolled elsewhere; bring each new one into view once.
-    const prompt=[['frame-access',frameAccess?current.frameAccessRequest.url:null],['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
+    const prompt=[['frame-access',frameAccess?current.frameAccessRequest.url:null],['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['input-approval',inputRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
     const promptKey=prompt?prompt[0]+':'+prompt[1]:'';
     if(promptKey!==shownPrompt){shownPrompt=promptKey;if(prompt)$(prompt[0]).scrollIntoView?.({block:'end'});}
   }
@@ -321,6 +329,8 @@
   }
   for(const [id,allow,scope] of [['script-approve',true,'once'],['script-approve-task',true,'task'],['script-reject',false,'once']])$(id).addEventListener('click',()=>{if(task?.scriptRequest)void action('task:script-approval',{taskId:task.taskId,requestId:task.scriptRequest.id,allow,scope});});
   $('script-revoke').addEventListener('click',()=>{if(task?.scriptApproval)void action('task:script-revoke',{taskId:task.taskId});});
+  for(const [id,allow,scope] of [['input-approve',true,'once'],['input-approve-task',true,'task'],['input-reject',false,'once']])$(id).addEventListener('click',()=>{if(task?.inputRequest)void action('task:input-approval',{taskId:task.taskId,requestId:task.inputRequest.id,allow,scope});});
+  $('input-revoke').addEventListener('click',()=>{if(task?.inputApproval)void action('task:input-revoke',{taskId:task.taskId});});
   for(const [id,allow] of [['tab-access-allow',true],['tab-access-deny',false]])$(id).addEventListener('click',()=>{if(task?.tabRequest)void action('task:tab-access',{taskId:task.taskId,requestId:task.tabRequest.id,allow});});
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
   function editScope(action,origin,continueTask=false,rememberFrame=false){

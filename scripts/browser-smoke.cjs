@@ -325,6 +325,12 @@ async function startServer() {
           const plan=next?{reply:'Select '+next,action:'click',id:data.page.elements.find(e=>e.label===next).id}:{reply:'Tiles selected',action:'done'};
           res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
         }
+        if(data.goal==='Real input approval smoke'){
+          // One real click (trusted:true) on tile 3; it must wait for the side-panel approval before chrome.debugger attaches.
+          const done=data.results.some(r=>r.action==='click');
+          const plan=done?{reply:'Real click sent',action:'done'}:{reply:'Real click tile 3',action:'click',id:data.page.elements.find(e=>e.label==='tile 3').id,trusted:true};
+          res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(plan)}}]}));return;
+        }
         if(data.goal==='Dialog recovery'){
           const result=data.page.regions.find(r=>r.label==='Confirmation result');
           const dialog=data.page.groups.find(g=>g.label==='Confirm changes');
@@ -750,6 +756,17 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.ok(gridClicks.every(r=>r.request?.trusted!==true&&(r.outcome?.observed?.input??'synthetic')==='synthetic'),'synthetic input only');
   assert.deepEqual(await page.evaluate(()=>[window.tileClicks,window.inertClicks,[...document.querySelectorAll('.tile.selected')].map(n=>n.getAttribute('aria-label'))]),[{2:1,5:1},1,['tile 2','tile 5']]);
   pass('class-only tile selection reports TARGET_VISUAL_CHANGED with synthetic input, each tile is clicked once and stays selected; an inert tile stays NO_CHANGE');
+  await command('task:clear');await page.goto(origin+'/grid');await page.bringToFront();
+  assert.equal((await command('task:submit',{goal:'Real input approval smoke'})).ok,true);
+  await poll(async()=>((await command('task:get')).value?.reason)==='real_input_approval','trusted click waits for side-panel approval',15000);
+  assert.deepEqual(await page.evaluate(()=>window.tileClicks),{},'nothing clicked before approval');
+  await poll(async()=>!(await panel.locator('#input-approval').evaluate(el=>el.hidden)),'real-input approval card shown',10000);
+  assert.equal(await panel.locator('#input-action').textContent(),await panel.evaluate(()=>PageAgentI18n.t('spInputClick','tile 3')));
+  await panel.locator('#input-approve').click();
+  await poll(async()=>((await command('task:get')).value?.status)==='completed','approved real click completes',20000);
+  const realClick=(await command('task:get')).value.results.find(r=>r.action==='click');
+  assert.equal(realClick.outcome?.observed?.input,'cdp');assert.deepEqual(await page.evaluate(()=>window.tileClicks),{3:1});
+  pass('trusted:true pauses with the real-input approval card, attaches nothing before 允许一次, then sends exactly one real chrome.debugger click');
   await command('task:clear');await page.goto(origin+'/cross-a');await page.bringToFront();
   await panel.evaluate(async({tabId,origin,secondaryOrigin})=>{
     await import(chrome.runtime.getURL('task-store.js'));const store=PageAgentTaskStore.createTaskStore(chrome);

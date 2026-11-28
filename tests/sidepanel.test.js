@@ -460,3 +460,28 @@ test('remembered embedded access is listed and removable even outside the curren
  assert(row);f.calls.length=0;row.querySelector('button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();
  assert(!f.calls.some(c=>c[0]==='permission'));const call=f.calls.find(c=>c[1]?.type==='task:scope-change')[1];assert.equal(call.action,'remove');assert.equal(call.origin,'https://embedded.test');assert.equal(call.expectedRevision,2);
 });
+
+test('real-input approval card says what and where, hides resume, sends the decision; the task grant has a revoke',async()=>{
+ const zh=require('../extension/_locales/zh_CN/messages.json'),msg=(k,...a)=>a.reduce((s,v,i)=>s.replace('{'+(i+1)+'}',v),zh[k].message);
+ for(const [request,text] of [[{kind:'shot',label:null},msg('spInputShotViewport')],[{kind:'shot',label:'<b>Chart</b>'},msg('spInputShot','<b>Chart</b>')],[{kind:'point',x:12,y:34},msg('spInputPoint',12,34)],[{kind:'click',label:'Buy'},msg('spInputClick','Buy')],[{kind:'hover',label:'Menu'},msg('spInputHover','Menu')]]){
+  for(const [id,allow,scope] of [['input-approve',true,'once'],['input-approve-task',true,'task'],['input-reject',false,'once']]){
+   const task={taskId:'input-task',origin:'https://example.test',goal:'Look',status:'paused',reason:'real_input_approval',phase:'observe',steps:1,prefs:{},results:[],events:[],inputRequest:{id:'req-3',origin:'https://example.test',url:'https://example.test/a',...request}};
+   const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:input-approval'?{ok:true,value:{...task,status:'running',reason:null,inputRequest:null}}:undefined);
+   const box=f.document.getElementById('input-approval');assert.equal(box.hidden,false);assert.equal(box.querySelector('b'),null);
+   assert.equal(f.document.getElementById('input-action').textContent,text);assert.match(f.document.getElementById('input-target').textContent,/https:\/\/example\.test/);
+   assert.equal(f.document.getElementById('resume').hidden,true);assert.equal(f.document.getElementById('script-approval').hidden,true);
+   f.document.getElementById(id).click();await flush();
+   const sent=f.calls.find(c=>c[1]?.type==='task:input-approval')[1];
+   assert.equal(sent.allow,allow);assert.equal(sent.scope,scope);assert.equal(sent.taskId,'input-task');assert.equal(sent.requestId,'req-3');assert.equal(sent.tabId,9);
+   assert.equal(box.hidden,true);
+  }
+ }
+ const grant={scope:'task',origin:'https://example.test',tabId:9,grantedAt:1};
+ const task={taskId:'input-task',origin:'https://example.test',goal:'Look',status:'running',phase:'observe',steps:1,prefs:{},results:[],events:[],inputApproval:grant};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:input-revoke'?{ok:true,value:{...task,inputApproval:null}}:undefined);
+ assert.equal(f.document.getElementById('input-grant').hidden,false);assert.match(f.document.getElementById('input-grant-text').textContent,/https:\/\/example\.test/);
+ f.document.getElementById('input-revoke').click();await flush();
+ const sent=f.calls.find(c=>c[1]?.type==='task:input-revoke')[1];assert.equal(sent.taskId,'input-task');assert.equal(f.document.getElementById('input-grant').hidden,true);
+ const conversation=f.document.getElementById('conversation'),order=[...conversation.children].map(el=>el.id);
+ for(const id of ['input-approval','input-grant'])assert.ok(order.indexOf(id)>order.indexOf('timeline'),id+' is below the timeline');
+});

@@ -82,6 +82,8 @@ const ready=(async()=>{
 })().catch(()=>false);
 void ready.then(ok=>ok&&syncHistory()).catch(()=>{});
 chrome.storage.onChanged.addListener((changes,area)=>{
+  // Real input switched off in settings: tasks drop their task-scope real-input approval.
+  if(area==='local'&&changes.debuggerEnabled&&changes.debuggerEnabled.newValue!==true)void ready.then(ok=>ok&&runtime.reviewApprovals()).catch(()=>{});
   if(area!=='session')return;
   for(const [name,change] of Object.entries(changes)){const taskId=change.newValue?.taskId;if(typeof taskId==='string'&&/^(taskRoot|task|conversation|conversation-origin):/.test(name))queueHistory(taskId);}
 });
@@ -117,7 +119,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; notes stay per tab.
-      const taskTab=['task:get','task:sensitive-access','task:tab-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
+      const taskTab=['task:get','task:sensitive-access','task:tab-access','task:script-approval','task:script-revoke','task:input-approval','task:input-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
       if(m.type==='task:get'){
         const task=await runtime.get(taskTab);
         if(!task)return task;
@@ -130,15 +132,15 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
         if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean')throw new Error('标签页授权无效');
         return runtime.tabAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
       }
-      if(m.type==='task:script-approval'){
+      if(m.type==='task:script-approval'||m.type==='task:input-approval'){
         // Strict shape: allow is boolean; scope is once|task (default once); a task-wide grant must approve.
-        const scope=m.scope===undefined?'once':m.scope;
-        if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean'||!['once','task'].includes(scope)||scope==='task'&&!m.allow)throw new Error('脚本确认无效');
-        return runtime.scriptApproval(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow,scope});
+        const scope=m.scope===undefined?'once':m.scope,input=m.type==='task:input-approval';
+        if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean'||!['once','task'].includes(scope)||scope==='task'&&!m.allow)throw new Error(input?'真实输入确认无效':'脚本确认无效');
+        return runtime[input?'inputApproval':'scriptApproval'](taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow,scope});
       }
-      if(m.type==='task:script-revoke'){
-        if(typeof m.taskId!=='string')throw new Error('脚本确认无效');
-        return runtime.revokeScriptApproval(taskTab,{taskId:m.taskId});
+      if(m.type==='task:script-revoke'||m.type==='task:input-revoke'){
+        if(typeof m.taskId!=='string')throw new Error('确认无效');
+        return runtime[m.type==='task:input-revoke'?'revokeInputApproval':'revokeScriptApproval'](taskTab,{taskId:m.taskId});
       }
       if(m.type==='task:members')return runtime.members(taskTab,m.taskId);
       if(m.type==='task:member-change')return runtime.changeMembers(taskTab,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});

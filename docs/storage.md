@@ -36,7 +36,8 @@
 | version=3、taskId、token | 身份与运行代次 |
 | initialTabId、activeTabId、initialOrigin、origin/activeOrigin | 初始标签页与当前执行标签页（activeTabId = tabId，只能经 `switchTab` 修改）；origin 只能经 `switchOrigin` 修改 |
 | batch | 进行中的 `fill_fields` 剩余步骤（按 key 定位，见 [运行器](agent-runtime.md#批量填写)） |
-| scriptApproval | 本任务脚本自动批准 `{scope:'task', origin, tabId, grantedAt}`；切换来源/执行标签、结束、撤销、userScripts 权限移除时清除，新任务不继承 |
+| scriptApproval、inputApproval | 本任务脚本 / 截图与真实输入的自动批准 `{scope:'task', origin, tabId, grantedAt}`；切换来源/执行标签、结束、撤销时清除，前者另在 userScripts 权限移除时、后者另在「真实输入与截图」关闭时清除；新任务不继承 |
+| scriptRequest、inputRequest | 待侧栏批准的请求（含待执行记录 pending），worker 重启后仍在、批准前不执行；作废时清空，见 [侧栏批准](agent-runtime.md#侧栏批准) |
 | tabCandidates、tabRequest | 最近一次模型输入的 otherTabs 映射 `[{tabRef:'openN', tabId, url}]`（tabId/url 不发给模型）及待确认的读取请求；切换执行标签页时清空 |
 | frameAccessRequest | 嵌入式表单网站授权提示，见[权限暂停](agent-runtime.md#错误与恢复) |
 | sensitiveAccess、sensitiveRequest | 本对话敏感字段决策（allowed/denied，缺省未确认）及待确认 id/text；来源切换保留决策，新对话不继承 |

@@ -35,6 +35,7 @@ function images(mode='supported',{present=null}={}){
     async present(ids){return (present?present(ids):ids.filter(id=>stored.has(id)));},
     async remove(taskId){calls.push(['remove',taskId]);},async prune(){}};
 }
+const {preapprove}=require('./real-input-helper.js');
 function fixture(service,replies,{screenshot}={}){
   const data=new Map(),models=[],shots=[];let seq=0;
   const store={async get(id){return structuredClone(data.get(id)||null);},async set(id,t){data.set(id,structuredClone(t));},async remove(id){data.delete(id);},async list(){return [...data.values()].map(t=>structuredClone(t));}};
@@ -42,8 +43,8 @@ function fixture(service,replies,{screenshot}={}){
     async observe(){return {url:'https://a.test/',documentId:'d1',snapshotId:'s'+(++seq),page:{text:'page',elements:[{id:'t0',key:'k0',label:'Chart',tag:'canvas'}],regions:[{id:'r0',key:'k1',label:'Prices'}]}};},
     async screenshot(tabId,shot,policy){shots.push({tabId,shot,policy});if(screenshot)return screenshot(shot,policy);return {data:'SlBFRw==',masked:2,width:800,height:600};},
     async realInputEnabled(){return true;},async releaseInput(){return true;}};
-  const make=()=>createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),
-    model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),images:capabilities.images,shots:capabilities.shots});const next=replies.shift();if(next instanceof Error)throw next;return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
+  const make=()=>preapprove(createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),
+    model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),images:capabilities.images,shots:capabilities.shots});const next=replies.shift();if(next instanceof Error)throw next;return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}}),store);
   return {runtime:make(),make,models,shots,data,store};
 }
 const last=task=>task.results.at(-1);

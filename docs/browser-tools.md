@@ -100,18 +100,19 @@ observe 的 value：
 
 `cdp-tools.js`（`PageAgentCdp`，后台在 `browser-tools.js` 之前加载）经 `chrome.debugger` 发送真实鼠标输入。
 
-- 开关：只有 storage.local `debuggerEnabled === true`（设置页「真实输入与截图」，默认关）时才 attach。`ensure` 每次读取，关闭时抛 `REAL_INPUT_DISABLED`（not_sent），什么都不连接；监听 `storage.onChanged`，改为非 true 时立即 detach 所有会话。运行器每轮读 `tools.realInputEnabled()` 作为 `capabilities.realInput`：关闭时系统提示与原生工具里没有页面截图来源（`view_image` 只剩 `imageN`）、`click_point` 和 `trusted`，NO_CHANGE 提示改为只观察核实；模型仍发出时运行器/后台记 `REAL_INPUT_DISABLED`（not_sent、replan，message 提示可在设置中开启），不量坐标、不遮盖、不截图。
+- 开关：只有 storage.local `debuggerEnabled === true`（设置页「真实输入与截图」，默认关）时才 attach。`ensure` 每次读取，关闭时抛 `REAL_INPUT_DISABLED`（not_sent），什么都不连接；监听 `storage.onChanged`，改为非 true 时立即 detach 所有会话。运行器每轮读 `tools.realInputEnabled()` 作为 `capabilities.realInput`：关闭时系统提示与原生工具里没有页面截图来源（`view_image` 只剩 `imageN`）、`click_point` 和 `trusted`，NO_CHANGE 提示改为只观察核实；模型仍发出时运行器/后台记 `REAL_INPUT_DISABLED`（not_sent、replan，message 提示可在设置中开启），不量坐标、不遮盖、不截图。开关是总闸，开启后每次使用仍需批准（下一条）。
+- 批准：页面截图、`click_point`、`trusted:true` 的 click/hover 在 attach 前由运行器暂停为 `real_input_approval`，用户在侧栏选「允许一次」「本任务内允许」或拒绝，流程见 [运行器](agent-runtime.md#侧栏批准)。运行器把结果作为 policy `inputApproval` 传入：`action`（这次动作已批准）或 `task`（本任务在该标签页与来源有授权）；`realInput`、`pointClick`、`screenshot` 缺少它时返回/抛出 `REAL_INPUT_APPROVAL_REQUIRED`（not_sent），什么都不量、不连接。
 
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
 - 命令白名单：`Input.dispatchMouseEvent` 与[截图](#截图)用的 `Page.captureScreenshot`。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法或参数；坐标来自快照目标，或来自运行时核对换算后的 [坐标点击](#坐标点击)。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
 - 何时用（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不支持）。已发出的合成事件从不由运行时改用真实输入重发：页面没变化不能证明没效果（效果可能延迟或不可见）。
-  - 到不了（`unreachable`，自动）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent）并记住目标，后台经 `agent:point` 取坐标后用真实输入。
+  - 到不了（`unreachable`）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent）并记住目标。只有 `inputApproval==='task'` 时后台才经 `agent:point` 取坐标并用真实输入；否则返回 `REAL_INPUT_APPROVAL_REQUIRED`，提示模型加 `trusted:true` 重试（走批准）。
   - 模型请求（`trusted`）：计划带 `trusted:true`（`agentPlan` 只接受 click/hover 的布尔值）时不发合成事件；后台发 `agent:aim`，内容脚本按 `agent:execute` 的规则核对快照与计划、消费快照、记住目标并返回坐标。核对失败（`STALE`、`TARGET_BLOCKED` 等）与合成路径一样抛给运行器。`executing` 检查点照常先写。
   - 合成点击/悬停回执为 `NO_CHANGE` 时，message 末尾提示：选中/切换类目标可能已变化而文字不变，再点会撤销；先截图或观察核实，确认没反应才加 `trusted:true` 再试一次。运行时不自动重试。
   - 坐标：`agent:point`/`agent:aim` 对同一节点核对存活、签名、可见、未变为敏感字段，再走合成点击的命中检查（滚入视野、遮挡、iframe 可见框），返回顶层视口 CSS 像素，同源框架加 iframe 偏移；遮挡（`TARGET_BLOCKED`）不派发，因为真实点击同样落在遮挡层上。新 observe 清除记住的目标；合成事件已派发的目标不给坐标。
   - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`（`unreachable`/`trusted`），message 前缀说明输入方式。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
-  - 开关关闭时：到不了类与 `trusted` 类都返回 `REAL_INPUT_DISABLED`（unsupported、not_sent、replan），不发 `agent:point`/`agent:aim`。
+  - 开关关闭或未获批准时：到不了类与 `trusted` 类返回 `REAL_INPUT_DISABLED` / `REAL_INPUT_APPROVAL_REQUIRED`（unsupported、not_sent、replan），不发 `agent:point`/`agent:aim`。
   - 未发送时：到不了类返回 `SYNTHETIC_UNREACHABLE`，`trusted` 类返回 `REAL_INPUT_NOT_SENT`（unsupported、not_sent、replan），都带 `observed.input='none'` 与 `cdp {code,message}`，运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
 - 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
 
@@ -135,7 +136,7 @@ observe 的 value：
 
 - 捕获（`browser-tools.screenshot`）：核对来源与标签 URL → 内容脚本 `agent:shot` 按当前快照 ID 找到节点（须存活、可见；不完全在视口内时 `scrollIntoView` 后等 150ms），量出可见框（顶层视口 CSS 像素，含同源框架偏移与 overflow 裁剪），`viewport` 为整个视口 → 后台以「可见框 + 顶层滚动偏移」为 clip，`scale = min(1, 1568 / (长边 × devicePixelRatio))`，经 `cdp-tools.capture` 发一次 `Page.captureScreenshot`（JPEG，quality 70，`captureBeyondViewport:false`，15 秒超时）→ `finally` 发 `agent:unshot` 移除遮盖。白名单校验 clip 只含 x/y/width/height/scale 且 scale ≤ 1。不激活或聚焦标签页；会话与[真实输入](#真实输入)共用（同一 taskId，同样的 attach/detach 与错误 code）。
 - 遮盖（`core.agentMaskBoxes` + 内容脚本）：未授权敏感字段时遮盖 `agentSensitiveSelector` 匹配的元素（顶层、可读同源框架、开放 Shadow DOM）和所有读不到文档的框架（跨源、嵌套过深）；已授权时只遮盖文件选择框。每处外扩 2px，画成顶层 `position:fixed` 黑块（`data-page-agent="mask"`，不进快照），插入后逐块核对位置与可见性；量不到、放不准或根元素半透明即 `MASK_FAILED`，不截图、不留遮盖。内容脚本 15 秒后自行移除未收到 `agent:unshot` 的遮盖。封闭 Shadow DOM 和无标准标记的敏感内容不在遮盖范围内。
-- 页面来源（`viewport`/`tN`/`rN`）须开启[开关](#真实输入)，否则 `REAL_INPUT_DISABLED`，不截图；附图 `imageN` 不需要调试通道。
+- 页面来源（`viewport`/`tN`/`rN`）须开启[开关](#真实输入)（否则 `REAL_INPUT_DISABLED`）并经侧栏批准（运行器先校验目标，再暂停为 `real_input_approval`；批准后才截图）；附图 `imageN` 不需要调试通道，也不需批准。
 - 拒绝：跨源框架路由的目标（`VIEW_IMAGE_UNSUPPORTED`，可改用 viewport）、不在快照中的 ID（`TARGET_MISSING`）、过期快照或节点（`STALE`）、不可见（`TARGET_HIDDEN`）、`CAPTURE_TIMEOUT`、`CAPTURE_FAILED`、`CDP_*`、识别失败 `RECOGNITION_FAILED`、无附图 `IMAGE_NOT_FOUND`。都是交回模型的工具结果，不暂停任务。
 - 识别文字放在 `observed {source, question?, note:'来自图片识别，可能有误', untrusted:true, text}`，text ≤ 2000 字符，并按 JSON 转义后长度裁到 4500 字符的 observed 上限以内。识别计一轮，失败重试见 [附图](context-and-skills.md#附图)。
 - 截图暂存与发送见 [附图](context-and-skills.md#附图)。
@@ -200,7 +201,7 @@ observe 的 value：
 - 前提：可选权限 `userScripts`（设置页「脚本执行」由点击申请）、Chrome 135+（`userScripts.execute`），且扩展详情页「允许用户脚本」已打开（Chrome 138+；135–137 为开发者模式）。`status(chrome)` 返回 `{permission, api, available}`。
 - 暴露：后台每轮计算一次 `available`，作为 `capabilities.scripts` 同时决定系统提示词末尾的 run_script 说明、原生 tools 列表和 JSON 模式的动作列表。不可用的轮次模型看不到该工具（不占 schema 上下文，也不会请求用户无法批准的脚本）。注册表始终含 run_script，`agentPlan` 照常校验参数；模型在不可用的轮次仍返回它时不执行，暂停为 `access`，消息写明缺权限还是缺浏览器开关。
 - 参数：value 为代码字符串（≤ 20000 字符）或 `{code, world}`，world 为 `USER_SCRIPT`（默认，隔离环境、可访问 DOM、不受网页 CSP 限制）或 `MAIN`（可访问网页 JS 全局；改写 `window.confirm` 等网页函数只在 MAIN 生效）；不接受 id。代码作为 async 函数体在当前标签顶层框架执行，`return` 的值转成字符串返回。
-- 批准：商店包执行前暂停为 `script_approval`，侧栏显示完整代码，用户选择「允许一次」或「本任务内允许」（之后本任务在同一标签页、同一来源的脚本自动执行，完整代码仍记入对话，可随时撤销）；没有跨任务的「始终允许」。流程见 [运行器](agent-runtime.md#脚本批准)。
+- 批准：商店包执行前暂停为 `script_approval`，侧栏显示完整代码，用户选择「允许一次」或「本任务内允许」（之后本任务在同一标签页、同一来源的脚本自动执行，完整代码仍记入对话，可随时撤销）；没有跨任务的「始终允许」。流程见 [运行器](agent-runtime.md#侧栏批准)。
 - 执行：校验来源与主机权限、标签 URL 与待执行记录一致、`status` 可用，再用 `agent:document` 只读探测内容脚本的文档 ID（不一致或无响应记 `STALE`，不执行），之后调用一次 `chrome.userScripts.execute`；USER_SCRIPT 环境设置为允许 eval。结果 `SCRIPT_RESULT`（`observed.result` ≤ 4000 字符，`truncated`、`world`）、`SCRIPT_ERROR`（`observed.error`）、`SCRIPT_TIMEOUT`（30 秒未返回，status=unknown，不重发）。dispatch=sent、recovery=observe，执行后重新观察。
 - 未执行的回执（dispatch=not_sent）：`SCRIPT_REJECTED`（用户拒绝，recovery=replan）、`STALE`（页面或文档已变）、`SCRIPT_DISCARDED`（停止、接管、补充指令、导航、执行标签关闭使待批准请求作废）、`PERMISSION_DENIED`（执行前发现不可用）。
 

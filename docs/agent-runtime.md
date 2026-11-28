@@ -9,7 +9,7 @@
 | running | 可继续推进 |
 | waiting_page | 等待页面就绪，由事件或 alarm 重试 |
 | waiting_confirmation | 旧版兼容；继续时丢弃待确认动作并重新规划 |
-| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`tab_access`（待确认读取其他标签页）、`script_stale`（待批准脚本因页面变化作废） |
+| paused | 带 `reason` 暂停，如预算耗尽、无进展、结果不确定、`user_takeover`、`scope_changed`、`permission_denied`、`scope_reconciled`、`input`、`script_approval`（待批准脚本）、`real_input_approval`（待批准截图/真实输入）、`tab_access`（待确认读取其他标签页）、`script_stale` / `input_stale`（待批准请求因页面变化作废） |
 | stopped | 用户停止 |
 | failed | 未恢复的错误 |
 | completed | 模型返回 done（有完成条件时已核实）；回复记入结果，发送即在同一任务继续 |
@@ -28,7 +28,7 @@
 3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 与看图能力（`images.mode()` 不是 unsupported）作为 `capabilities {scripts, vision}` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
-6. 网页动作前保存 `executing` 检查点（click/hover 的[真实输入](browser-tools.md#真实输入)——到不了时的回退或 `trusted:true`——在同一检查点内完成，policy 附 taskId 以绑定调试会话）；跨源框架动作另保存可信 `frameRoute`（框架、文档与一次性快照身份），不发给模型。执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
+6. 网页动作前保存 `executing` 检查点（click/hover 的[真实输入](browser-tools.md#真实输入)——到不了时的回退或 `trusted:true`——在同一检查点内完成，policy 附 taskId 以绑定调试会话、`inputApproval` 表示[侧栏批准](#侧栏批准)状态）；跨源框架动作另保存可信 `frameRoute`（框架、文档与一次性快照身份），不发给模型。执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
 
 同一任务的 tick 串行；运行锁、去重 jobs、请求控制器、timer 和 alarm（`task-id:<taskId>`）都以 taskId 为身份。tabId 入口通过标签发布队列防替换竞态；`tick(tabId, expectedTaskId)` 中的过期调度不会操作同一标签上的新任务。
 
@@ -81,7 +81,8 @@
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停（目标模式 6 条）；`TARGET_VISUAL_CHANGED` 不计入并打断连续计数（同名图块逐个选中是正常进展） |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
-| run_script | 本轮不可用则暂停为 access；否则暂停为 script_approval，见 [脚本批准](#脚本批准) |
+| run_script | 本轮不可用则暂停为 access；否则暂停为 script_approval，见 [侧栏批准](#侧栏批准) |
+| 页面截图、`click_point`、`trusted:true` | 开关开启且本任务无授权时暂停为 real_input_approval，见 [侧栏批准](#侧栏批准) |
 | request_sensitive_access | 暂停为 sensitive_access，等待可信侧栏确认；确认后轮换代次，重新观察；拒绝保留屏蔽并暂停，不占自主恢复次数 |
 | 普通阻碍导致模型请求暂停 | 最多追加 3 次重新规划 |
 
@@ -95,19 +96,26 @@
 - **停止**：AbortSignal 传到后台 fetch；已发出的 DOM 事件不能撤销。停止不等于结束。
 - **接管**（`task:takeover`）：取消请求、轮换 token、暂停为 `user_takeover`，清除 pending/check/读取范围；正在执行或核对的目标先记入 `uncertainClicks`。继续时重新观察，保留 taskId 和剩余预算。
 - **结束/清空**：结束后不能用继续复活；清空删除当前任务及其来源分区。
-- **脚本批准**（`task:script-approval`、`task:script-revoke`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
+- **侧栏批准**（`task:script-approval`、`task:script-revoke`、`task:input-approval`、`task:input-revoke`，仅可信侧栏）：见下节。待批准期间「继续」被拒绝，须先批准或拒绝。
 
-## 脚本批准
+## 侧栏批准
 
-模型返回 run_script 时不执行，任务暂停为 `script_approval` 并保存 `scriptRequest`：`{id, code, world, url, origin, documentId, snapshotId, reply, time, pending}`（pending 为执行所需的完整待执行记录）。
+两类动作先暂停、由用户在侧栏决定，共用一套状态机（`runtime.js` 的 `APPROVALS`、`gate`、`decide`、`revoke`）：
 
-- 消息：`{taskId, requestId, allow, scope}`，scope 为 `once`（缺省）或 `task`，`task` 只能与 allow=true 同用；后台先校验字段类型与枚举（否则「脚本确认无效」），只接受可信侧栏发送者。
-- 校验与 `task:sensitive-access` 相同：taskId、requestId 匹配，任务仍为 paused/script_approval，allow 为布尔值，否则「脚本确认已过期」。通过后取消旧请求、轮换 token、清除 `scriptRequest`。
-- 拒绝：结果记 `SCRIPT_REJECTED`（dispatch=not_sent、recovery=replan），任务回到 running 并重新观察，模型改用其他方法。
-- 批准：当前标签、URL 与来源须与请求一致，否则记 `STALE` 不执行（scope=task 也不授予）；一致则 phase=approved。下一 tick 再核对标签和 URL，写 executing 检查点后执行该代码一次（执行前另核对文档 ID）。worker 在 approved 阶段重启会执行这一次；进入 executing 后中断按结果不确定暂停，不重放。
-- 本任务内允许（scope=task）：另在任务记录写 `scriptApproval={scope:'task', origin, tabId, grantedAt}`。之后模型返回 run_script 时，在存储写入的同一步核对授权仍在且 `tabId`、`origin` 与当前执行标签和快照来源一致，一致则不暂停，直接按普通路径（pending → executing 检查点 → 文档 ID 核对 → 执行一次）运行，请求连同完整代码记入结果；不一致则丢弃授权并照常暂停批准。同来源的新文档（刷新、站内跳转）保留授权。
-- 授权清除：侧栏「撤销」（`task:script-revoke {taskId}`）、结束任务、清空、新建任务、切换来源（`switchOrigin` 重建记录）、切换执行标签（`switchTab` 置空）、`userScripts` 权限被移除（`permissions.onRemoved` → `reviewPermissions`，以及每轮检测到无权限时）。停止、接管、补充指令不清除授权（任务仍可继续，侧栏一直显示撤销入口）。撤销不影响已写入 pending 的这一次执行。
-- 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准执行，结果记 `SCRIPT_DISCARDED`（not_sent）。
+| 类别 | 触发 | 暂停 reason / 请求字段 | 本任务授权 | 消息 | 拒绝 / 作废 code |
+|---|---|---|---|---|---|
+| 脚本 | run_script | `script_approval` / `scriptRequest {id, code, world, url, origin, documentId, snapshotId, reply, time, pending}` | `scriptApproval` | `task:script-approval`、`task:script-revoke` | `SCRIPT_REJECTED` / `SCRIPT_DISCARDED` |
+| 真实输入 | 页面截图（view_image 的 viewport/元素/区域）、`click_point`、`trusted:true` 的 click/hover，且[开关](browser-tools.md#真实输入)开启 | `real_input_approval` / `inputRequest {id, kind, label?, x?, y?, url, origin, documentId, time, pending}`，kind 为 `shot`/`point`/`click`/`hover` | `inputApproval` | `task:input-approval`、`task:input-revoke` | `REAL_INPUT_DENIED` / `REAL_INPUT_DISCARDED` |
+
+pending 是执行所需的完整待执行记录（真实输入的带 `inputKind`），暂停时不写入 `task.pending`，也不 attach 调试器。
+
+- 消息：`{taskId, requestId, allow, scope}`，scope 为 `once`（缺省）或 `task`，`task` 只能与 allow=true 同用；后台先校验字段类型与枚举（否则「脚本/真实输入确认无效」），只接受可信侧栏发送者。
+- 校验：taskId、requestId 匹配，任务仍为 paused 且 reason 对应，allow 为布尔值，否则「…确认已过期」。通过后取消旧请求、轮换 token、清除请求字段。待批准期间「继续」被拒绝。
+- 拒绝：结果记拒绝 code（dispatch=not_sent、recovery=replan），任务回到 running 并重新观察，模型改用其他方法。
+- 批准：当前标签、URL 与来源须与请求一致，否则记 `STALE` 不执行（scope=task 也不授予）；一致则 phase=approved。下一 tick 再核对标签和 URL 后执行这一次：脚本与点击写 executing 检查点后派发（脚本另核对文档 ID），截图直接截取。worker 在 approved 阶段重启会执行这一次；进入 executing 后中断按结果不确定暂停，不重放。
+- 本任务内允许（scope=task）：另写 `{scope:'task', origin, tabId, grantedAt}`。之后同类动作在存储写入的同一步核对授权仍在且 `tabId`、`origin` 与当前执行标签和快照来源一致，一致则不暂停、直接执行（脚本完整代码仍记入结果）；不一致则丢弃授权并照常暂停。同来源的新文档保留授权。真实输入授权还让到不了的目标自动改用真实输入（policy `inputApproval='task'`，见[真实输入](browser-tools.md#真实输入)），没有授权时该回退返回 `REAL_INPUT_APPROVAL_REQUIRED`。
+- 授权清除：侧栏「撤销」、结束任务、清空、新建任务、切换来源（`switchOrigin` 重建记录）、切换执行标签（`switchTab` 置空）；脚本另在 `userScripts` 权限移除时，真实输入另在开关关闭时（设置变更 → `reviewApprovals`，以及每轮检测到关闭时）。停止、接管、补充指令不清除。撤销不影响已写入 pending 的这一次执行。开关关闭时即使已批准也不 attach（`REAL_INPUT_DISABLED`）。
+- 作废：停止、接管、补充指令、结束、导航（暂停中导航记 `script_stale` / `input_stale`）、页面加载、执行标签关闭都会丢弃待批准请求或未派发的已批准动作，结果记作废 code（not_sent）。
 
 ## 批量填写
 
