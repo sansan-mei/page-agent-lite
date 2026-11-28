@@ -4,7 +4,7 @@
 
 | 位置 | 内容 | 生命周期 |
 |---|---|---|
-| local `config` | 接口格式 `apiFormat`（openai/anthropic，缺省 openai）、API 地址、模型、密钥、语言、思考强度、工具调用协议 `toolMode`（auto/native/json，缺省 auto） | 本机保留，不同步 |
+| local `config` | 接口格式 `apiFormat`（openai/anthropic，缺省 openai）、API 地址、模型、密钥、语言、思考强度、工具调用协议 `toolMode`（auto/native/json，缺省 auto）、可选识别模型 `recognition`（`{model}` 沿用主模型地址、格式与密钥，或 `{apiFormat, endpoint, key, model}`；模型留空不保存） | 本机保留，不同步 |
 | local `nativeToolsUnsupported` | auto 下回退到 JSON 的 modelIdentity 哈希（最多 8 个） | 保存 API 设置时清空 |
 | local `visionSupport` | 看图能力 `{supported, unsupported}`，各为 modelIdentity 哈希（最多 8 个）；不在其中为未知 | 保存 API 设置时清空 |
 | local `agentPreferences` | maxSteps / contextTokens / compressionThreshold / inputChars，默认 100 / 100000 / 80 / 2000 | 保留已有值；旧 autoFill/autoClick 忽略，下次保存移除 |
@@ -21,6 +21,7 @@
 | IndexedDB `page-agent-memory`（v4）`global` | 唯一记录 `scope:'global'` | 同上 |
 | IndexedDB `page-agent-memory`（v5）`skillLibrary` | 所有网站共用的技能库 | 同上 |
 | IndexedDB `page-agent-memory`（v4）`history` / `historyViews` | 对话历史摘要（含 updatedAt 索引）与只读正文，以 taskId 为主键 | 同上；最多 50 条 |
+| IndexedDB `page-agent-memory`（v6）`attachments` | 任务附图 `{id, taskId, data, type, width, height, size, createdAt, claimedAt}`，data 为压缩后的 data URL；侧栏写入时 taskId 为 null（草稿），提交时绑定任务，见 [任务附图](#任务附图) | 任务结束（新对话）或清空时删除；启动与新建任务时清理不再运行的任务的图片（绑定不足 1 分钟的除外）和超过 1 天的草稿 |
 
 - local 初始化时设为 `TRUSTED_CONTEXTS`，API 不可用则拒绝初始化；session 默认只对可信扩展上下文开放。都不是加密存储。
 - session 可能在浏览器重启、扩展更新/重载/禁用时清空；任务不跨重启恢复，只有对话历史另存 IndexedDB。
@@ -42,6 +43,7 @@
 | allowedOrigins、scopeRevision | 已记录的任务来源及版本；切换来源自动加入，不作为导航白名单。旧侧栏范围修改接口保留兼容 |
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的初始标签页，其余为 kind=user_joined 或 task_created；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
 | goal、instructions | 原目标与每条补充指令 ≤ inputChars；带时间的补充指令总长 ≤ max(12000, inputChars × 6) |
+| attachments | 附图元数据 `[{id, type, width, height, size, time, text?, failed?, error?}]`（≤ 4），text 为识别文字（≤ 2000 字符）；不含图片数据；来源切换保留 |
 | goalMode | 目标模式开关，见 [任务运行器](agent-runtime.md#目标模式)；来源切换保留 |
 | tabTrail / handoffs / tabHops | 标签切换轨迹（≤ 12）、模型交接笔记（最近 3 条，各 ≤ 2000 字符）、连续切换计数，见 [多标签执行](agent-runtime.md#多标签执行)；来源切换保留 |
 | status、reason、phase、steps、prefs、retries | 运行状态与累计轮数 |
@@ -86,6 +88,7 @@ session 多键写入不是事务，所以归属变更（新建/替换、范围�
 - 成员关闭归档：ended/`member_closed`、members 为空、去掉 token，但保留 steps、phase、pending/check 作为未知证据；侧栏 `historyGet` 不暴露 pending/check/token。
 - 来源分区每个上限 100 万序列化字符，超限暂停（`origin_storage`）且不裁剪原根。
 - `history-store.js` 持久化：后台监听 session 中 taskRoot/对话归档/来源分段的变化，约 500 ms 合并后把该 taskId 的合并对话（`taskStore.conversation`，各来源分段 + 当前段，不含 token）写入 IndexedDB。只保留展示字段；超过 40 万序列化字符时从最早的结果开始裁剪。超过 50 条删除最早更新的。
+- 附图：只存 `images {count, texts}`（张数与识别文字），不存 id 或图片数据。
 - 脱敏：带 `sensitive:true` 的结果（已授权的敏感字段）在入库前把请求值、回执、结果替换为「已隐藏」，并在全文中抹去这些值（≥ 3 字符）。session 中的运行记录不变。
 - 后台启动时把库中不属于存活任务的未结束记录改为 `interrupted`；不恢复任务。
 - `task:history` 返回全部网站的摘要（标题、来源列表、状态、更新时间、taskId）；`task:history-get` 对存活任务取当前合并快照，否则读库。
@@ -94,12 +97,16 @@ session 多键写入不是事务，所以归属变更（新建/替换、范围�
 
 ## IndexedDB 长期笔记
 
-- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储，v4 加 `skills`，v5 加 `skillLibrary` 并把 `skills` 中按 origin 的技能合并进来：sites 与 from 取原 origin，按 updatedAt 新到旧放入，id 重复时加 `_2` 等后缀，超出 32 个/96000 字符的旧技能丢弃，之后删除 `skills`）保留原记录。
+- `site-memory.js` 使用原生 IndexedDB，不需额外权限；`openDatabase` 与 `history-store.js` 共用同一库，逐级升级（v2 加 `global`，v3 加历史存储，v4 加 `skills`，v5 加 `skillLibrary` 并把 `skills` 中按 origin 的技能合并进来：sites 与 from 取原 origin，按 updatedAt 新到旧放入，id 重复时加 `_2` 等后缀，超出 32 个/96000 字符的旧技能丢弃，之后删除 `skills`；v6 加 `attachments`）保留原记录。
 - `sites` 以 origin 为主键 `{origin, version, notes}`；`global` 以 scope 为主键 `{scope:'global', version, notes}`。笔记字段 id/text/source/createdAt/updatedAt，source 为 user/model，只表示写入来源。`skillLibrary` 以 scope 为主键，只有一条 `{scope:'skills', version, notes}`，每项另有 description、sites（origin 列表）、from（写入时来源或 null）（`createSiteMemory({scope:'skill'})`，读写忽略 origin 参数）。
 - 每个范围 32 条、64000 序列化字符，单条 2000 字符；不申请 unlimitedStorage。
 - readwrite 事务读版本后写入，不匹配返回 `MEMORY_CONFLICT`；事务完成才算成功，失败不改旧记录。clear 保留空记录并递增版本，防止旧请求按 version=0 写回。写入支持 AbortSignal。
 - 只有可信设置页/侧栏经后台管理；网站操作附期望 origin，导航后拒绝写到其他网站。导出只含对应范围笔记和 schema 标识。
 - 不支持导入、加密、同步、账号隔离、向量检索、去重。
+
+## 任务附图
+
+`createAttachmentStore()`（`site-memory.js`）是 `attachments` 的唯一读写入口。侧栏直接写草稿（`put`：只收 JPEG/PNG/WebP/GIF 的 base64 data URL，≤ 400 万字符，草稿 ≤ 16 张）和删除自己的草稿（`discard` 只删未绑定的）；后台在 `task:submit` 时 `claim` 绑定到任务（缺失或属于其他任务则整次提交失败），请求时按 id 读出，结束/清空时 `removeTask`，启动与新建任务时 `prune`。session 任务记录只存元数据和识别文字。
 
 ## 侧栏主图
 

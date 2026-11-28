@@ -200,7 +200,7 @@ test('skills live in one cross-site library with description, sites, size and co
   const factory=fakeIndexedDB(),skills=createSiteMemory({factory,scope:'skill',now:()=>5}),notes=createSiteMemory({factory});
   const saved=await skills.change(null,{action:'write',id:'export',description:' Export orders ',sites:['https://a.test','https://a.test'],from:'https://a.test',text:' 1. Open Orders ',expectedVersion:0,source:'model'});
   assert.deepEqual(saved,{scope:'skills',version:1,notes:[{id:'export',description:'Export orders',sites:['https://a.test'],from:'https://a.test',text:'1. Open Orders',source:'model',createdAt:5,updatedAt:5}]});
-  const db=factory.dbs.get('page-agent-memory');assert.equal(db.version,5);assert.ok(db.stores.has('skillLibrary'));assert.ok(!db.stores.has('skills'));
+  const db=factory.dbs.get('page-agent-memory');assert.equal(db.version,6);assert.ok(db.stores.has('skillLibrary'));assert.ok(db.stores.has('attachments'));assert.ok(!db.stores.has('skills'));
   assert.equal((await notes.read('https://a.test')).notes.length,0,'skills do not appear among site notes');
   await assert.rejects(skills.change(null,{action:'write',id:'x',description:'',text:'t',expectedVersion:1}),/技能名称、适用说明或步骤无效/);
   await assert.rejects(skills.change(null,{action:'write',id:'x',description:'d',text:'x'.repeat(4001),expectedVersion:1}),/技能名称/);

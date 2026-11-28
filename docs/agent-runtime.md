@@ -68,6 +68,7 @@
 |---|---|
 | 网络错误、60 秒超时、429/5xx | 最多额外重试 2 次，每次计轮数 |
 | `MODEL_PROTOCOL_FALLBACK`（auto 下接口不支持原生工具调用，未执行任何动作） | 与上行共用 2 次重试额度，下一轮改用 JSON 协议，记 `dispatch=not_sent`，计轮数 |
+| `MODEL_VISION_FALLBACK`（带图请求被以图片类 400 拒绝，未执行任何动作） | 共用同一重试额度，下一轮先用识别模型把附图转成文字，见[附图](context-and-skills.md#附图) |
 | 模型响应异常（`MODEL_OUTPUT_TRUNCATED`、`MODEL_OUTPUT_REFUSED`、`MODEL_TOOL_CALL_UNSUPPORTED`、`MODEL_TOOL_CALL_MULTIPLE`、`MODEL_TOOL_CALL_INVALID`、`MODEL_TOOL_ARGUMENTS_INVALID`、`MODEL_TOOL_CALL_MISSING`（native 模式）、`MODEL_TOOLS_UNSUPPORTED`、`MODEL_FINISH_UNSUPPORTED`、`MODEL_CONTENT_UNSUPPORTED`、`MODEL_OUTPUT_EMPTY`、`MODEL_OUTPUT_TOO_LARGE`、`MODEL_RESPONSE_INVALID`） | 停止本轮，不修补、不自动重试，记 `dispatch=not_sent` |
 | 工具参数无效（`INVALID_PLAN`：操作格式、目标 ID、expected/checks 结构或目标不在快照中，未执行任何动作） | 作为结果退回模型（`dispatch=not_sent`、`recovery=replan`），消息含原因和收到的 expected，计轮数；连续第 3 次暂停为 `model`，不判失败。被拒的计划存在该结果的 `request` 里供排查 |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |

@@ -148,10 +148,14 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
   }
   if(m.type==='configure'){
    if(!opts)throw new Error('拒绝修改设置');const c=m.config;
-   if(!c||Object.keys(c).some(k=>!['apiFormat','endpoint','key','language','model','reasoningEffort','toolMode'].includes(k))||!['openai','anthropic'].includes(c.apiFormat??'openai')||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||!['auto','native','json'].includes(c.toolMode??'auto')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
+   if(!c||Object.keys(c).some(k=>!['apiFormat','endpoint','key','language','model','reasoningEffort','toolMode','recognition'].includes(k))||!['openai','anthropic'].includes(c.apiFormat??'openai')||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||!['auto','native','json'].includes(c.toolMode??'auto')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
    const endpoint=C.endpoint(c.endpoint);if(!await chrome.permissions.contains({origins:[new URL(endpoint).origin+'/*']}))throw new Error('请先授权 API 地址');
-   // Saving settings again re-probes native tools for every model.
-   await write({config:{...c,endpoint,apiFormat:c.apiFormat??'openai',reasoningEffort:c.reasoningEffort??'medium',toolMode:c.toolMode??'auto'},nativeToolsUnsupported:[],visionSupport:{}});return {ok:true};
+   const recognition=recognitionSetting(c.recognition);
+   if(recognition?.endpoint&&!await chrome.permissions.contains({origins:[new URL(recognition.endpoint).origin+'/*']}))throw new Error('请先授权识别模型地址');
+   const saved={...c,endpoint,apiFormat:c.apiFormat??'openai',reasoningEffort:c.reasoningEffort??'medium',toolMode:c.toolMode??'auto'};
+   if(recognition)saved.recognition=recognition;else delete saved.recognition;
+   // Saving settings again re-probes native tools and vision for every model.
+   await write({config:saved,nativeToolsUnsupported:[],visionSupport:{}});return {ok:true};
   }
   if(m.type==='model'){
    // Only the service worker's own agent turns reach the model; pages and extension pages cannot.
@@ -234,6 +238,26 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
   const store=imageStoreOf();if(!store)return [];
   return (await store.get(ids)).map(record=>/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+=*)$/.exec(record?.data||'')).filter(Boolean).map(match=>({mediaType:match[1],data:match[2]}));
  }
+ // Turns one stored image into text for a model that cannot see images; the text is untrusted data.
+ async function recognize(id,goal,signal){
+  const main=await get('config');if(!main)throw new Error('请先打开设置，配置 API 地址及模型');
+  const config=recognitionConfig(main),base=C.endpoint(config.endpoint);
+  if(!await chrome.permissions.contains({origins:[new URL(base).origin+'/*']}))throw new Error('识别模型地址未授权');
+  const [image]=await loadImages([id]);if(!image)throw new Error('图片已删除');
+  const request=chatRequest(config,'json',P.recognitionSystem(config.language),'Task: '+String(goal||'').slice(0,2000),[],[image]);
+  const response=await post(base,request,signal);
+  if(!response.ok){response.body?.cancel().catch(()=>{});throw new Error('API '+response.status+'：'+({401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常'));}
+  let raw=await bounded(response,65536);if(config.apiFormat==='anthropic')raw=anthropicToChat(raw);
+  return parseChatResponse(raw,'json').text.trim().slice(0,2000);
+ }
+ // Image operations the runtime needs; the store itself never leaves the trusted background.
+ const imageService={
+  mode:()=>visionMode(),recognize,
+  claim:(ids,taskId)=>requireStore().claim(ids,taskId),
+  remove:taskId=>imageStoreOf()?.removeTask(taskId),
+  prune:liveTaskIds=>imageStoreOf()?.prune(liveTaskIds)
+ };
+ function requireStore(){const store=imageStoreOf();if(!store)throw new Error('图片存储不可用');return store;}
  // Agent protocol for the saved config: auto uses native tools unless this model identity fell back.
  async function agentProtocol(config=undefined){
   config=config||await get('config')||{};const mode=config.toolMode??'auto';
@@ -245,7 +269,20 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
   const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key,config.reasoningEffort??'medium',...(config.apiFormat==='anthropic'?['anthropic']:[])])));
   return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
  }
- return {init,handle,identity,agentProtocol,preferences,visionMode,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true},images:imageIds(capabilities?.images)}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
+ return {init,handle,identity,agentProtocol,preferences,visionMode,images:imageService,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true},images:imageIds(capabilities?.images)}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
+}
+// Optional recognition model: an empty model means "use the main model"; without its own address it
+// reuses the main address, format and key, so a key is never sent to a different host.
+function recognitionSetting(r){
+ if(r===undefined||r===null)return null;
+ if(typeof r!=='object'||Array.isArray(r)||Object.keys(r).some(k=>!['apiFormat','endpoint','key','model'].includes(k))||!['openai','anthropic'].includes(r.apiFormat??'openai')||typeof (r.model??'')!=='string'||(r.model??'').length>120||typeof (r.key??'')!=='string'||(r.key??'').length>4096||/[\r\n]/.test(r.key??'')||typeof (r.endpoint??'')!=='string')throw new Error('设置格式无效');
+ const model=(r.model||'').trim();if(!model)return null;
+ return r.endpoint?{apiFormat:r.apiFormat??'openai',endpoint:C.endpoint(r.endpoint),key:r.key||'',model}:{model};
+}
+function recognitionConfig(main){
+ const r=main.recognition;
+ const own=r?.model?(r.endpoint?{apiFormat:r.apiFormat,endpoint:r.endpoint,key:r.key,model:r.model}:{apiFormat:main.apiFormat,endpoint:main.endpoint,key:main.key,model:r.model}):{apiFormat:main.apiFormat,endpoint:main.endpoint,key:main.key,model:main.model};
+ return {...own,language:main.language,reasoningEffort:'default'};
 }
 // Per-turn image refs from the runtime: attachment ids only, at most 4.
 function imageIds(value){return Array.isArray(value)?value.filter(id=>typeof id==='string'&&/^[A-Za-z0-9_-]{8,64}$/.test(id)).slice(0,4):[];}

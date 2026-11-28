@@ -26,7 +26,7 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), images=null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const PLAN_RETRIES=2; // consecutive INVALID_PLAN results returned to the model before pausing
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
@@ -388,6 +388,18 @@
     }
     // Side-panel tab that is a non-executing member: route to its task, or release it if that task is finished.
     async function resolve(tabId){const owner=store.owner?await store.owner(tabId):null;return owner?.role==='member'&&Number.isInteger(owner.taskTabId)?owner.taskTabId:tabId;}
+    // Claims side-panel image drafts for this task (ids only; the images stay in IndexedDB), at most 4 per task.
+    async function attach(task,ids){
+      if(ids===undefined)return 0;
+      if(!Array.isArray(ids)||ids.length>4||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{8,64}$/.test(id)))throw new Error('图片参数无效');
+      if(!ids.length)return 0;
+      if(!images)throw new Error('图片功能不可用');
+      if((task.attachments||[]).length+ids.length>4)throw new Error('每个任务最多 4 张图片');
+      const meta=await images.claim(ids,task.taskId);
+      task.attachments=(task.attachments||[]).concat(meta.map(m=>({...m,time:now()})));
+      return ids.length;
+    }
+    const withImages=(text,count)=>count?text+'（附图 '+count+' 张）':text;
     async function submit(tabId,text,options={}){
       const limit=inputLimit(await preferences());
       if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
@@ -414,20 +426,25 @@
           if(!wasCompleted&&originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
+          const attached=await attach(task,options.attachments);
           controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};task.reviewState=null;
           task.question=null;task.helpAttempts=0;task.tabHops=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           if(wasCompleted)task.steps=0;
           if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
-          event(task,'你（补充指令）：'+text.trim());
+          event(task,withImages('你（补充指令）：'+text.trim(),attached));
         }else{
+          const fresh={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],goalMode:options.goalMode===true,status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
+          const attached=await attach(fresh,options.attachments);
           controllerForTab(tabId)?.abort();
-          task={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],goalMode:options.goalMode===true,status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
-          event(task,'你：'+text.trim());event(task,task.goalMode?'任务已开始（目标模式）':'任务已开始');
+          task=fresh;
+          event(task,withImages('你：'+text.trim(),attached));event(task,task.goalMode?'任务已开始（目标模式）':'任务已开始');
         }
         task.updatedAt=Date.now();await store.set(tabId,task);return task;
       });
-      schedule(tabId);return saved;
+      schedule(tabId);
+      if(!saved.instructions?.length)void pruneImages();
+      return saved;
     }
     async function choose(tabId,taskId,questionId,indices){
       const tab=await tools.tab(tabId);
@@ -448,6 +465,8 @@
         controllerForTab(tabId)?.abort();discardScript(task,'任务已结束，待批准的脚本已作废，未执行',now());task.scriptApproval=null;task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
+      // Ended tasks keep only image metadata and recognition text; the images themselves are deleted.
+      if(saved?.attachments?.length)await images?.remove(saved.taskId)?.catch?.(()=>{});
       await cancelSchedule(tabId);return saved;
     }
     async function stop(tabId) {
@@ -655,6 +674,24 @@
           planText=JSON.stringify(batchPlan);
         }else{
         if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
+        // Attached images: sent with every request unless this model is known not to see them; then each
+        // image is turned into text once by the recognition model (one round), and the text is sent instead.
+        const vision=images&&task.attachments?.length?await images.mode().catch(()=>'unknown'):null;
+        const unread=vision==='unsupported'?task.attachments.filter(a=>a.text===undefined&&!a.failed):[];
+        if(unread.length){
+          task=await update(tabId,token,t=>{t.phase='thinking';t.steps++;event(t,'正在识别图片（'+unread.length+' 张）');});
+          if(!task||!await live())return;
+          const goal=[task.goal,...(task.instructions||[]).map(i=>i.text)].join('\n').slice(0,2000),texts=new Map();
+          for(const a of unread){
+            try{texts.set(a.id,{text:await images.recognize(a.id,goal,controller.signal)});}
+            catch(error){if(!await live())return;texts.set(a.id,{failed:true,error:String(error?.message||'').slice(0,120)});}
+            if(!await live())return;
+          }
+          await update(tabId,token,t=>{t.phase='observe';t.attachments=(t.attachments||[]).map(a=>texts.has(a.id)?{...a,...texts.get(a.id)}:a);
+            const failed=[...texts.values()].filter(v=>v.failed);event(t,failed.length?'图片识别失败 '+failed.length+' 张：'+failed[0].error:'图片识别完成（'+texts.size+' 张）');});
+          return;
+        }
+        if(vision&&vision!=='unsupported')capabilities.images=task.attachments.map(a=>a.id);
         const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,skillIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
@@ -879,6 +916,9 @@
           });
           if(saved&&streak>PLAN_RETRIES)await pause(task,'模型连续 '+streak+' 次给出无效的工具参数，已暂停：'+error.message,'model');
         } else if (['INPUT_CANCELLED','INVALID_FIELD_VALUE','UNSUPPORTED_EDITABLE'].includes(error.code))await pause(task,error.message,'input');
+        else if (error.code==='MODEL_VISION_FALLBACK'&&task.retries<2) {
+          await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'模型不支持看图，改用识别模型把图片转成文字（'+t.retries+'/2）');});
+        }
         else if (error.code==='MODEL_PROTOCOL_FALLBACK'&&task.retries<2) {
           await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'接口未使用原生工具调用，改用 JSON 文本协议重试（'+t.retries+'/2）');});
         }
@@ -1231,6 +1271,7 @@
         await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
       }else{controllerForTab(tabId)?.abort();await stop(tabId);}
       await serial(tabId,()=>store.remove(tabId));
+      if(current?.attachments?.length)await images?.remove(current.taskId)?.catch?.(()=>{});
     }
     async function recover() {
       // Missing tabs can have closed while the worker was unavailable. Query failure
@@ -1241,6 +1282,12 @@
         if(existing)for(const member of task.members||[])if(member.tabId!==task.tabId&&!existing.has(member.tabId))await memberClosed(member.tabId);
         if(ACTIVE.has(task.status))schedule(task.tabId);
       }
+      await pruneImages();
+    }
+    // Images of tasks that ended without finish/clear (closed tab, replaced, browser restart) and stale drafts.
+    async function pruneImages(){
+      if(!images)return;
+      try{await images.prune((await store.list()).filter(t=>t.status!=='ended').map(t=>t.taskId));}catch{ /* retried on the next start */ }
     }
     return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSkills,editSkills,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:async tabId=>{const task=await store.get(tabId);return task&&tools.frameOrigins?{...task,rememberedFrameOrigins:await tools.frameOrigins(task.origin)}:task;}};
   }

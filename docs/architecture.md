@@ -26,7 +26,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `prompts.js` | 稳定系统指令与每轮上下文组装 | [上下文](context-and-skills.md) |
 | `backend.js` | 配置读写、OpenAI 兼容 / Anthropic Messages 请求与响应解析（`chatRequest`、`anthropicToChat`、`parseChatResponse`）、文章存储（兼容） | [上下文](context-and-skills.md) |
 | `task-store.js` | session 任务根记录、归属索引、对话历史、迁移与中断对账 | [存储](storage.md) |
-| `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS；共用库的打开与升级 | [存储](storage.md) |
+| `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS；任务附图存储；共用库的打开与升级 | [存储](storage.md) |
 | `history-store.js` | IndexedDB 对话历史：快照、脱敏、50 条上限、中断标记 | [存储](storage.md#对话历史) |
 | `frame-tools.js` | 授权跨源直接子框架发现、快照汇总、动作路由与核对 | [网页工具](browser-tools.md#iframe) |
 | `browser-tools.js` | 标签检查、脚本注入、权限/来源门禁、导航派发、网页工具消息适配 | [网页工具](browser-tools.md) |
