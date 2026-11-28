@@ -160,8 +160,15 @@
       // A claim younger than a minute may belong to a task that is still being saved.
       return run('readwrite',(all,store)=>{const gone=all.filter(r=>r.taskId?!live.has(r.taskId)&&time-(r.claimedAt||0)>60000:time-(r.createdAt||0)>draftAge);for(const r of gone)store.delete(r.id);return gone.length;});
     }
+    // view_image screenshots (kind 'shot'): bound to their task at once, so removeTask and prune also clear them;
+    // the runtime keeps them only until the next model request (at most 3).
+    async function putShot({id,taskId,data}){
+      if(typeof id!=='string'||!IMAGE_ID.test(id)||typeof taskId!=='string'||!taskId||typeof data!=='string'||data.length>4000000||!data.startsWith('data:image/jpeg;base64,')||!IMAGE_DATA.test(data))throw new Error('截图数据无效');
+      return run('readwrite',(all,store)=>{const time=now();store.put({id,taskId,kind:'shot',data,type:'image/jpeg',size:data.length,createdAt:time,claimedAt:time});return {id};});
+    }
+    async function removeShots(taskId,keep=[]){return run('readwrite',(all,store)=>{const gone=all.filter(r=>r.kind==='shot'&&r.taskId===taskId&&!keep.includes(r.id));for(const r of gone)store.delete(r.id);return gone.length;});}
     async function close(){if(opening){const db=await opening;db.close();opening=null;}}
-    return {put,get,claim,discard,removeTask,prune,close};
+    return {put,get,claim,discard,removeTask,prune,putShot,removeShots,close};
   }
   const api={createSiteMemory,createAttachmentStore,openDatabase,validNote,validSkill,originKey};root.PageAgentSiteMemory=api;
   if(typeof module!=='undefined')module.exports=api;

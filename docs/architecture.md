@@ -54,7 +54,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入，不能设为可选权限；按需连接，见[真实输入](browser-tools.md#真实输入)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入和截取 `view_image` 截图，不能设为可选权限；按需连接，见[真实输入](browser-tools.md#真实输入)与[截图](browser-tools.md#截图)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源；跨源嵌入框架可沿用用户已记住的顶层来源→框架来源授权，见[网页工具](browser-tools.md#iframe)。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。

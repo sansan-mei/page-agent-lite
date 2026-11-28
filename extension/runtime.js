@@ -468,7 +468,7 @@
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
       // Ended tasks keep only image metadata and recognition text; the images themselves are deleted.
-      if(saved?.attachments?.length)await images?.remove(saved.taskId)?.catch?.(()=>{});
+      if(saved?.attachments?.length||saved?.shots?.length)await images?.remove(saved.taskId)?.catch?.(()=>{});
       await cancelSchedule(tabId);return saved;
     }
     async function stop(tabId) {
@@ -678,8 +678,8 @@
         if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
         // Attached images: sent with every request unless this model is known not to see them; then each
         // image is turned into text once by the recognition model (one round), and the text is sent instead.
-        const vision=images&&task.attachments?.length?await images.mode().catch(()=>'unknown'):null;
-        const unread=vision==='unsupported'?task.attachments.filter(a=>a.text===undefined&&!a.failed):[];
+        const vision=images&&(task.attachments?.length||task.shots?.length)?await images.mode().catch(()=>'unknown'):null;
+        const unread=vision==='unsupported'?(task.attachments||[]).filter(a=>a.text===undefined&&!a.failed):[];
         if(unread.length){
           task=await update(tabId,token,t=>{t.phase='thinking';t.steps++;event(t,'正在识别图片（'+unread.length+' 张）');});
           if(!task||!await live())return;
@@ -693,7 +693,22 @@
             const failed=[...texts.values()].filter(v=>v.failed);event(t,failed.length?'图片识别失败 '+failed.length+' 张：'+failed[0].error:'图片识别完成（'+texts.size+' 张）');});
           return;
         }
-        if(vision&&vision!=='unsupported')capabilities.images=task.attachments.map(a=>a.id);
+        if(vision&&vision!=='unsupported'&&task.attachments?.length)capabilities.images=task.attachments.map(a=>a.id);
+        // view_image screenshots wait for this request only (newest 3, current origin). A model found not to see
+        // images gets them as recognition text instead; a screenshot lost from storage is reported, not resent.
+        if(task.shots?.length){
+          if(vision==='unsupported'){await recognizeShots(task,live,controller.signal);return;}
+          const sameOrigin=task.shots.filter(shot=>shot.origin===task.origin);
+          const present=new Set(sameOrigin.length?await images.present(sameOrigin.map(shot=>shot.id)).catch(()=>[]):[]);
+          if(present.size!==task.shots.length){
+            const lost=task.shots.filter(shot=>!present.has(shot.id)&&shot.origin===task.origin);
+            task=await update(tabId,token,t=>{t.shots=(t.shots||[]).filter(shot=>present.has(shot.id));
+              if(lost.length)t.results=t.results.concat({action:'view_image',label:lost.map(shot=>shot.source).join(','),time:now(),outcome:T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'SHOT_EXPIRED',recovery:'replan',message:'截图已失效（后台重启或存储已清理），本轮看不到；如仍需要请重新调用 view_image'})});});
+            if(!task||!await live())return;
+            await images.dropShots(task.taskId,(task.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
+          }
+          if(task.shots?.length)capabilities.shots=task.shots.map(shot=>shot.id);
+        }
         const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,skillIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
@@ -742,9 +757,13 @@
         const sentEstimate=P.pressure(task,payload,null,modelProtocol,capabilities).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal,capabilities),live);
         if (!await live()) return;
+        // The screenshots were in this request: they are not sent again.
+        const sentShots=capabilities.shots||[];
         task=await update(tabId,token,t=>{t.compactionGuard=false;t.contextPressure=pressure;
+          if(sentShots.length)t.shots=(t.shots||[]).filter(shot=>!sentShots.includes(shot.id));
           t.contextUsage=result.usage&&Number.isSafeInteger(result.usage.promptTokens)?{...result.usage,estimatedTokens:sentEstimate,modelIdentity:result.modelIdentity||modelIdentity}:null;
         });
+        if(sentShots.length)await images.dropShots(runningTaskId,(task?.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
         if(!task||!await live())return;
         const current = await tools.tab(tabId,true);
         if (!await live()) return;
@@ -839,6 +858,7 @@
           if(reading&&(reading.url!==snap.url||snap.documentId&&reading.documentId!==snap.documentId)){await update(tabId,token,t=>{t.phase='observe';});return;}
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'observe',result:reading?{text:reading.page.text,textRange:reading.page.textRange,untrusted:true}:undefined,outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
         }
+        if(plan.action==='view_image'){await viewImage(task,plan,call,snap,live,controller.signal);return;}
         if(plan.action==='wait'&&!plan.expected){
           task=await update(tabId,token,t=>{t.phase='verifying';t.status='waiting_page';t.check={operationId:uuid(),expected:[],deadline:now()+plan.timeoutMs,kind:'delay',request:plan,time:call.time};event(t,plan.reply);});
           return;
@@ -932,6 +952,85 @@
       } finally {
         if(controllers.get(runningTaskId)===controller){controllers.delete(runningTaskId);if(controllerTasks.get(tabId)===runningTaskId)controllerTasks.delete(tabId);}
       }
+    }
+    // view_image result text: at most 2000 characters, labelled as recognition output, and trimmed by its
+    // JSON-escaped length so the tool protocol's 4500-character observed cap never replaces it.
+    function imageObserved(source,question,text){
+      const observed={source,...(question?{question}:{}),note:'来自图片识别，可能有误',untrusted:true,text:String(text||'').slice(0,2000)};
+      while(JSON.stringify(observed).length>4400&&observed.text)observed.text=observed.text.slice(0,Math.max(0,observed.text.length-Math.ceil((JSON.stringify(observed).length-4400)/2)-1));
+      return observed;
+    }
+    const imageGoal=task=>[task.goal,...(task.instructions||[]).map(i=>i.text)].join('\n').slice(0,2000);
+    // view_image: a page screenshot (viewport or a current element/region) with sensitive fields masked, or a new
+    // question about an attached image. Vision models see the screenshot in the next request only; models without
+    // vision get recognition text now. Failures are tool results for the model, never pauses.
+    async function viewImage(task,plan,call,snap,live,signal){
+      const {tabId,token}=task,source=plan.id,question=plan.value||null;
+      const record=data=>update(tabId,token,t=>{
+        const outcome=T.result({dispatch:'not_sent',scope:'dispatch',documentId:snap.documentId,...data});
+        t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'view_image',label:source,outcome,result:outcome.message});event(t,outcome.message);
+      });
+      const fail=(code,message,recovery='replan')=>record({status:'error',code,recovery,message});
+      if(!images)return fail('VIEW_IMAGE_UNAVAILABLE','看图功能不可用');
+      const mode=await images.mode().catch(()=>'unknown');
+      const recognized=async(run,suffix='')=>{
+        task=await update(tabId,token,t=>{t.steps++;event(t,'正在识别图片：'+source);});
+        if(!task||!await live())return;
+        let text;try{text=await run();}catch(error){if(!await live())return;return fail('RECOGNITION_FAILED','图片识别失败：'+String(error?.message||'').slice(0,120));}
+        if(!await live())return;
+        return record({status:'success',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(source,question,text),message:'识别结果见 observed.text'+suffix+'；可能有误，金额、编号等以页面文字为准'});
+      };
+      const attachment=/^image([1-9])$/.exec(source);
+      if(attachment){
+        const image=(task.attachments||[])[Number(attachment[1])-1];
+        if(!image)return fail('IMAGE_NOT_FOUND','没有附图 '+source);
+        if(mode!=='unsupported')return record({status:'success',code:'IMAGE_IN_REQUEST',recovery:'none',message:'附图 '+source+' 每轮都在请求开头，直接查看即可'});
+        return recognized(()=>images.recognize(image.id,imageGoal(task),signal,question));
+      }
+      let id=null;
+      if(source!=='viewport'){
+        const target=snap.page.elements.find(e=>e.id===source)||(snap.page.regions||[]).find(r=>r.id===source);
+        if(!target)return fail('TARGET_MISSING','截图目标不在当前快照中，请用当前快照的 ID','observe');
+        if(snap.frameRoutes?.[source]||String(target.key||'').startsWith('remote:'))return fail('VIEW_IMAGE_UNSUPPORTED','跨源框架内的目标不能单独截图；可改用 viewport');
+        id=source;
+      }
+      let shot;
+      try{shot=await measured(task,'tool',()=>tools.screenshot(tabId,{operationId:uuid(),id,snapshotId:snap.snapshotId,url:snap.url},{...policyFor(task),taskId:task.taskId},live),live);}
+      catch(error){
+        if(!await live())return;
+        const code=/^[A-Z][A-Z0-9_]{0,60}$/.test(error?.code||'')?error.code:'CAPTURE_FAILED';
+        return fail(code,(code==='MASK_FAILED'?'无法遮盖敏感字段，未截图：':'未截图：')+String(error?.message||'').slice(0,160),['STALE','TARGET_HIDDEN'].includes(code)?'observe':'replan');
+      }
+      if(!await live())return;
+      const masked=shot.masked?'（已遮盖 '+shot.masked+' 处敏感区域）':'';
+      if(mode==='unsupported')return recognized(()=>images.recognize({data:shot.data},imageGoal(task),signal,question),masked);
+      let shotId;
+      try{shotId=await images.saveShot(task.taskId,shot.data);}catch(error){return fail('CAPTURE_FAILED','截图保存失败：'+String(error?.message||'').slice(0,120));}
+      const saved=await update(tabId,token,t=>{
+        t.shots=(t.shots||[]).concat({id:shotId,source,...(question?{question}:{}),url:snap.url,origin:t.origin,time:now()}).slice(-3);
+        const outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_NEXT_TURN',recovery:'none',documentId:snap.documentId,observed:{source,width:shot.width,height:shot.height,masked:shot.masked||0},
+          message:'截图'+masked+'只在下一轮请求中可见，之后不再发送；把看到的要点写进 progress'});
+        t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'view_image',label:source,outcome,result:outcome.message});event(t,'已截图：'+source+masked);
+      });
+      // Older screenshots beyond the newest 3, or this one if the task moved on meanwhile, are deleted.
+      await images.dropShots(task.taskId,(saved||task).shots?.map(s=>s.id)||[])?.catch?.(()=>{});
+    }
+    // A model that turned out not to see images (image-type 400 after view_image) gets the pending screenshots
+    // as recognition text, one round for the batch; the images are then deleted.
+    async function recognizeShots(task,live,signal){
+      const {tabId,token}=task,shots=task.shots.filter(shot=>shot.origin===task.origin);
+      task=await update(tabId,token,t=>{t.steps++;t.phase='thinking';event(t,'正在识别截图（'+shots.length+' 张）');});
+      if(!task||!await live())return;
+      const results=[];
+      for(const shot of shots){
+        let outcome;
+        try{outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(shot.source,shot.question,await images.recognize(shot.id,imageGoal(task),signal,shot.question||null)),message:'模型不能看图，截图已转成识别文字（可能有误）'});}
+        catch(error){if(!await live())return;outcome=T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'RECOGNITION_FAILED',recovery:'replan',message:'截图识别失败：'+String(error?.message||'').slice(0,120)});}
+        if(!await live())return;
+        results.push({action:'view_image',label:shot.source,time:now(),outcome,result:outcome.message});
+      }
+      const saved=await update(tabId,token,t=>{t.shots=[];t.phase='observe';t.results=t.results.concat(results);});
+      if(saved)await images.dropShots(task.taskId,[])?.catch?.(()=>{});
     }
     // Model-visible directory: this task's open members, plus other open web tabs owned by no task
     // (origin and a bounded untrusted title only). Reading another tab needs a side-panel grant.
@@ -1274,7 +1373,7 @@
         await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);
       }else{controllerForTab(tabId)?.abort();await stop(tabId);}
       await serial(tabId,()=>store.remove(tabId));
-      if(current?.attachments?.length)await images?.remove(current.taskId)?.catch?.(()=>{});
+      if(current?.attachments?.length||current?.shots?.length)await images?.remove(current.taskId)?.catch?.(()=>{});
     }
     async function recover() {
       // Missing tabs can have closed while the worker was unavailable. Query failure

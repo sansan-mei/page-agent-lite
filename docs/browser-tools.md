@@ -11,6 +11,7 @@
 | done / pause | reply | runtime | 完成 / 受阻暂停 |
 | observe | 可选 value（见下） | runtime | 只读刷新快照 |
 | verify | expected | runtime | 立即只读核对 |
+| view_image | id=`viewport`、当前快照元素/区域 ID 或附图 `imageN`；可选 value=问题（≤ 300 字符） | runtime | 看截图或再问附图，见 [截图](#截图) |
 | wait | expected + 可选 timeoutMs；或仅 timeoutMs | runtime | 条件等待（默认 10s，最多 30s）；仅 timeoutMs 为纯延时（100–30000ms） |
 | history_read | id、value=offset | runtime | 读当前来源的压缩归档，每次 4000 字符 |
 | site_memory_* / global_memory_* | read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
@@ -98,7 +99,7 @@ observe 的 value：
 `cdp-tools.js`（`PageAgentCdp`，后台在 `browser-tools.js` 之前加载）经 `chrome.debugger` 发送真实鼠标输入。
 
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
-- 命令白名单：`Input.dispatchMouseEvent`，以及截图用的 `Page.captureScreenshot`（只允许 JPEG、视口内 clip、scale ≤ 1，由 `capture()` 组装）。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
+- 命令白名单：`Input.dispatchMouseEvent` 与[截图](#截图)用的 `Page.captureScreenshot`。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
 - 回退（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不回退）：
   - 到不了（`unreachable`）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent），后台直接用真实输入。
@@ -107,6 +108,21 @@ observe 的 value：
   - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`，message 前缀说明已改用真实输入。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
   - 没回退时：确认无效类保持原回执（`observed.input='synthetic'`，尝试过回退则带 `observed.cdp {code,message}`）；到不了类返回 `SYNTHETIC_UNREACHABLE`（`observed.input='none'` + `cdp`），运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
 - 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
+
+## 截图
+
+`view_image` 由运行器处理（`runtime.viewImage`），模型只给来源，不给坐标或区域。
+
+| 来源 | 能看图（或未知）的模型 | 不能看图（`visionSupport`） |
+|---|---|---|
+| `viewport` / 元素 `tN` / 区域 `rN` | 截图存入附图库，只随下一次模型请求发送一次 → `IMAGE_NEXT_TURN` | 截图 + 问题 + 目标交给识别模型 → `IMAGE_RECOGNIZED`，不存图 |
+| 附图 `imageN` | 每轮已带图，直接返回 `IMAGE_IN_REQUEST`，不截图不识别 | 用该附图和新问题再识别一次 → `IMAGE_RECOGNIZED` |
+
+- 捕获（`browser-tools.screenshot`）：核对来源与标签 URL → 内容脚本 `agent:shot` 按当前快照 ID 找到节点（须存活、可见；不完全在视口内时 `scrollIntoView` 后等 150ms），量出可见框（顶层视口 CSS 像素，含同源框架偏移与 overflow 裁剪），`viewport` 为整个视口 → 后台以「可见框 + 顶层滚动偏移」为 clip，`scale = min(1, 1568 / (长边 × devicePixelRatio))`，经 `cdp-tools.capture` 发一次 `Page.captureScreenshot`（JPEG，quality 70，`captureBeyondViewport:false`，15 秒超时）→ `finally` 发 `agent:unshot` 移除遮盖。白名单校验 clip 只含 x/y/width/height/scale 且 scale ≤ 1。不激活或聚焦标签页；会话与[真实输入](#真实输入)共用（同一 taskId，同样的 attach/detach 与错误 code）。
+- 遮盖（`core.agentMaskBoxes` + 内容脚本）：未授权敏感字段时遮盖 `agentSensitiveSelector` 匹配的元素（顶层、可读同源框架、开放 Shadow DOM）和所有读不到文档的框架（跨源、嵌套过深）；已授权时只遮盖文件选择框。每处外扩 2px，画成顶层 `position:fixed` 黑块（`data-page-agent="mask"`，不进快照），插入后逐块核对位置与可见性；量不到、放不准或根元素半透明即 `MASK_FAILED`，不截图、不留遮盖。内容脚本 15 秒后自行移除未收到 `agent:unshot` 的遮盖。封闭 Shadow DOM 和无标准标记的敏感内容不在遮盖范围内。
+- 拒绝：跨源框架路由的目标（`VIEW_IMAGE_UNSUPPORTED`，可改用 viewport）、不在快照中的 ID（`TARGET_MISSING`）、过期快照或节点（`STALE`）、不可见（`TARGET_HIDDEN`）、`CAPTURE_TIMEOUT`、`CAPTURE_FAILED`、`CDP_*`、识别失败 `RECOGNITION_FAILED`、无附图 `IMAGE_NOT_FOUND`。都是交回模型的工具结果，不暂停任务。
+- 识别文字放在 `observed {source, question?, note:'来自图片识别，可能有误', untrusted:true, text}`，text ≤ 2000 字符，并按 JSON 转义后长度裁到 4500 字符的 observed 上限以内。识别计一轮。
+- 截图暂存与发送见 [附图](context-and-skills.md#附图)。
 
 ## 导航
 
@@ -174,4 +190,4 @@ observe 的 value：
 
 ## 未支持
 
-快照差异、点击/导航类批量动作、截图/视觉、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。其中同源 iframe、开放式 Shadow DOM 等可由 run_script 处理，范围见[使用指南](usage.md#脚本执行)。
+快照差异、点击/导航类批量动作、按截图坐标操作、整页长截图、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。其中同源 iframe、开放式 Shadow DOM 等可由 run_script 处理，范围见[使用指南](usage.md#脚本执行)。

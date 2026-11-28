@@ -21,7 +21,7 @@
 | IndexedDB `page-agent-memory`（v4）`global` | 唯一记录 `scope:'global'` | 同上 |
 | IndexedDB `page-agent-memory`（v5）`skillLibrary` | 所有网站共用的技能库 | 同上 |
 | IndexedDB `page-agent-memory`（v4）`history` / `historyViews` | 对话历史摘要（含 updatedAt 索引）与只读正文，以 taskId 为主键 | 同上；最多 50 条 |
-| IndexedDB `page-agent-memory`（v6）`attachments` | 任务附图 `{id, taskId, data, type, width, height, size, createdAt, claimedAt}`，data 为压缩后的 data URL；侧栏写入时 taskId 为 null（草稿），提交时绑定任务，见 [任务附图](#任务附图) | 任务结束（新对话）或清空时删除；启动与新建任务时清理不再运行的任务的图片（绑定不足 1 分钟的除外）和超过 1 天的草稿 |
+| IndexedDB `page-agent-memory`（v6）`attachments` | 任务附图 `{id, taskId, data, type, width, height, size, createdAt, claimedAt}`，data 为压缩后的 data URL；侧栏写入时 taskId 为 null（草稿），提交时绑定任务；`view_image` 截图另带 `kind:'shot'`，写入即绑定任务，见 [任务附图](#任务附图) | 任务结束（新对话）或清空时删除；截图在下一次模型请求得到回复后删除；启动与新建任务时清理不再运行的任务的图片（绑定不足 1 分钟的除外）和超过 1 天的草稿 |
 
 - local 初始化时设为 `TRUSTED_CONTEXTS`，API 不可用则拒绝初始化；session 默认只对可信扩展上下文开放。都不是加密存储。
 - session 可能在浏览器重启、扩展更新/重载/禁用时清空；任务不跨重启恢复，只有对话历史另存 IndexedDB。
@@ -44,6 +44,7 @@
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的初始标签页，其余为 kind=user_joined 或 task_created；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
 | goal、instructions | 原目标与每条补充指令 ≤ inputChars；带时间的补充指令总长 ≤ max(12000, inputChars × 6) |
 | attachments | 附图元数据 `[{id, type, width, height, size, time, text?, failed?, error?}]`（≤ 4），text 为识别文字（≤ 2000 字符）；不含图片数据；来源切换保留 |
+| shots | 待发的 `view_image` 截图 `[{id, source, question?, url, origin, time}]`（最新 3 张）；不含图片数据；来源切换时丢弃，见 [附图](context-and-skills.md#附图) |
 | goalMode | 目标模式开关，见 [任务运行器](agent-runtime.md#目标模式)；来源切换保留 |
 | tabTrail / handoffs / tabHops | 标签切换轨迹（≤ 12）、模型交接笔记（最近 3 条，各 ≤ 2000 字符）、连续切换计数，见 [多标签执行](agent-runtime.md#多标签执行)；来源切换保留 |
 | status、reason、phase、steps、prefs、retries | 运行状态与累计轮数 |
@@ -106,7 +107,7 @@ session 多键写入不是事务，所以归属变更（新建/替换、范围�
 
 ## 任务附图
 
-`createAttachmentStore()`（`site-memory.js`）是 `attachments` 的唯一读写入口。侧栏直接写草稿（`put`：只收 JPEG/PNG/WebP/GIF 的 base64 data URL，≤ 400 万字符，草稿 ≤ 16 张）和删除自己的草稿（`discard` 只删未绑定的）；后台在 `task:submit` 时 `claim` 绑定到任务（缺失或属于其他任务则整次提交失败），请求时按 id 读出，结束/清空时 `removeTask`，启动与新建任务时 `prune`。session 任务记录只存元数据和识别文字。
+`createAttachmentStore()`（`site-memory.js`）是 `attachments` 的唯一读写入口。侧栏直接写草稿（`put`：只收 JPEG/PNG/WebP/GIF 的 base64 data URL，≤ 400 万字符，草稿 ≤ 16 张）和删除自己的草稿（`discard` 只删未绑定的）；后台在 `task:submit` 时 `claim` 绑定到任务（缺失或属于其他任务则整次提交失败），请求时按 id 读出，结束/清空时 `removeTask`，启动与新建任务时 `prune`。截图由后台 `putShot`（只收 JPEG data URL，≤ 400 万字符，直接绑定任务）写入，`removeShots(taskId, keep)` 删除该任务除 keep 外的截图。session 任务记录只存元数据和识别文字。
 
 ## 侧栏主图
 

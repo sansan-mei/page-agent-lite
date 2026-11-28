@@ -70,29 +70,30 @@ function anthropicToChat(raw){
 }
 // images: [{mediaType,data}] (base64). They open the single user message in a fixed order, each after the
 // same data-not-instructions line, so the prefix stays identical across turns and prompt caching can hit.
-function userContent(format,text,images=[]){
+// cached: index of the last stable image (task attachments); one-turn screenshots follow it uncached.
+function userContent(format,text,images=[],cached=images.length-1){
  if(!images.length)return text;
  const parts=[];
  images.forEach((image,i)=>{
   parts.push({type:'text',text:P.IMAGE_NOTE});
-  if(format==='anthropic')parts.push({type:'image',source:{type:'base64',media_type:image.mediaType,data:image.data},...(i===images.length-1?{cache_control:{type:'ephemeral'}}:{})});
+  if(format==='anthropic')parts.push({type:'image',source:{type:'base64',media_type:image.mediaType,data:image.data},...(i===cached?{cache_control:{type:'ephemeral'}}:{})});
   else parts.push({type:'image_url',image_url:{url:'data:'+image.mediaType+';base64,'+image.data}});
  });
  parts.push({type:'text',text});
  return parts;
 }
-function chatRequest(config,protocol,system,text,tools,images=[]){
+function chatRequest(config,protocol,system,text,tools,images=[],cached=images.length-1){
  const effort=config.reasoningEffort??'medium';
  if(config.apiFormat==='anthropic'){
   // tool_choice stays "auto": some Claude models reject "any"/"tool", which would wrongly trigger the
   // JSON fallback. The system prompt still demands exactly one tool; a text-only reply is handled by
   // parseChatResponse. Thinking is not sent, keeping output bounded by max_tokens.
   return {url:'/messages',headers:{'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true',...(config.key?{'x-api-key':config.key}:{})},
-   body:{model:config.model,system:[{type:'text',text:system,cache_control:{type:'ephemeral'}}],messages:[{role:'user',content:userContent('anthropic',text,images)}],max_tokens:4096,
+   body:{model:config.model,system:[{type:'text',text:system,cache_control:{type:'ephemeral'}}],messages:[{role:'user',content:userContent('anthropic',text,images,cached)}],max_tokens:4096,
     ...(protocol==='native'?{tools:tools.map(t=>({name:t.function.name,description:t.function.description,input_schema:t.function.parameters})),tool_choice:{type:'auto',disable_parallel_tool_use:true}}:{}),stream:false}};
  }
  return {url:'/chat/completions',headers:config.key?{Authorization:'Bearer '+config.key}:{},
-  body:{model:config.model,messages:[{role:'system',content:system},{role:'user',content:userContent('openai',text,images)}],...(protocol==='native'?{tools,tool_choice:'required',parallel_tool_calls:false}:{}),...(effort==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:effort}),stream:false}};
+  body:{model:config.model,messages:[{role:'system',content:system},{role:'user',content:userContent('openai',text,images,cached)}],...(protocol==='native'?{tools,tool_choice:'required',parallel_tool_calls:false}:{}),...(effort==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:effort}),stream:false}};
 }
 // HTTP 400/422 bodies that name the tool parameters mean the API rejects function calling.
 function rejectsTools(status,body){return [400,422].includes(status)&&/\btools?\b|tool_choice|tool_calls|parallel_tool_calls|function/i.test(body);}
@@ -171,8 +172,11 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
    options.signal?.addEventListener('abort',cancel,{once:true});
    const task=(async()=>{
     // Images go along unless this model identity is known not to see them (then recognition text is used).
-    const images=options.images?.length&&await visionMode(config)!=='unsupported'?await loadImages(options.images):[];
-    const request=chatRequest(config,protocol,system,m.text,protocol==='native'?P.agentTools(options.capabilities||{}):[],images);
+    // view_image screenshots (one turn only) follow the attachments so the cached image prefix stays the same.
+    const vision=(options.images?.length||options.shots?.length)&&await visionMode(config)!=='unsupported';
+    const attached=vision&&options.images?.length?await loadImages(options.images):[];
+    const images=attached.concat(vision&&options.shots?.length?await loadImages(options.shots):[]);
+    const request=chatRequest(config,protocol,system,m.text,protocol==='native'?P.agentTools(options.capabilities||{}):[],images,attached.length-1);
     let response;try{response=await fetcher(base+request.url,{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...request.headers},body:JSON.stringify(request.body),signal:controller.signal});}catch{throw new Error('API 网络连接失败，请检查地址、权限与网络');}
     // Auto mode: a tools rejection or a content-only reply executed nothing; remember it for this
     // model identity and let the runtime retry the turn with the strict-JSON protocol.
@@ -238,13 +242,15 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
   const store=imageStoreOf();if(!store)return [];
   return (await store.get(ids)).map(record=>/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+=*)$/.exec(record?.data||'')).filter(Boolean).map(match=>({mediaType:match[1],data:match[2]}));
  }
- // Turns one stored image into text for a model that cannot see images; the text is untrusted data.
- async function recognize(id,goal,signal){
+ // Turns one image (stored id, or {data} base64 JPEG from view_image) into text for a model that cannot see
+ // images, optionally answering the model's question; the text is untrusted data.
+ async function recognize(id,goal,signal,question=null){
   const main=await get('config');if(!main)throw new Error('请先打开设置，配置 API 地址及模型');
   const config=recognitionConfig(main),base=C.endpoint(config.endpoint);
   if(!await chrome.permissions.contains({origins:[new URL(base).origin+'/*']}))throw new Error('识别模型地址未授权');
-  const [image]=await loadImages([id]);if(!image)throw new Error('图片已删除');
-  const request=chatRequest(config,'json',P.recognitionSystem(config.language),'Task: '+String(goal||'').slice(0,2000),[],[image]);
+  const [image]=typeof id==='string'?await loadImages([id]):[id&&typeof id.data==='string'&&/^[A-Za-z0-9+/]+=*$/.test(id.data)?{mediaType:'image/jpeg',data:id.data}:null];if(!image)throw new Error('图片已删除');
+  const ask=typeof question==='string'&&question.trim()?'\nQuestion: '+question.trim().slice(0,300):'';
+  const request=chatRequest(config,'json',P.recognitionSystem(config.language),'Task: '+String(goal||'').slice(0,2000)+ask,[],[image]);
   const response=await post(base,request,signal);
   if(!response.ok){response.body?.cancel().catch(()=>{});throw new Error('API '+response.status+'：'+({401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常'));}
   let raw=await bounded(response,65536);if(config.apiFormat==='anthropic')raw=anthropicToChat(raw);
@@ -253,6 +259,10 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
  // Image operations the runtime needs; the store itself never leaves the trusted background.
  const imageService={
   mode:()=>visionMode(),recognize,
+  // view_image screenshots: stored bound to the task until the next model request, then dropped.
+  saveShot:async(taskId,data)=>{const id='shot_'+crypto.randomUUID().replace(/-/g,'').slice(0,24);await requireStore().putShot({id,taskId,data:'data:image/jpeg;base64,'+data});return id;},
+  dropShots:(taskId,keep=[])=>imageStoreOf()?.removeShots(taskId,keep),
+  present:async ids=>(await requireStore().get(ids)).map(r=>r.id),
   claim:(ids,taskId)=>requireStore().claim(ids,taskId),
   remove:taskId=>imageStoreOf()?.removeTask(taskId),
   prune:liveTaskIds=>imageStoreOf()?.prune(liveTaskIds)
@@ -269,7 +279,7 @@ function createService(chrome,fetcher=fetch,{attachments=null}={}){
   const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key,config.reasoningEffort??'medium',...(config.apiFormat==='anthropic'?['anthropic']:[])])));
   return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
  }
- return {init,handle,identity,agentProtocol,preferences,visionMode,images:imageService,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true},images:imageIds(capabilities?.images)}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
+ return {init,handle,identity,agentProtocol,preferences,visionMode,images:imageService,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true},images:imageIds(capabilities?.images),shots:imageIds(capabilities?.shots).slice(0,3)}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
 }
 // Optional recognition model: an empty model means "use the main model"; without its own address it
 // reuses the main address, format and key, so a key is never sent to a different host.

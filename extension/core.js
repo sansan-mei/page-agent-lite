@@ -12,6 +12,8 @@ const agentToolRegistry=(()=>{
  const add=(names,policy)=>{for(const name of names)records[name]=Object.freeze({route:'runtime',effect:'read',target:'none',timeout:false,guard:false,...policy});};
  add(['done','pause','request_sensitive_access'],{effect:'control'});
  add(['observe','verify','history_read','skill_read','read_references'],{});add(['wait'],{timeout:true});
+ // view_image: runtime-handled read; the area comes from a snapshot target or the viewport, never from coordinates.
+ add(['view_image'],{});
  add(['click','fill','check','select','wheel','press_key','double_click','right_click'],{route:'content',effect:'page',target:'required',timeout:true,guard:true});
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
  add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
@@ -302,6 +304,7 @@ function agentPlan(raw,snap){
   if(p.id!==undefined&&!snap.nodes.has(p.id))throw new Error('滚动目标无效');
  }
  if(p.action==='press_key')agentKey(p.value);
+ if(p.action==='view_image'&&(typeof p.id!=='string'||!/^(viewport|image[1-9]|[tr][0-9]{1,4})$/.test(p.id)||p.id[0]==='t'&&!snap.nodes.has(p.id)||p.expected!==undefined||p.value!==undefined&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>300)))throw new Error('看图参数无效：id 为 viewport、当前快照的元素/区域 ID 或附图 imageN，value 为可选问题（≤ 300 字符）');
  if(agentToolRegistry.run_script&&p.action==='run_script')(typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools).validate(p);
  return p;
 }
