@@ -15,7 +15,7 @@ function page(html,onClick){
  let listener;const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:{addListener(fn){listener=fn;}},async sendMessage(){return {ok:true};}}};
  vm.runInNewContext(fs.readFileSync('extension/content.js','utf8'),{PageAgentCore:C,PageAgentConditions:require('../extension/conditions.js'),PageAgentProtocol:require('../extension/tool-protocol.js'),chrome,document,location:{href:'https://example.test/'},crypto,Date,setTimeout:fn=>setImmediate(fn)});
  const send=m=>new Promise(r=>listener(m,{id:'test',url:'chrome-extension://test/background.js'},r));
- const tools=createBrowserTools({permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://example.test/',status:'complete'};},sendMessage:(id,m)=>send(m)}});
+ const tools=createBrowserTools({storage:{local:{async get(){return {debuggerEnabled:true};}}},permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://example.test/',status:'complete'};},sendMessage:(id,m)=>send(m)}});
  return {document,send,async click(action='click'){
   const snap=(await send({type:'agent:observe'})).value;
   return tools.execute(1,{operationId:'op1',documentId:snap.documentId,snapshotId:snap.snapshotId,url:snap.url,label:'Tile',plan:{action,id:'t0',reply:'x'},expected:[]},policy,async()=>true);
@@ -58,7 +58,7 @@ test('a real-input (trusted:true) click that only restyles the target settles as
 
 test('the prompt no longer tells the model to retry with trusted:true right after observe',()=>{
  const P=require('../extension/prompts.js');
- for(const caps of [{},{vision:true}]){
+ for(const caps of [{realInput:true},{realInput:true,vision:true}]){
   const s=P.agentSystem('简体中文','native',caps);
   assert.doesNotMatch(s,/still had none after observe, retry once with trusted:true/);
   assert.match(s,/re-clicking undoes them/);assert.match(s,/trusted:true once only after a screenshot/);
@@ -70,7 +70,7 @@ test('visual-change clicks on same-label tiles do not trip the no-progress pause
  const store={async get(id){return structuredClone(data.get(id)||null);},async set(id,t){data.set(id,structuredClone(t));},async remove(id){data.delete(id);},async list(){return [...data.values()].map(t=>structuredClone(t));}};
  const tools={async tab(id){return {id,url:'https://example.test/1',status:'complete'};},
   async observe(){return {url:'https://example.test/1',documentId:'d1',snapshotId:'s'+(++seq),page:{text:'',elements:[{id:'t0',key:'node'+seq,label:'Tile',tag:'div'}],regions:[]}};},
-  async execute(){return {version:2,status:'unknown',dispatch:'sent',scope:'dispatch',code:'TARGET_VISUAL_CHANGED',recovery:'observe',message:'x'};},async releaseInput(){return true;}};
+  async execute(){return {version:2,status:'unknown',dispatch:'sent',scope:'dispatch',code:'TARGET_VISUAL_CHANGED',recovery:'observe',message:'x'};},async realInputEnabled(){return true;},async releaseInput(){return true;}};
  const runtime=createRuntime({store,tools,summarize:async()=>({text:'{}'}),schedule(){},cancelSchedule:async()=>{},uuid:()=>'u'+(++seq),preferences:async()=>({maxSteps:50,contextTokens:32768}),model:async()=>({text:'{"reply":"Click","action":"click","id":"t0"}'})});
  await runtime.start(1,'Select tiles');for(let i=0;i<4;i++)await runtime.tick(1);
  const t=await runtime.get(1);assert.equal(t.results.length,4);assert.notEqual(t.reason,'no_progress');assert.equal(t.status,'running');

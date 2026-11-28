@@ -18,7 +18,7 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   // run_script needs userScripts; it is optional so installing shows no extra warning.
   assert.deepEqual(manifest.optional_permissions, ['userScripts']);assert.ok(!manifest.permissions.includes('userScripts'));
-  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js', 'cdp-tools.js']) {
+  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js', 'real-input-settings.js', 'cdp-tools.js']) {
     assert.ok(fs.statSync(path.join(dir, file)).isFile(), file);
   }
 });

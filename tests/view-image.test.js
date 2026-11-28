@@ -41,7 +41,7 @@ function fixture(service,replies,{screenshot}={}){
   const tools={async tab(id){return {id,url:'https://a.test/',status:'complete'};},
     async observe(){return {url:'https://a.test/',documentId:'d1',snapshotId:'s'+(++seq),page:{text:'page',elements:[{id:'t0',key:'k0',label:'Chart',tag:'canvas'}],regions:[{id:'r0',key:'k1',label:'Prices'}]}};},
     async screenshot(tabId,shot,policy){shots.push({tabId,shot,policy});if(screenshot)return screenshot(shot,policy);return {data:'SlBFRw==',masked:2,width:800,height:600};},
-    async releaseInput(){return true;}};
+    async realInputEnabled(){return true;},async releaseInput(){return true;}};
   const make=()=>createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),
     model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),images:capabilities.images,shots:capabilities.shots});const next=replies.shift();if(next instanceof Error)throw next;return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
   return {runtime:make(),make,models,shots,data,store};

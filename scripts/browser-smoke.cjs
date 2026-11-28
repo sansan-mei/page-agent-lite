@@ -537,6 +537,13 @@ let context, page, optionsPage, cdpSession, fixtureBase;
   assert.equal(report.requests.length, 0, 'Saving config does not call model');
   pass('options page form saves real configuration via runtime.sender/storage');
 
+  // Real input & screenshots switch (off by default): turn it on through the settings row so any chrome.debugger path stays covered.
+  assert.equal((await sw.evaluate(() => chrome.storage.local.get('debuggerEnabled'))).debuggerEnabled, undefined, 'debugger switch off by default');
+  await optionsPage.locator('#real-input-toggle').click();
+  await poll(async () => (await sw.evaluate(() => chrome.storage.local.get('debuggerEnabled'))).debuggerEnabled === true, 'settings row turns the debugger switch on');
+  assert.equal(await optionsPage.locator('#real-input-badge').getAttribute('data-state'), 'on');
+  pass('settings row stores debuggerEnabled=true without a permission prompt');
+
   // 6. Load test page, inject via scripting.
   page = await context.newPage();
   await page.goto(origin + '/article');

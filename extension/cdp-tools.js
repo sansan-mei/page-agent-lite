@@ -3,7 +3,8 @@
   // Real input and view_image screenshots through chrome.debugger (CDP). Only the methods below can ever be sent; the model never
   // chooses a method or parameters. Points come from a snapshot target, or for click_point from the model's latest viewport
   // screenshot after the runtime has checked and converted them. One session per executing tab, owned by one task,
-  // attached on first use and detached when the runtime releases the tab or the browser detaches it.
+  // attached on first use and detached when the runtime releases the tab or the browser detaches it. Nothing attaches unless
+  // the user turned on the settings switch (storage.local debuggerEnabled, default off); turning it off detaches at once.
   const MOUSE_TYPES=['mouseMoved','mousePressed','mouseReleased'];
   const MOUSE_KEYS=['type','x','y','button','buttons','clickCount','pointerType'];
   function mouseParams(p){
@@ -23,11 +24,19 @@
   }
   const METHODS=Object.freeze({'Input.dispatchMouseEvent':mouseParams,'Page.captureScreenshot':shotParams});
   const fail=(code,message,dispatch='not_sent')=>Object.assign(new Error(message),{code,dispatch});
+  const SETTING='debuggerEnabled',DISABLED_MESSAGE='真实输入与截图未开启，可在设置中开启';
+  const disabled=()=>fail('REAL_INPUT_DISABLED',DISABLED_MESSAGE);
   function create(chrome){
     const api=chrome?.debugger;
     const sessions=new Map(); // tabId -> {taskId, ready, attached, detached}
     const declined=new Set(); // taskIds whose user cancelled the debugging infobar; never re-attached
     const available=()=>!!(api&&typeof api.attach==='function'&&typeof api.sendCommand==='function'&&typeof api.detach==='function');
+    // The user's settings switch, read on every use; anything but true (missing, false, read error) means off.
+    async function enabled(){try{return (await chrome.storage.local.get(SETTING))?.[SETTING]===true;}catch{return false;}}
+    chrome?.storage?.onChanged?.addListener?.((changes,area)=>{
+      if(area!=='local'||!changes?.[SETTING]||changes[SETTING].newValue===true)return;
+      for(const tabId of [...sessions.keys()])void release(tabId);
+    });
     if(available()&&api.onDetach?.addListener)api.onDetach.addListener((source,reason)=>{
       const tabId=source?.tabId,session=sessions.get(tabId);if(!session)return;
       session.detached=reason||'detached';sessions.delete(tabId);
@@ -44,6 +53,7 @@
       try{await api.attach({tabId},'1.3');}catch{throw fail('CDP_BUSY','该标签页已被其他调试器占用（如开发者工具），无法使用真实输入');}
     }
     async function ensure(tabId,taskId){
+      if(!await enabled())throw disabled();
       if(!available())throw fail('CDP_UNAVAILABLE','浏览器不支持真实输入通道');
       if(typeof taskId!=='string'||!taskId)throw fail('CDP_UNAVAILABLE','真实输入缺少任务身份');
       if(declined.has(taskId))throw fail('CDP_CANCELLED','你已取消本任务的调试连接，真实输入不再自动连接');
@@ -56,8 +66,11 @@
         session.ready.catch(()=>{if(sessions.get(tabId)===session)sessions.delete(tabId);});
       }
       await session.ready;
+      // Switched off while attaching: the listener may have missed this session, so detach here too.
+      if(sessions.get(tabId)===session&&!await enabled()){await release(tabId);throw disabled();}
       // Released (stop, takeover, task end) or detached while attaching: never dispatch on it.
       if(sessions.get(tabId)!==session){
+        if(!await enabled())throw disabled();
         if(declined.has(taskId))throw fail('CDP_CANCELLED','你已取消本任务的调试连接，真实输入不再自动连接');
         throw fail('CDP_DETACHED','真实输入通道已断开，未发送输入');
       }
@@ -117,7 +130,7 @@
       // Also clears a session a restarted worker no longer knows about; detach of a tab we never attached just fails.
       try{await api.detach({tabId});return true;}catch{return false;}
     }
-    return {available,ensure,input,capture,release,attached:tabId=>sessions.get(tabId)?.attached===true};
+    return {available,enabled,ensure,input,capture,release,attached:tabId=>sessions.get(tabId)?.attached===true};
   }
-  const api={create,METHODS};root.PageAgentCdp=api;if(typeof module!=='undefined')module.exports=api;
+  const api={create,METHODS,SETTING};root.PageAgentCdp=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

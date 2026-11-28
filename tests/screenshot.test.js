@@ -3,6 +3,8 @@ const fs=require('node:fs');const vm=require('node:vm');const {parseHTML}=requir
 const C=require('../extension/core.js');
 const {create,METHODS}=require('../extension/cdp-tools.js');
 const {createBrowserTools}=require('../extension/browser-tools.js');
+// Real input & screenshots switch on (settings page); tests of the off state use their own storage.
+const ENABLED={local:{async get(){return {debuggerEnabled:true};}}};
 
 // Fake chrome.debugger: records attach/detach and every command with its parameters.
 function fakeDebugger({send}={}){
@@ -21,20 +23,20 @@ test('cdp: Page.captureScreenshot is allow-listed only as a bounded JPEG clip of
   const valid=METHODS['Page.captureScreenshot'];
   assert.equal(valid(ok),true);
   for(const bad of [{...ok,format:'png'},{...ok,captureBeyondViewport:true},{...ok,clip:{...ok.clip,scale:2}},{...ok,clip:{...ok.clip,x:-1}},{...ok,clip:{...ok.clip,width:0}},{...ok,clip:{...ok.clip,selector:'#a'}},{...ok,extra:1},{format:'jpeg'}])assert.equal(valid(bad),false,JSON.stringify(bad));
-  const f=fakeDebugger(),cdp=create({debugger:f.api});
+  const f=fakeDebugger(),cdp=create({storage:ENABLED,debugger:f.api});
   assert.equal(await cdp.capture(4,'task-1',{x:0,y:100,width:800,height:600,scale:1}),'SlBFRw==');
   assert.deepEqual(f.commands().map(e=>[e[2],e[3].format,e[3].clip.y]),[['Page.captureScreenshot','jpeg',100]]);
   await assert.rejects(()=>cdp.capture(4,'task-1',{x:0,y:0,width:10,height:10,scale:1.5}),e=>e.code==='CDP_METHOD_DENIED');
-  const slow=create({debugger:fakeDebugger({send:()=>new Promise(()=>{})}).api});
+  const slow=create({storage:ENABLED,debugger:fakeDebugger({send:()=>new Promise(()=>{})}).api});
   await assert.rejects(()=>slow.capture(5,'task-1',{x:0,y:0,width:10,height:10,scale:1},null,10),e=>e.code==='CAPTURE_TIMEOUT');
-  const junk=create({debugger:fakeDebugger({send:()=>({data:'<svg>'})}).api});
+  const junk=create({storage:ENABLED,debugger:fakeDebugger({send:()=>({data:'<svg>'})}).api});
   await assert.rejects(()=>junk.capture(6,'task-1',{x:0,y:0,width:10,height:10,scale:1}),e=>e.code==='CAPTURE_FAILED');
 });
 
 // Browser tools with scripted content-script replies; the tab is never activated or focused.
 function shotTools({shot=()=>({ok:true,value:{area:{left:0,top:0,width:800,height:600},viewport:{width:800,height:600},scroll:{x:0,y:1000},dpr:2,masked:1}}),debug=fakeDebugger()}={}){
   const messages=[];
-  const chrome={debugger:debug.api,permissions:{async contains(){return true;}},
+  const chrome={storage:ENABLED,debugger:debug.api,permissions:{async contains(){return true;}},
     tabs:{async get(){return {url:URL1,status:'complete',active:false};},async sendMessage(id,m){messages.push(m);
       const reply=m.type==='agent:shot'?shot(m):{ok:true,value:{cleared:true}};if(reply instanceof Error)throw reply;return reply;}}};
   return {tools:createBrowserTools(chrome),messages,debug};

@@ -12,16 +12,16 @@ test('agentPlan: click_point takes value {x,y} in screenshot pixels and nothing 
   assert.equal(C.agentTool('click_point').route,'browser');assert.equal(C.agentTool('click_point').effect,'page');
 });
 
-test('click_point is offered only with the vision capability, in both protocols',()=>{
+test('click_point is offered only with the vision and real-input capabilities, in both protocols',()=>{
   const names=caps=>P.agentTools(caps).map(t=>t.function.name);
   assert.ok(!names().includes('click_point'));assert.ok(!names({scripts:true}).includes('click_point'));
-  assert.ok(names({vision:true}).includes('click_point'));
-  const tool=P.agentTools({vision:true}).find(t=>t.function.name==='click_point');
+  assert.ok(names({vision:true,realInput:true}).includes('click_point'));assert.ok(!names({vision:true}).includes('click_point'),'switch off: no click_point even for vision models');
+  const tool=P.agentTools({vision:true,realInput:true}).find(t=>t.function.name==='click_point');
   assert.deepEqual(tool.function.parameters.required,['reply','value']);assert.deepEqual(tool.function.parameters.properties.value.required,['x','y']);
   assert.doesNotMatch(P.agentSystem('English','native'),/click_point/);assert.doesNotMatch(P.agentSystem('English','json'),/click_point/);
-  assert.match(P.agentSystem('English','native',{vision:true}),/click_point[^.]*latest viewport screenshot/);
-  assert.match(P.agentSystem('English','json',{vision:true}),/action \([^)]*\bclick_point\b/);
-  const text=P.agentSystem('English','native',{vision:true})+JSON.stringify(P.agentTools({vision:true}));
+  assert.match(P.agentSystem('English','native',{vision:true,realInput:true}),/click_point[^.]*latest viewport screenshot/);
+  assert.match(P.agentSystem('English','json',{vision:true,realInput:true}),/action \([^)]*\bclick_point\b/);
+  const text=P.agentSystem('English','native',{vision:true,realInput:true})+JSON.stringify(P.agentTools({vision:true,realInput:true}));
   assert.ok(text.startsWith('You are Page Agent Lite'));assert.doesNotMatch(text,/hermes|claude|chatgpt|openai|captcha|验证码/i);
 });
 
@@ -36,7 +36,7 @@ function fixture(replies,{mode='supported',documentId=()=>'d1',clock=null,view={
     async screenshot(){return {data:'SlBFRw==',masked:0,width:800,height:600,view:structuredClone(view)};},
     async execute(tabId,pending,policy){executed.push({pending:structuredClone(pending),policy,phase:data.get(tabId).phase});
       return {version:2,operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'sent',scope:'dispatch',code:'POINT_CLICKED',observed:{input:'cdp',target:'point',...pending.plan.value},evidence:[],recovery:'observe',message:'已按截图坐标发送真实点击'};},
-    async releaseInput(){return true;}};
+    async realInputEnabled(){return true;},async releaseInput(){return true;}};
   const runtime=createRuntime({store,tools,images,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),...(clock?{now:clock}:{}),
     model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),capabilities:{...capabilities}});const next=replies.shift();return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
   return {runtime,models,executed,data};
@@ -99,7 +99,7 @@ test('click_point is refused before dispatch without vision, before the screensh
 // browser-tools: geometry check against the screenshot, then move/press/release through the debugger.
 function browser({viewport={documentId:'d1',url:'https://a.test/',viewport:{width:1600,height:1200},scroll:{x:0,y:300}},send=null}={}){
   const log=[],messages=[],attached=new Set();
-  const chrome={permissions:{async contains(){return true;}},
+  const chrome={storage:{local:{async get(){return {debuggerEnabled:true};}}},permissions:{async contains(){return true;}},
     debugger:{onDetach:{addListener(){}},async attach({tabId}){attached.add(tabId);},async detach({tabId}){attached.delete(tabId);},
       async sendCommand({tabId},method,p){log.push([method,p.type,p.x,p.y]);if(send)await send(p);return {};}},
     tabs:{async get(){return {url:'https://a.test/',status:'complete'};},async sendMessage(id,m){messages.push(m);return m.type==='agent:viewport'?{ok:true,value:structuredClone(viewport)}:{ok:false,error:'unexpected'};}}};
@@ -136,7 +136,7 @@ test('backend passes the vision capability through to the native tools of the re
   const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p},storage:{local:{async setAccessLevel(){},async get(k){return {[k]:structuredClone(data[k])};},async set(v){Object.assign(data,structuredClone(v));}}},permissions:{async contains(){return true;}}};
   const reply=()=>new Response(JSON.stringify({choices:[{finish_reason:'tool_calls',message:{tool_calls:[{id:'c',type:'function',function:{name:'observe',arguments:'{"reply":"x"}'}}]}}]}));
   const s=backend.createService(chrome,async(url,opts)=>{bodies.push(JSON.parse(opts.body));return reply();});
-  await s.generateAgent('observe',null,{vision:true});await s.generateAgent('observe',null,{});
+  await s.generateAgent('observe',null,{vision:true,realInput:true});await s.generateAgent('observe',null,{});
   assert.ok(bodies[0].tools.some(t=>t.function.name==='click_point'));assert.match(bodies[0].messages[0].content,/click_point/);
   assert.ok(!bodies[1].tools.some(t=>t.function.name==='click_point'));assert.doesNotMatch(bodies[1].messages[0].content,/click_point/);
 });

@@ -2,6 +2,8 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const C=require('../extension/core.js');
 const {createBrowserTools}=require('../extension/browser-tools.js');
 const {createRuntime}=require('../extension/runtime.js');
+// Real input & screenshots switch on (settings page); tests of the off state use their own storage.
+const ENABLED={local:{async get(){return {debuggerEnabled:true};}}};
 
 // Fake chrome.debugger shared by the browser-tools tests.
 function fakeDebugger(hooks={}){
@@ -19,7 +21,7 @@ const synthetic=(extra={})=>({version:2,operationId:'op1',documentId:'d1',status
 // Content-script replies are scripted per message type; every message is recorded.
 function tools({execute=()=>({ok:true,value:synthetic()}),point=()=>({ok:true,value:{x:60,y:40}}),aim=()=>({ok:true,value:{x:60,y:40}}),settle=()=>({ok:true,value:{...synthetic({observed:{input:'cdp'},code:'PAGE_CHANGED',message:'操作已发出，页面有变化；具体效果待核对'}),pageChange:undefined}}),debug=fakeDebugger(),url=()=>URL1}={}){
  const messages=[];
- const chrome={debugger:debug.api,permissions:{async contains(){return true;}},tabs:{async get(){return {url:url(),status:'complete'};},async sendMessage(id,m){messages.push(m);
+ const chrome={storage:ENABLED,debugger:debug.api,permissions:{async contains(){return true;}},tabs:{async get(){return {url:url(),status:'complete'};},async sendMessage(id,m){messages.push(m);
   const reply=m.type==='agent:execute'?execute(m):m.type==='agent:point'?point(m):m.type==='agent:aim'?aim(m):m.type==='agent:settle'?settle(m):{ok:true,value:{page:{}}};
   if(reply instanceof Error)throw reply;return reply;}}};
  return {tools:createBrowserTools(chrome),messages,debug};
@@ -123,7 +125,7 @@ test('regression: a synthetic click whose effect appears after 3 s is dispatched
  let clicks=0;const later=[];
  const {document,send}=page('<button>Filter</button><p id="out">Idle</p>',goButton(()=>{later.push(()=>{clicks++;document.getElementById('out').textContent='Filtered';});}));
  const debug=fakeDebugger(),messages=[];
- const chrome={debugger:debug.api,permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://example.test/',status:'complete'};},async sendMessage(id,m){messages.push(m.type);return send(m);}}};
+ const chrome={storage:ENABLED,debugger:debug.api,permissions:{async contains(){return true;}},tabs:{async get(){return {url:'https://example.test/',status:'complete'};},async sendMessage(id,m){messages.push(m.type);return send(m);}}};
  const t=createBrowserTools(chrome),snap=(await send({type:'agent:observe'})).value;
  const r=await t.execute(1,{operationId:'op1',documentId:snap.documentId,snapshotId:snap.snapshotId,url:snap.url,label:'Filter',plan:{action:'click',id:'t0',reply:'x'},expected:[]},policy,async()=>true);
  assert.equal(r.code,'NO_CHANGE');assert.equal(r.dispatch,'sent');
@@ -186,8 +188,10 @@ test('frame targets add the iframe offset; covered or changed targets get no poi
  assert.equal(C.agentPlan(JSON.stringify({action:'hover',id,reply:'x',trusted:false}),snap).trusted,false);
  assert.throws(()=>C.agentPlan(JSON.stringify({action:'click',id,reply:'x',trusted:'yes'}),snap));
  assert.throws(()=>C.agentPlan(JSON.stringify({action:'double_click',id,reply:'x',trusted:true}),snap));
- const tool=name=>require('../extension/prompts.js').agentTools().find(t=>t.function.name===name).function.parameters.properties;
+ const tool=(name,caps={realInput:true})=>require('../extension/prompts.js').agentTools(caps).find(t=>t.function.name===name).function.parameters.properties;
  assert.deepEqual(tool('click').trusted,{type:'boolean'});assert.deepEqual(tool('hover').trusted,{type:'boolean'});assert.equal(tool('fill').trusted,undefined);
+ // Real input & screenshots switch off: trusted is not in the schema at all.
+ assert.equal(tool('click',{}).trusted,undefined);assert.equal(tool('hover',{vision:true}).trusted,undefined);
 });
 
 test('runtime passes its task identity and does not wait on an action that was not sent',async()=>{

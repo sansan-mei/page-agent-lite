@@ -976,5 +976,20 @@
   },
   "mgSkillGeneral": {
     "message": "通用（所有网站）"
+  },
+  "optRealInputTitle": {
+    "message": "真实输入与截图"
+  },
+  "optRealInputIntro": {
+    "message": "让助手截图看页面，合成点击点不到时用真实鼠标；使用时浏览器显示调试提示条。"
+  },
+  "optRealInputEnable": {
+    "message": "开启"
+  },
+  "optRealInputDisable": {
+    "message": "关闭"
+  },
+  "optRealInputFailed": {
+    "message": "保存失败，请重试。"
   }
 }

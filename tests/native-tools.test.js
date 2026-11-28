@@ -124,7 +124,7 @@ test('token pressure includes the native tools schema',()=>{
 test('run_script joins native tools and the prompt only when script capabilities are passed',async()=>{
   const names=caps=>P.agentTools(caps).map(t=>t.function.name);
   assert.ok(!names().includes('run_script'));assert.ok(!names({scripts:false}).includes('run_script'));
-  assert.deepEqual(names({scripts:true,vision:true}),C.agentToolNames());assert.ok(!names({scripts:true}).includes('click_point'));
+  assert.deepEqual(names({scripts:true,vision:true,realInput:true}),C.agentToolNames());assert.ok(!names({scripts:true}).includes('click_point'));
   const tool=P.agentTools({scripts:true}).find(t=>t.function.name==='run_script');
   assert.deepEqual(tool.function.parameters.required,['reply','value']);
   assert.doesNotMatch(P.agentSystem('English','native'),/run_script/);assert.match(P.agentSystem('English','native',{scripts:true}),/OPTIONAL TOOL run_script[\s\S]*SCRIPT_REJECTED/);

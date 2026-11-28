@@ -1,5 +1,7 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {create,METHODS}=require('../extension/cdp-tools.js');
+// Real input & screenshots switch on (settings page); tests of the off state use their own storage.
+const ENABLED={local:{async get(){return {debuggerEnabled:true};}}};
 // Fake chrome.debugger: records attach/detach/commands; hooks let a test fail or detach at any step.
 function fakeDebugger(hooks={}){
  const log=[];let onDetach=null;const attached=new Set();
@@ -9,7 +11,7 @@ function fakeDebugger(hooks={}){
   async detach({tabId}){log.push(['detach',tabId]);if(hooks.detach)await hooks.detach(tabId);if(!attached.delete(tabId))throw Error('Debugger is not attached to the tab with id: '+tabId);},
   async sendCommand({tabId},method,params){log.push(['send',tabId,method,params.type]);if(hooks.send)await hooks.send(tabId,method,params);if(!attached.has(tabId))throw Error('Detached while handling command.');return {};}
  };
- return {chrome:{debugger:api},log,attached,detach:(tabId,reason)=>{attached.delete(tabId);onDetach({tabId},reason);}};
+ return {chrome:{debugger:api,storage:ENABLED},log,attached,detach:(tabId,reason)=>{attached.delete(tabId);onDetach({tabId},reason);}};
 }
 const sends=log=>log.filter(e=>e[0]==='send').map(e=>e[3]);
 
@@ -35,7 +37,7 @@ test('attaches on first use, keeps one session per task and only sends allow-lis
 test('release while attaching never dispatches; stale own sessions are reclaimed, DevTools is reported busy',async()=>{
  let open;const gate=new Promise(r=>open=r);
  const f=fakeDebugger({attach:()=>gate}),cdp=create(f.chrome);
- const pending=cdp.input(3,'t','click',{x:5,y:5});
+ const pending=cdp.input(3,'t','click',{x:5,y:5});await new Promise(r=>setImmediate(r));
  const released=cdp.release(3);open();
  await assert.rejects(pending,e=>e.code==='CDP_DETACHED'&&e.dispatch==='not_sent');await released;
  assert.deepEqual(sends(f.log),[]);assert.equal(f.attached.has(3),false);
@@ -48,7 +50,7 @@ test('release while attaching never dispatches; stale own sessions are reclaimed
  const busy=fakeDebugger({attach:()=>{throw Error('Another debugger is already attached to the tab with id: 5.');},detach:()=>{throw Error('not attached');}});
  await assert.rejects(()=>create(busy.chrome).input(5,'t','click',{x:1,y:1}),e=>e.code==='CDP_BUSY'&&e.dispatch==='not_sent');
  assert.deepEqual(sends(busy.log),[]);
- await assert.rejects(()=>create({}).input(5,'t','click',{x:1,y:1}),e=>e.code==='CDP_UNAVAILABLE');
+ await assert.rejects(()=>create({storage:ENABLED}).input(5,'t','click',{x:1,y:1}),e=>e.code==='CDP_UNAVAILABLE');
 });
 
 test('user cancelling the debug infobar stops real input for that task without reconnecting',async()=>{

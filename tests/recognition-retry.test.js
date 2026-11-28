@@ -9,7 +9,7 @@ function fixture(recognize,{backoff=0,replies=[{reply:'look',action:'view_image'
     async recognize(...args){calls.push(args);return recognize(calls.length,args);},async saveShot(){return 'shot_00000001';},async dropShots(){},async present(ids){return ids;},async remove(){},async prune(){}};
   const tools={async tab(id){return {id,url:'https://a.test/',status:'complete'};},
     async observe(){return {url:'https://a.test/',documentId:'d1',snapshotId:'s'+(++seq),page:{text:'page',elements:[],regions:[]}};},
-    async screenshot(){return {data:'SlBFRw==',masked:0,width:8,height:6};},async releaseInput(){return true;},async clearPointer(){}};
+    async screenshot(){return {data:'SlBFRw==',masked:0,width:8,height:6};},async realInputEnabled(){return true;},async releaseInput(){return true;},async clearPointer(){}};
   const runtime=createRuntime({store,tools,images,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),recognitionBackoff:backoff,
     model:async text=>{models.push(JSON.parse(text));const next=replies.shift();return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
   return {runtime,models,calls,data};

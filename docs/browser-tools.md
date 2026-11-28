@@ -100,6 +100,8 @@ observe 的 value：
 
 `cdp-tools.js`（`PageAgentCdp`，后台在 `browser-tools.js` 之前加载）经 `chrome.debugger` 发送真实鼠标输入。
 
+- 开关：只有 storage.local `debuggerEnabled === true`（设置页「真实输入与截图」，默认关）时才 attach。`ensure` 每次读取，关闭时抛 `REAL_INPUT_DISABLED`（not_sent），什么都不连接；监听 `storage.onChanged`，改为非 true 时立即 detach 所有会话。运行器每轮读 `tools.realInputEnabled()` 作为 `capabilities.realInput`：关闭时系统提示与原生工具里没有页面截图来源（`view_image` 只剩 `imageN`）、`click_point` 和 `trusted`，NO_CHANGE 提示改为只观察核实；模型仍发出时运行器/后台记 `REAL_INPUT_DISABLED`（not_sent、replan，message 提示可在设置中开启），不量坐标、不遮盖、不截图。
+
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
 - 命令白名单：`Input.dispatchMouseEvent` 与[截图](#截图)用的 `Page.captureScreenshot`。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法或参数；坐标来自快照目标，或来自运行时核对换算后的 [坐标点击](#坐标点击)。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
@@ -109,12 +111,13 @@ observe 的 value：
   - 合成点击/悬停回执为 `NO_CHANGE` 时，message 末尾提示：选中/切换类目标可能已变化而文字不变，再点会撤销；先截图或观察核实，确认没反应才加 `trusted:true` 再试一次。运行时不自动重试。
   - 坐标：`agent:point`/`agent:aim` 对同一节点核对存活、签名、可见、未变为敏感字段，再走合成点击的命中检查（滚入视野、遮挡、iframe 可见框），返回顶层视口 CSS 像素，同源框架加 iframe 偏移；遮挡（`TARGET_BLOCKED`）不派发，因为真实点击同样落在遮挡层上。新 observe 清除记住的目标；合成事件已派发的目标不给坐标。
   - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`（`unreachable`/`trusted`），message 前缀说明输入方式。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
+  - 开关关闭时：到不了类与 `trusted` 类都返回 `REAL_INPUT_DISABLED`（unsupported、not_sent、replan），不发 `agent:point`/`agent:aim`。
   - 未发送时：到不了类返回 `SYNTHETIC_UNREACHABLE`，`trusted` 类返回 `REAL_INPUT_NOT_SENT`（unsupported、not_sent、replan），都带 `observed.input='none'` 与 `cdp {code,message}`，运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
 - 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
 
 ## 坐标点击
 
-`click_point` 让能看图的模型点快照里没有的位置（图片、画布、嵌入内容）。`capabilities.vision`（看图能力不是已知不支持）为真时才进工具列表和系统提示；否则运行器记 `POINT_UNAVAILABLE`，不派发。
+`click_point` 让能看图的模型点快照里没有的位置（图片、画布、嵌入内容）。`capabilities.vision`（看图能力不是已知不支持）与 `capabilities.realInput`（[开关](#真实输入)）都为真时才进工具列表和系统提示；否则运行器记 `REAL_INPUT_DISABLED`（开关关）或 `POINT_UNAVAILABLE`，不派发。
 
 - 坐标空间：任务字段 `lastView` 只记最新一次 `view_image` 截图，且只在来源为 `viewport` 时有值（元素/区域截图或识别路径清空它）：`{shotId, tabId, documentId, url, time, image {width,height}, area, viewport, scroll, seen}`。截图随模型请求发出后 `seen=true`；截图丢失（`SHOT_EXPIRED`）或改走识别时清空。
 - 运行器（`runtime.pointAction`）：要求 `seen`、同一执行标签、当前快照的 documentId 与 URL 一致、截图不超过 60 秒，否则 `POINT_NO_SCREENSHOT`；点须在图内，按 `area + 像素 × area / image` 换成顶层视口 CSS 像素后仍在视口内，否则 `POINT_OUTSIDE`。通过后清空 `lastView`（一张截图只点一次），写 pending 并走普通 `execute`（先写 `executing` 检查点）。
@@ -132,6 +135,7 @@ observe 的 value：
 
 - 捕获（`browser-tools.screenshot`）：核对来源与标签 URL → 内容脚本 `agent:shot` 按当前快照 ID 找到节点（须存活、可见；不完全在视口内时 `scrollIntoView` 后等 150ms），量出可见框（顶层视口 CSS 像素，含同源框架偏移与 overflow 裁剪），`viewport` 为整个视口 → 后台以「可见框 + 顶层滚动偏移」为 clip，`scale = min(1, 1568 / (长边 × devicePixelRatio))`，经 `cdp-tools.capture` 发一次 `Page.captureScreenshot`（JPEG，quality 70，`captureBeyondViewport:false`，15 秒超时）→ `finally` 发 `agent:unshot` 移除遮盖。白名单校验 clip 只含 x/y/width/height/scale 且 scale ≤ 1。不激活或聚焦标签页；会话与[真实输入](#真实输入)共用（同一 taskId，同样的 attach/detach 与错误 code）。
 - 遮盖（`core.agentMaskBoxes` + 内容脚本）：未授权敏感字段时遮盖 `agentSensitiveSelector` 匹配的元素（顶层、可读同源框架、开放 Shadow DOM）和所有读不到文档的框架（跨源、嵌套过深）；已授权时只遮盖文件选择框。每处外扩 2px，画成顶层 `position:fixed` 黑块（`data-page-agent="mask"`，不进快照），插入后逐块核对位置与可见性；量不到、放不准或根元素半透明即 `MASK_FAILED`，不截图、不留遮盖。内容脚本 15 秒后自行移除未收到 `agent:unshot` 的遮盖。封闭 Shadow DOM 和无标准标记的敏感内容不在遮盖范围内。
+- 页面来源（`viewport`/`tN`/`rN`）须开启[开关](#真实输入)，否则 `REAL_INPUT_DISABLED`，不截图；附图 `imageN` 不需要调试通道。
 - 拒绝：跨源框架路由的目标（`VIEW_IMAGE_UNSUPPORTED`，可改用 viewport）、不在快照中的 ID（`TARGET_MISSING`）、过期快照或节点（`STALE`）、不可见（`TARGET_HIDDEN`）、`CAPTURE_TIMEOUT`、`CAPTURE_FAILED`、`CDP_*`、识别失败 `RECOGNITION_FAILED`、无附图 `IMAGE_NOT_FOUND`。都是交回模型的工具结果，不暂停任务。
 - 识别文字放在 `observed {source, question?, note:'来自图片识别，可能有误', untrusted:true, text}`，text ≤ 2000 字符，并按 JSON 转义后长度裁到 4500 字符的 observed 上限以内。识别计一轮，失败重试见 [附图](context-and-skills.md#附图)。
 - 截图暂存与发送见 [附图](context-and-skills.md#附图)。

@@ -81,6 +81,8 @@
       const action=pending.plan?.action,trusted=reason==='trusted';
       const note=cdp=>({...base,observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none',cdp:{code:cdp.code||'CDP_SKIPPED',message:String(cdp.message||'').slice(0,160)}}});
       if(!['click','hover'].includes(action)||pending.frameRoute)return note({code:'CDP_UNAVAILABLE',message:'该目标不支持真实输入'});
+      // Settings switch off: one stable not_sent code, nothing measured or attached.
+      if(!await D.enabled())return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'REAL_INPUT_DISABLED',recovery:'replan',observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none'},message:(trusted?'':'合成事件无法到达目标；')+'真实输入未开启（可在设置中开启「真实输入与截图」），未发送'});
       if(!D.available()||typeof policy?.taskId!=='string')return note({code:'CDP_UNAVAILABLE',message:'真实输入不可用'});
       if(live&&!await live())return note({code:'CANCELLED',message:'运行已停止'});
       const message={operationId:pending.operationId,url:pending.url,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})};
@@ -114,6 +116,7 @@
       const base={operationId:pending.operationId,documentId:pending.documentId},{x,y}=pending.plan.value,target={input:'cdp',target:'point',x,y};
       const skip=(code,message)=>T.result({...base,status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',observed:{...target,input:'none'},message});
       const codeOf=(error,fallback)=>/^[A-Z][A-Z0-9_]{0,60}$/.test(error?.code||'')?error.code:fallback;
+      if(!await D.enabled())return skip('REAL_INPUT_DISABLED','真实输入未开启（可在设置中开启「真实输入与截图」），未点击');
       if(!D.available()||typeof policy?.taskId!=='string'||!pending.view)return skip('CDP_UNAVAILABLE','真实输入不可用，未点击');
       let view;
       try{
@@ -154,7 +157,7 @@
       // No automatic real-input retry: a delayed or invisible effect makes "no effect" unprovable. The model may verify
       // (screenshot or observe) and ask for trusted:true itself.
       const {pageChange,...result}=synthetic;
-      if(['click','hover'].includes(pending.plan?.action)&&pageChange==='NO_CHANGE'&&result.code==='NO_CHANGE')result.message=(result.message+'；选中/切换类目标（图块、勾选、开关）可能已变化但文字不变，再点会撤销；先截图或观察核实，确认没反应才加 trusted:true 再试一次').slice(0,500);
+      if(['click','hover'].includes(pending.plan?.action)&&pageChange==='NO_CHANGE'&&result.code==='NO_CHANGE')result.message=(result.message+'；选中/切换类目标（图块、勾选、开关）可能已变化但文字不变，再点会撤销；'+(await D.enabled()?'先截图或观察核实，确认没反应才加 trusted:true 再试一次':'先观察核实，不要重复点击')).slice(0,500);
       return result;
     }
     async function verify(tabId,operation,policy=null){
@@ -183,6 +186,7 @@
       return {x:round(Math.max(0,o.x+a.left)),y:round(Math.max(0,o.y+a.top)),width:round(a.width),height:round(a.height),scale:Math.floor(scale*1000)/1000||0.001};
     }
     async function screenshot(tabId,shot,policy,live=null){
+      if(!await D.enabled())throw Object.assign(new Error('真实输入与截图未开启，可在设置中开启'),{code:'REAL_INPUT_DISABLED'});
       if(!D.available()||typeof policy?.taskId!=='string')throw Object.assign(new Error('浏览器不支持截图'),{code:'CDP_UNAVAILABLE'});
       await checkOrigin(tabId,policy);
       if((await tab(tabId)).url!==shot.url)throw Object.assign(new Error('页面地址已变化，未截图'),{code:'STALE'});
@@ -210,7 +214,7 @@
       try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }
       try{const frames=await chrome.webNavigation?.getAllFrames({tabId});await Promise.allSettled((frames||[]).filter(f=>f.frameId!==0).map(f=>chrome.tabs.sendMessage(tabId,{type:'agent:clear-pointer'},{frameId:f.frameId})));}catch{ /* No live frame inventory. */ }
     }
-    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,screenshot,releaseInput:tabId=>D.release(tabId)};
+    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,screenshot,releaseInput:tabId=>D.release(tabId),realInputEnabled:()=>D.enabled()};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

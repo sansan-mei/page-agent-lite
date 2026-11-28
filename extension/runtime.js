@@ -32,6 +32,8 @@
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
     // Detach the task's debugger session (if any) whenever the tab stops being actively driven.
     const releaseInput=tabId=>Promise.resolve(tools.releaseInput?.(tabId)).catch(()=>false);
+    // The user's real input & screenshots switch (settings page); off hides page screenshots, click_point and trusted:true.
+    const realInputOn=()=>Promise.resolve(tools.realInputEnabled?.()).then(value=>value===true,()=>false);
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
     function enqueue(map,key,fn){const operation=(map.get(key)||Promise.resolve()).catch(()=>{}).then(fn);map.set(key,operation);operation.finally(()=>{if(map.get(key)===operation)map.delete(key);}).catch(()=>{});return operation;}
     function serial(tabId,fn){
@@ -642,7 +644,7 @@
         const skillIndex=skills?P.skillIndex((await skills.read(null).catch(()=>({notes:[]}))).notes,task.origin):[];
         const modelIdentity=await identity(),modelProtocol=await protocol();
         const scriptState=task.origin==='browser'?{permission:false,api:false,available:false}:await scriptAccess().catch(()=>({permission:false,api:false,available:false}));
-        const capabilities={scripts:scriptState?.available===true};
+        const capabilities={scripts:scriptState?.available===true,realInput:await realInputOn()};
         if(task.scriptApproval&&scriptState?.permission!==true){task=await update(tabId,token,t=>{t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');});if(!task)return;}
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
@@ -862,8 +864,8 @@
           if(reading&&(reading.url!==snap.url||snap.documentId&&reading.documentId!==snap.documentId)){await update(tabId,token,t=>{t.phase='observe';});return;}
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'observe',result:reading?{text:reading.page.text,textRange:reading.page.textRange,untrusted:true}:undefined,outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
         }
-        if(plan.action==='view_image'){await viewImage(task,plan,call,snap,live,controller.signal);return;}
-        if(plan.action==='click_point'){await pointAction(task,plan,call,snap,live,capabilities.vision===true);return;}
+        if(plan.action==='view_image'){await viewImage(task,plan,call,snap,live,controller.signal,capabilities.realInput);return;}
+        if(plan.action==='click_point'){await pointAction(task,plan,call,snap,live,capabilities.vision===true,capabilities.realInput);return;}
         if(plan.action==='wait'&&!plan.expected){
           task=await update(tabId,token,t=>{t.phase='verifying';t.status='waiting_page';t.check={operationId:uuid(),expected:[],deadline:now()+plan.timeoutMs,kind:'delay',request:plan,time:call.time};event(t,plan.reply);});
           return;
@@ -985,7 +987,7 @@
     // view_image: a page screenshot (viewport or a current element/region) with sensitive fields masked, or a new
     // question about an attached image. Vision models see the screenshot in the next request only; models without
     // vision get recognition text now. Failures are tool results for the model, never pauses.
-    async function viewImage(task,plan,call,snap,live,signal){
+    async function viewImage(task,plan,call,snap,live,signal,realInput){
       const {tabId,token}=task,source=plan.id,question=plan.value||null;
       const record=data=>update(tabId,token,t=>{
         const outcome=T.result({dispatch:'not_sent',scope:'dispatch',documentId:snap.documentId,...data});
@@ -1008,6 +1010,7 @@
         if(mode!=='unsupported')return record({status:'success',code:'IMAGE_IN_REQUEST',recovery:'none',message:'附图 '+source+' 每轮都在请求开头，直接查看即可'});
         return recognized(()=>images.recognize(image.id,imageGoal(task),signal,question));
       }
+      if(!realInput)return fail('REAL_INPUT_DISABLED','页面截图未开启（可在设置中开启「真实输入与截图」），未截图；附图仍可用 imageN');
       let id=null;
       if(source!=='viewport'){
         const target=snap.page.elements.find(e=>e.id===source)||(snap.page.regions||[]).find(r=>r.id===source);
@@ -1040,12 +1043,13 @@
     }
     // click_point: one real click at {x,y} of the latest viewport screenshot the model has seen. The runtime converts
     // screenshot pixels to viewport CSS pixels; valid on the same tab, document and URL for 60 s, used up by the click.
-    async function pointAction(task,plan,call,snap,live,vision){
+    async function pointAction(task,plan,call,snap,live,vision,realInput){
       const {tabId,token}=task,v=task.lastView,{x,y}=plan.value,label='坐标 ('+x+','+y+')';
       const reject=(code,message)=>update(tabId,token,t=>{
         const outcome=T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',documentId:snap.documentId,observed:{input:'none',target:'point',x,y},message});
         t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'click_point',label,outcome,result:message});event(t,message);
       });
+      if(!realInput)return reject('REAL_INPUT_DISABLED','真实输入未开启（可在设置中开启「真实输入与截图」），未点击；请用快照元素 ID');
       if(!vision)return reject('POINT_UNAVAILABLE','当前模型不能看图，坐标点击不可用；请用快照元素 ID');
       if(!v?.seen||v.tabId!==tabId||v.documentId!==(snap.documentId||null)||v.url!==snap.url||!(now()-v.time<=60000))return reject('POINT_NO_SCREENSHOT','坐标点击需要本页面 60 秒内、已看过的最新 viewport 截图；请先 view_image viewport');
       if(!(x<v.image.width&&y<v.image.height))return reject('POINT_OUTSIDE','坐标超出截图范围（'+v.image.width+'×'+v.image.height+'）');

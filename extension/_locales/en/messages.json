@@ -976,5 +976,20 @@
   },
   "mgSkillGeneral": {
     "message": "General (any site)"
+  },
+  "optRealInputTitle": {
+    "message": "Real input & screenshots"
+  },
+  "optRealInputIntro": {
+    "message": "Lets the assistant take screenshots and use a real mouse click when a simulated one can’t reach; Chrome shows a debugging bar while in use."
+  },
+  "optRealInputEnable": {
+    "message": "Turn on"
+  },
+  "optRealInputDisable": {
+    "message": "Turn off"
+  },
+  "optRealInputFailed": {
+    "message": "Couldn’t save, try again."
   }
 }
