@@ -55,7 +55,7 @@ git diff --check
 - 线上真实模型：规划、记忆选择、摘要质量、子目标质量、缓存命中与费用。
 - 原生工具调用：请求体、tool_call 转换、多调用/坏参数拒绝、auto 回退与记忆只有 Node 假 fetch，浏览器 smoke 的假接口按 tool_calls 应答；真实服务商（OpenAI、DeepSeek、通义、Ollama 等）对 `tools`、`tool_choice:"required"`、`parallel_tool_calls` 的接受情况及 400 正文措辞未验证。
 - Claude 格式：请求头与请求体、回复映射、围栏去除、auto 回退由 Node 假 fetch 覆盖，浏览器 smoke 不覆盖。2026-11-27 在 Anthropic 兼容中转（claude-opus-5-5）上实测：`tool_choice` any/tool 返回 400，auto + `disable_parallel_tool_use` 正常返回单个 tool_use，并用 backend.js 真实请求完成一轮；官方 Anthropic API（OAuth 通道）同样拒绝 any/tool、接受 auto；API key 通道与提示缓存命中未验证。
-- 看图：探测分类、图片请求体（OpenAI `image_url` 数据 URL / Claude base64 块与最后一张图的缓存标记）、图片类 400 回退、识别模型请求、附图存储（IndexedDB 替身）与运行器的认领/识别/清理只有 Node 模拟；真实服务商对小图探测的回复、400 正文措辞、识别质量与图片缓存命中，以及真实 IndexedDB 升级到 v6 均未验证。
+- 看图：探测分类、图片请求体（OpenAI `image_url` 数据 URL / Claude base64 块与最后一张图的缓存标记）、图片类 400 回退、识别模型请求、附图存储（IndexedDB 替身）与运行器的认领/识别/清理只有 Node 模拟；真实服务商对小图探测的回复、400 正文措辞、识别质量与图片缓存命中，以及真实 IndexedDB 升级到 v6 均未验证。侧栏选择/粘贴/拖入、缩略图、数量与类型限制、设置页识别模型只有 linkedom + 替身（canvas 压缩用假 Image/canvas）；真实浏览器中的 canvas 压缩质量、剪贴板与拖放事件、缩略图布局未验证。
 - 原生侧栏位置与工具栏手势、原生主机权限弹窗（授权/拒绝/重试）、权限升级后重新启用。
 - 动作派发瞬间强杀 worker/浏览器进程（目前只验证了等待阶段的真实 worker 终止；派发中与跨来源恢复仅模拟）。
 - 真实 React/Vue 等框架、组件库、视频站点、慢加载页面与多种动态网站。

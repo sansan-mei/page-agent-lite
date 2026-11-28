@@ -37,6 +37,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `page-pointer.js` | 页面内虚拟指针与高亮，无任务状态、无模型访问 | [网页工具](browser-tools.md) |
 | `sidepanel.*` | 对话、工具卡片、历史、任务范围、接管；没有执行循环 | [使用指南](usage.md) |
 | `options.*`、`management.js`、`global-management.js` | 设置页；网站记忆管理；全局记忆管理 | [使用指南](usage.md) |
+| `attachments.js` | 侧栏附图：类型/大小检查、canvas 压缩为 JPEG（长边 ≤ 1568）、草稿写入 IndexedDB；只在侧栏加载 | [存储](storage.md#任务附图) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
 | `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
 | `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
