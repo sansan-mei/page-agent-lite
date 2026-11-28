@@ -24,7 +24,7 @@
 ## 一次 tick
 
 1. 读取任务，核对运行代次、当前 URL 来源属于 `allowedOrigins` 且有主机权限、页面就绪。来源变化走 [跨来源切换](#跨来源切换)。
-2. `executing` 恢复：有条件则只读核对，无条件则暂停；`approved` 页面已变则重新规划（已批准的 run_script 记 `STALE`，不执行）。
+2. `executing` 恢复：有条件则只读核对，无条件则暂停（目标模式下改为记一条 `INTERRUPTED` unknown 结果并重新观察，由模型按页面核对，与 `TARGET_CHANGED` 共用重新核对上限）；`approved` 页面已变则重新规划（已批准的 run_script 记 `STALE`，不执行）。
 3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 的结果作为 `capabilities` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
@@ -51,7 +51,7 @@
 | 连续切换标签页而无网页动作（`tabHops`）暂停 | 6 次 | 10 次 |
 | `uncertainClicks` | 运行时拦截同文档同目标 | 不拦截，只作为提示交给模型 |
 
-模型输入带 `goalMode=true`，提示模型优先重新规划、只在页面显示效果缺失时重做，且不重复可能已发生的提交/删除/支付/发送。不变的边界：轮数预算、`executing` 中断只读核对或暂停（运行时从不重放）、脚本批准、浏览器权限、敏感字段授权、`pauseReason=user` 的提问。
+模型输入带 `goalMode=true`，提示模型优先重新规划、只在页面显示效果缺失时重做，且不重复可能已发生的提交/删除/支付/发送。不变的边界：轮数预算、`executing` 中断只读核对、重新观察或暂停（运行时从不重放）、脚本批准、浏览器权限、敏感字段授权、`pauseReason=user` 的提问。
 
 ## 等待与核对
 
@@ -139,7 +139,7 @@
 每次 turn 先读浏览器 URL。来源变化时 `adoptOrigin` 校验主机权限；通过核对后自动记录目标来源，不要求预先加入任务：
 
 - 原操作只有 URL 条件且实际 URL 满足：只读核对后切换。无条件的 executing、旧 DOM 条件或未预期重定向：暂停并保留 check/deadline/dispatch，不在新站点评估旧字段。
-- URL 变化或主文档开始加载触发 `navigationChanged`：取消旧模型/摘要请求并轮换 token。
+- URL 变化或主文档开始加载触发 `navigationChanged`：取消旧模型/摘要请求并轮换 token。此时若无条件的动作仍在 executing 且未跨源（含同一 URL 的表单提交，加载事件不带新 URL），记为 `DOCUMENT_CHANGED` unknown 结果并回到 observe，不暂停、不重放。
 - 切换由 `task-store.switchOrigin` 单独发布：新根只保留用户目标与补充、taskId、预算与累计统计、授权目录；结果、摘要、归档、计划、完成条件、笔记读取全部重新开始；只有 `tabTrail`、`handoffs`、`progress`、`tabHops` 原样保留（见 [多标签执行](#多标签执行)）。旧来源内容存入只读来源分区，模型看不到；返回旧来源也不恢复，只恢复该来源的未确定点击约束。
 
 ## 记忆版本

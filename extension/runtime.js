@@ -230,7 +230,9 @@
         if(t?.scriptRequest&&!ACTIVE.has(t.status)){t.token=uuid();discardScript(t,'页面已变化，待批准的脚本已作废，未执行；点击继续重新观察',now());t.reason='script_stale';t.updatedAt=now();await store.set(tabId,t);return null;}
         if(!t||!ACTIVE.has(t.status))return null;
         controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;discardScript(t,'页面已变化，已批准的脚本未执行；重新观察',now());
-        if(!t.check&&t.phase==='executing'&&t.pending&&url&&new URL(url).origin===t.origin&&url!==t.pending.url){
+        // Any same-origin navigation while an action without conditions is in flight, including a same-URL form POST
+        // (onUpdated status=loading carries no new URL), ends that action as unknown so the next turn re-reads the page.
+        if(!t.check&&t.phase==='executing'&&t.pending&&(!url||new URL(url).origin===t.origin)){
           const pending=t.pending;t.uncertainClicks=(t.uncertainClicks||[]).concat({url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}).slice(-2);
           t.results=(t.results||[]).concat({action:pending.plan.action,request:pending.plan,origin:t.origin,tabRef:refOf(t),outcome:T.result({status:'unknown',dispatch:'unknown',scope:'dispatch',code:'DOCUMENT_CHANGED',recovery:'observe',operationId:pending.operationId,message:'页面已导航，旧操作未重放；重新观察核对'})});t.phase='observe';t.pending=null;
         }
@@ -565,6 +567,15 @@
           if(task.check?.expected?.length){
             task=await update(tabId,token,t=>{t.phase='verifying';t.status='running';t.pending=null;event(t,'恢复未确定的操作，仅检查预期结果，不重复执行');});
             if(task)await verifyCheck(task,live);return;
+          }
+          // Goal mode: record the interrupted action as unknown and re-read the page; the model checks the effect.
+          // Nothing is replayed by the runtime; bounded by the same recovery cap as TARGET_CHANGED.
+          if(task.goalMode&&(task.recoveryCount||0)<caps(task).recovery){
+            await update(tabId,token,t=>{const pending=t.pending;t.recoveryCount=(t.recoveryCount||0)+1;t.phase='observe';t.pending=null;t.status='running';t.waitDeadline=null;
+              if(pending)t.uncertainClicks=(t.uncertainClicks||[]).concat({url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}).slice(-2);
+              t.results=t.results.concat({action:pending?.plan?.action||'unknown',request:pending?.plan,label:pending?.label,time:now(),outcome:T.result({status:'unknown',dispatch:'unknown',scope:'dispatch',code:'INTERRUPTED',recovery:'observe',operationId:pending?.operationId,message:'后台在执行操作期间中断，结果不确定；重新读取页面核对，运行时不会重放'})});
+              event(t,'后台在执行操作期间中断，结果不确定；目标模式下重新读取页面核对，不会自动重放');});
+            return;
           }
           await pause(task,'后台在执行操作期间中断，结果不确定。请检查页面后点击继续，系统不会重放该操作。','uncertain');return;
         }
