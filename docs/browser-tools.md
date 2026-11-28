@@ -128,7 +128,7 @@ observe 的 value：
 | kind | 核对 |
 |---|---|
 | field_equals | 字段实际值（含 contenteditable 纯文本）；不等时忽略空白改写再比较 |
-| checked_equals | 勾选状态 |
+| checked_equals | 勾选状态；value 须为布尔，字符串 "true"/"false"（不分大小写）在 `agentPlan` 中转换 |
 | selected_equals / expanded_equals | 显式 aria-selected / aria-expanded；缺失或非法为 unknown |
 | element_visible / element_absent | 存在且可见 / 在完整观察范围内不存在 |
 | text_present | 指定区域内出现文字（必须指向具体区域）；同样忽略空白改写 |

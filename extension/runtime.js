@@ -28,6 +28,7 @@
   }
   function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
+    const PLAN_RETRIES=2; // consecutive INVALID_PLAN results returned to the model before pausing
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
     function enqueue(map,key,fn){const operation=(map.get(key)||Promise.resolve()).catch(()=>{}).then(fn);map.set(key,operation);operation.finally(()=>{if(map.get(key)===operation)map.delete(key);}).catch(()=>{});return operation;}
@@ -512,6 +513,15 @@
         await store.set(tabId,t);return t;
       });
     }
+    // Bad tool arguments from the model (format, unknown target, condition shape) are returned to it as
+    // INVALID_PLAN so it can correct and resend; nothing was dispatched. Errors that already carry a code keep it.
+    function invalidPlan(error,text){
+      if(error.code)return error;
+      let sent=null;try{const p=JSON.parse(text);sent=p&&typeof p==='object'?p:null;}catch{sent=null;}
+      const detail=sent?.expected!==undefined?'；收到 expected='+JSON.stringify(sent.expected).slice(0,300):'';
+      return Object.assign(error,{code:'INVALID_PLAN',message:'工具参数无效：'+error.message+detail+'。未执行任何操作，请改正后重发',request:sent});
+    }
+    function bindPlan(list,snap,policy){try{return G.bind(list,snap,policy);}catch(error){throw invalidPlan(error,JSON.stringify({expected:list}));}}
     async function pause(task, text, reason = 'error') {
       await update(task.tabId, task.token, t => {t.status=reason==='error'?'failed':'paused';t.reason=reason;t.pending=null;t.check=null;t.waitDeadline=null;event(t,text);});
     }
@@ -698,11 +708,11 @@
         if(!await live())return;
         planText=result.text;
         }
-        let plan = C.agentPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});
+        let plan;try{plan=C.agentPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});}catch(error){throw invalidPlan(error,planText);}
         if(task.origin==='browser'&&!['navigate','tab_switch','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
         if(plan.subgoals!==undefined){
           const updates=plan.subgoals.map(g=>{
-            const checks=g.checks?G.bind(g.checks,snap):[],verification=checks.length?G.evaluate(checks,snap):null;
+            const checks=g.checks?bindPlan(g.checks,snap):[],verification=checks.length?G.evaluate(checks,snap):null;
             return {id:g.id,title:g.title,status:g.status==='completed'&&verification?.status!=='success'?'active':g.status,verification,updatedAt:now(),documentId:snap.documentId||null,url:snap.url};
           });
           const merged=plan.subgoals.length?(task.taskPlan||[]).filter(g=>!updates.some(u=>u.id===g.id)).concat(updates):[];
@@ -784,12 +794,12 @@
           return;
         }
         if(['wait','verify'].includes(plan.action)){
-          const expected=G.bind(plan.expected,snap);
+          const expected=bindPlan(plan.expected,snap);
           task=await update(tabId,token,t=>{t.phase='verifying';t.recoveryCount=0;t.check={operationId:uuid(),expected,deadline:now()+(plan.action==='verify'?0:plan.timeoutMs||10000),kind:plan.action,request:plan,time:call.time};event(t,plan.reply);});
           if(task&&await live())await verifyCheck(task,live);return;
         }
         if (plan.action==='done') {
-          const expected=plan.expected?G.bind(plan.expected,snap):task.completionChecks;
+          const expected=plan.expected?bindPlan(plan.expected,snap):task.completionChecks;
           if(expected?.length){
             task=await update(tabId,token,t=>{t.completionChecks=expected;t.phase='verifying';t.check={operationId:uuid(),expected,deadline:now(),kind:'completion',reply:plan.reply};});
             if(task&&await live())await verifyCheck(task,live);return;
@@ -804,7 +814,7 @@
           if(tools.hasOriginAccess&&!await tools.hasOriginAccess(destination)){await update(tabId,token,t=>{t.status='paused';t.reason='browser_target';t.phase='observe';t.browserTarget=plan.value;event(t,'任务未完成：尚未打开目标网站，缺少浏览器网站权限，请授权后继续。');});return;}
           if(destination!==task.origin&&combined.some(condition=>!condition.kind.startsWith('url_')))throw Object.assign(new Error('跨站导航只支持 URL 条件核对，不能使用旧站点 DOM 条件'),{code:'NAVIGATION_DENIED'});
         }
-        const expected=G.bind(combined,snap,plan.action==='navigate'?{allowedOrigins:[...(task.allowedOrigins||[task.origin]),new URL(plan.value).origin]}:null);
+        const expected=bindPlan(combined,snap,plan.action==='navigate'?{allowedOrigins:[...(task.allowedOrigins||[task.origin]),new URL(plan.value).origin]}:null);
         // Goal mode lets the model redo an uncertain target after re-reading the page; the runtime itself never replays.
         for(const guard of C.agentTool(plan.action).guard&&!task.goalMode?(task.uncertainClicks||[]):[]){
           const sameTarget=target&&(guard.key?guard.key===target.key:JSON.stringify(guard.target)===JSON.stringify(G.descriptor(target,snap.page)));
@@ -849,6 +859,14 @@
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面连接或忙碌等待超时，未重复操作','timeout');return;}
           await update(tabId,token,t=>{t.status='waiting_page';t.waitDeadline=deadline;t.pending=null;t.phase=t.check?'verifying':'observe';event(t,'正在等待页面加载或上一操作结束，随后重新读取');});
+        } else if (error.code==='INVALID_PLAN') {
+          let streak=0;
+          const saved=await update(tabId,token,t=>{
+            if(!call)t.results=t.results.concat({request:error.request||undefined,time:now(),action:'invalid_plan',outcome:t.lastOutcome,result:t.lastOutcome.message});
+            for(const r of t.results.slice().reverse()){if(r.outcome?.code!=='INVALID_PLAN')break;streak++;}
+            if(streak<=PLAN_RETRIES){t.phase='observe';t.pending=null;t.check=null;event(t,error.message+'（'+streak+'/'+PLAN_RETRIES+'）');}
+          });
+          if(saved&&streak>PLAN_RETRIES)await pause(task,'模型连续 '+streak+' 次给出无效的工具参数，已暂停：'+error.message,'model');
         } else if (['INPUT_CANCELLED','INVALID_FIELD_VALUE','UNSUPPORTED_EDITABLE'].includes(error.code))await pause(task,error.message,'input');
         else if (error.code==='MODEL_PROTOCOL_FALLBACK'&&task.retries<2) {
           await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'接口未使用原生工具调用，改用 JSON 文本协议重试（'+t.retries+'/2）');});

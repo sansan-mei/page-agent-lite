@@ -255,7 +255,7 @@ function agentPlan(raw,snap){
   if(!Array.isArray(p.subgoals)||p.subgoals.length>8||new Set(p.subgoals.map(g=>g?.id)).size!==p.subgoals.length)throw new Error('子目标列表无效');
   for(const g of p.subgoals){
    if(!g||Object.keys(g).some(k=>!['id','title','status','checks'].includes(k))||typeof g.id!=='string'||! /^[a-zA-Z0-9_-]{1,40}$/.test(g.id)||typeof g.title!=='string'||!g.title.trim()||g.title.length>120||!['pending','active','completed','blocked'].includes(g.status)||g.status==='completed'&&!g.checks)throw new Error('子目标格式或完成证据无效');
-   if(g.checks!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;G.validate(g.checks);}
+   if(g.checks!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;g.checks=G.normalize(g.checks);G.validate(g.checks);}
   }
  }
  if(p.action==='observe'&&p.value!==undefined){if(typeof p.value==='object')agentReadOptions(p.value);else if(!Number.isSafeInteger(p.value)||p.value<0)throw new Error('Invalid text offset');}
@@ -278,7 +278,7 @@ function agentPlan(raw,snap){
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
  if(p.choices!==undefined&&(p.action!=='pause'||!Array.isArray(p.choices)||p.choices.length<2||p.choices.length>8||p.choices.some(v=>typeof v!=='string'||!v.trim()||v.length>120)||new Set(p.choices).size!==p.choices.length))throw new Error('用户选项无效');
- if(p.expected!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;G.validate(p.expected);}
+ if(p.expected!==undefined){const G=typeof module!=='undefined'?require('./conditions.js'):root.PageAgentConditions;p.expected=G.normalize(p.expected);G.validate(p.expected);}
  if(p.action==='verify'&&!p.expected)throw new Error('验证需要明确条件');
  if(p.action==='wait'&&!p.expected&&p.timeoutMs===undefined)throw new Error('纯延时等待需要 timeoutMs');
  if(p.timeoutMs!==undefined&&(!Number.isInteger(p.timeoutMs)||p.timeoutMs<100||p.timeoutMs>30000||!agentTool(p.action).timeout))throw new Error('等待时间需为 100–30000 毫秒');

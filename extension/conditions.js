@@ -21,6 +21,11 @@
     }
     return list;
   }
+  // Models often write boolean checks as "true"/"false"; convert only those exact strings, leave everything else to validate.
+  function normalize(list){
+    if(!Array.isArray(list))return list;
+    return list.map(c=>c&&['checked_equals','selected_equals','expanded_equals'].includes(c.kind)&&typeof c.value==='string'&&/^(true|false)$/i.test(c.value.trim())?{...c,value:c.value.trim().toLowerCase()==='true'}:c);
+  }
   function descriptor(item,page){
     const d={category:item.id.startsWith('r')?'region':'element',tag:item.tag||'',role:item.role||'',label:item.label||'',name:item.name||'',type:item.type||'',group:page.groups?.find(g=>g.id===item.group)?.label||'',frame:page.frames?.find(f=>f.id===item.frame)?.key||''};
     if(!d.label&&!d.name)d.key=item.key||'';
@@ -87,5 +92,5 @@
     if(plan.action==='check')return [{kind:'checked_equals',id:plan.id,value:plan.value}];
     return [];
   }
-  const api={validate,bind,evaluate,automatic,descriptor};root.PageAgentConditions=api;if(typeof module!=='undefined')module.exports=api;
+  const api={validate,normalize,bind,evaluate,automatic,descriptor};root.PageAgentConditions=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
