@@ -284,7 +284,7 @@ test('cached usage anchors pressure without counting cached tokens as free capac
  const anchored=P.pressure(task,'{}','one');assert.equal(anchored.tokens,26000);assert.equal(anchored.source,'api_plus_estimate');assert.ok(anchored.tokens>anchored.trigger);
  assert.equal(P.pressure(task,'{}','two').source,'estimate');
  let seen;const f=fixture({identity:async()=> 'one',model:async()=>({text:'{"reply":"read","action":"observe"}',usage:{promptTokens:26000,cachedTokens:25000},modelIdentity:'one'}),summarize:async text=>{seen=JSON.parse(text);return {text:summaryText};}});
- await f.runtime.start(1,'任务');let t=await f.runtime.get(1);t.results=Array.from({length:20},()=>({action:'observe',result:'small'}));await f.store.set(1,t);
+ await f.runtime.start(1,'任务');let t=await f.runtime.get(1);t.results=Array.from({length:20},(_,i)=>({action:'observe',result:'small '+i}));await f.store.set(1,t);
  await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).contextSummary,undefined);
  await f.runtime.tick(1);assert.ok(seen);assert.equal((await f.runtime.get(1)).contextUsage,null);
 });

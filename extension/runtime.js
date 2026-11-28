@@ -461,7 +461,7 @@
           const attached=await attach(task,options.attachments);
           controllerForTab(tabId)?.abort();discardApprovals(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};task.reviewState=null;
-          task.question=null;task.helpAttempts=0;task.tabHops=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          task.question=null;task.helpAttempts=0;task.tabHops=0;task.readsFrom=Date.now();task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           if(wasCompleted)task.steps=0;
           if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
           event(task,withImages('你（补充指令）：'+text.trim(),attached));
@@ -487,7 +487,7 @@
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
         if(JSON.stringify(instructions).length>instructionLimit(t.prefs))throw new Error('补充指令已达上下文上限');
-        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.tabHops=0;t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.tabHops=0;t.readsFrom=Date.now();t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
@@ -539,7 +539,7 @@
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
         const recovery=['global_memory_changed','scope_reconciled','scope_changed','permission_denied','origin','origin_verification','origin_storage'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
-        t.question=null;t.helpAttempts=0;t.tabHops=0;t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
+        t.question=null;t.helpAttempts=0;t.tabHops=0;t.readsFrom=Date.now();t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
@@ -555,7 +555,23 @@
       schedule(tabId); return saved;
     }
     // Goal mode trades pauses for more autonomous replanning; the step budget still bounds it.
-    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:3,noChange:6,hops:10}:{verify:2,recovery:2,help:3,noChange:3,hops:6};
+    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:3,noChange:6,hops:10,reads:8}:{verify:2,recovery:2,help:3,noChange:3,hops:6,reads:6};
+    // Reads (screenshots, scripts, observe, notes) change nothing; repeating one with the same answer and no page
+    // action in between is a loop even when every call succeeds, e.g. view_image ↔ run_script returning [] again.
+    const READS=new Set(['observe','view_image','run_script','history_read','skill_read','read_references','site_memory_read','global_memory_read']);
+    const READ_LOOP_HINT=3;
+    function readRepeats(t){
+      const seen=new Set();let repeats=0,hinted=false;
+      for(const r of (t.results||[]).slice().reverse()){
+        if(t.readsFrom&&r.time<t.readsFrom)break;
+        if(r.outcome?.code==='NO_NEW_INFORMATION'){hinted=true;continue;}
+        if(r.action==='replan')continue;
+        if(!READS.has(r.action)){if(r.outcome?.dispatch==='not_sent')continue;break;}
+        const key=JSON.stringify([r.action,r.request?.id??null,r.action==='run_script'?null:r.request?.value??null,r.outcome?.code??null,r.outcome?.observed??r.result??null]);
+        if(seen.has(key))repeats++;else seen.add(key);
+      }
+      return {repeats,hinted};
+    }
     async function setGoalMode(tabId,taskId,enabled){
       if(typeof enabled!=='boolean')throw new Error('目标模式参数无效');
       return serial(tabId,async()=>{
@@ -743,6 +759,13 @@
             await images.dropShots(task.taskId,(task.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
           }
           if(task.shots?.length)capabilities.shots=task.shots.map(shot=>shot.id);
+        }
+        const loop=readRepeats(task),readCap=caps(task).reads;
+        if(loop.repeats>=readCap){await pause(task,'连续 '+loop.repeats+' 次只读操作（截图、脚本、读取）结果重复，期间没有网页操作，已暂停；请检查页面或补充说明','no_progress');return;}
+        if(loop.repeats>=READ_LOOP_HINT&&!loop.hinted){
+          const message='最近的截图/脚本/读取结果在重复（'+loop.repeats+' 次），期间没有网页操作，再读也不会有新信息；不要重复同类查询。改为操作当前快照中的目标'+(capabilities.vision&&capabilities.realInput?'（无标签、无法与截图对应时可用 click_point）':'')+'；等页面变化用 wait；受阻则 pause 说明原因；继续重复将暂停任务';
+          task=await update(tabId,token,t=>{t.results=t.results.concat({action:'replan',time:Date.now(),result:message,outcome:T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'NO_NEW_INFORMATION',recovery:'replan',documentId:snap.documentId,message})});event(t,'只读操作结果重复，已提示模型换方法');});
+          if(!task||!await live())return;
         }
         const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,skillIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);

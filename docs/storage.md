@@ -51,6 +51,7 @@
 | goalMode | 目标模式开关，见 [任务运行器](agent-runtime.md#目标模式)；来源切换保留 |
 | tabTrail / handoffs / tabHops | 标签切换轨迹（≤ 12）、模型交接笔记（最近 3 条，各 ≤ 2000 字符）、连续切换计数，见 [多标签执行](agent-runtime.md#多标签执行)；来源切换保留 |
 | status、reason、phase、steps、prefs、retries | 运行状态与累计轮数 |
+| readsFrom | 只读结果重复计数的起点时间，继续、补充指令、回答选择时更新，见 [错误与恢复](agent-runtime.md#错误与恢复) |
 | pending | 待执行计划与快照标识，不含 DOM 引用；navigate 时 value 为受限绝对 URL |
 | check、waitDeadline | 等待/核对检查点（含 dispatch、原来源/标签/范围版本、deadline） |
 | completionChecks、completionEvidence、lastOutcome、recoveryCount、verificationRecoveries、helpAttempts | 完成条件与恢复计数 |

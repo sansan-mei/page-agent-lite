@@ -49,6 +49,7 @@
 | 普通阻碍重新规划（`helpAttempts`） | 3 次 | 3 次 |
 | 同动作同目标连续 `NO_CHANGE` 暂停 | 3 条 | 6 条 |
 | 连续切换标签页而无网页动作（`tabHops`）暂停 | 6 次 | 10 次 |
+| 只读结果重复而无网页动作暂停 | 6 次 | 8 次 |
 | `uncertainClicks` | 运行时拦截同文档同目标 | 不拦截，只作为提示交给模型 |
 
 模型输入带 `goalMode=true`，提示模型优先重新规划、只在页面显示效果缺失时重做，且不重复可能已发生的提交/删除/支付/发送。不变的边界：轮数预算、`executing` 中断只读核对、重新观察或暂停（运行时从不重放）、脚本批准、浏览器权限、敏感字段授权、`pauseReason=user` 的提问。
@@ -79,6 +80,7 @@
 | 完成条件或 wait 条件未核实 | 暂停；目标模式下按上一行重新规划 |
 | 页面加载/忙碌 | 最多等 30 秒或沿用更早 deadline；地址一致、无 pendingUrl、readyState 为 interactive/complete 即可只读核对 |
 | 最近 3 条结果同动作、同目标 label 且 code 均为 `NO_CHANGE` | 暂停（目标模式 6 条）；`TARGET_VISUAL_CHANGED` 不计入并打断连续计数（同名图块逐个选中是正常进展） |
+| 只读结果重复：自上次网页动作（dispatch 不是 not_sent）或继续/补充指令/回答选择（`readsFrom`）以来，observe、view_image、run_script、history_read、记忆/技能读取的结果与本段内更早一条相同（同动作、同 id/value（run_script 不比代码）、同 code 与 observed/result） | 每轮模型请求前计数；达 3 次时追加一条 `NO_NEW_INFORMATION`（action=replan，本段只一次）提示换方法；达 6 次（目标模式 8 次）暂停为 `no_progress` |
 | `INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE` | 暂停（reason=input），不重放 |
 | 权限不足、受保护页面 | 暂停；其他错误标 failed |
 | run_script | 本轮不可用则暂停为 access；否则暂停为 script_approval，见 [侧栏批准](#侧栏批准) |
