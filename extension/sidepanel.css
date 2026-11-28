@@ -119,4 +119,6 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 #script-code { max-height: 260px; overflow: auto; margin: 8px 0; padding: 8px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; color: #1f2328; background: #fff; border: 1px solid #ecd8ad; border-radius: 6px; }
 #script-target { font-weight: 600; overflow-wrap: anywhere; }
 #script-grant { margin: 8px 0; font-size: 12px; color: #6b5a2e; overflow-wrap: anywhere; }
-#script-grant .inline-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+#script-setup { margin: 0 0 6px; font-size: 12px; color: #6b5a2e; }
+#script-setup-close { float: right; text-decoration: none !important; }
+#script-grant .inline-link, #script-setup .inline-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }

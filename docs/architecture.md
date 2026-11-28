@@ -41,7 +41,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `attachments.js` | 侧栏附图：类型/大小检查、canvas 压缩为 JPEG（长边 ≤ 1568）、草稿写入 IndexedDB；只在侧栏加载 | [存储](storage.md#任务附图) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
 | `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
-| `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
+| `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台、设置页与侧栏（只用可用性检查）加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
 | `script-settings.js` | 设置页「脚本执行」：点击申请可选 `userScripts` 权限、显示状态 | [使用指南](usage.md#脚本执行) |
 
 ## 消息入口
@@ -54,7 +54,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入（含 `click_point` 坐标点击）和截取 `view_image` 截图，不能设为可选权限；按需连接，见[真实输入](browser-tools.md#真实输入)与[截图](browser-tools.md#截图)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入（含 `click_point` 坐标点击）和截取 `view_image` 截图，不能设为可选权限；按需连接，见[真实输入](browser-tools.md#真实输入)与[截图](browser-tools.md#截图)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页「脚本执行」点击或侧栏开启目标模式时申请（安装不提示）。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源；跨源嵌入框架可沿用用户已记住的顶层来源→框架来源授权，见[网页工具](browser-tools.md#iframe)。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。

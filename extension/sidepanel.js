@@ -419,8 +419,28 @@
     $('composer').addEventListener('dragleave',()=>$('composer').classList.remove('dragging'));
     $('composer').addEventListener('drop',e=>{e.preventDefault();$('composer').classList.remove('dragging');const {files,url}=A.fromTransfer(e.dataTransfer);if(url){$('status').textContent=t('spImageUrl');return;}void addImages(files);});
   }
+  // Turning goal mode on also gets run_script ready: ask for the optional userScripts permission
+  // inside this click (user gesture), then hint once if Chrome's "Allow User Scripts" toggle is off.
+  // Approval of each script is unchanged; turning goal mode off keeps the permission.
+  const S=globalThis.PageAgentScriptTools;let scriptsGranted=null;
+  async function refreshScripts(){
+    if(!S)return null;let state={permission:false,api:false,available:false};
+    try{state=await S.status(chrome);}catch{ /* treated as unavailable */ }
+    scriptsGranted=state.permission;if(state.available)$('script-setup').hidden=true;return state;
+  }
+  function prepareScripts(){
+    if(!S)return;let request=true;
+    if(scriptsGranted!==true)try{request=chrome.permissions.request({permissions:[S.permission]});}catch{request=false;}
+    void Promise.resolve(request).catch(()=>false).then(()=>refreshScripts()).then(state=>{if(goalMode&&state?.permission&&!state.available)$('script-setup').hidden=false;});
+  }
+  $('script-setup-open').addEventListener('click',()=>{void Promise.resolve(chrome.tabs.create({url:'chrome://extensions/?id='+chrome.runtime.id})).catch(()=>{});});
+  $('script-setup-close').addEventListener('click',()=>{$('script-setup').hidden=true;});
+  // The toggle is flipped in another tab: re-check when the panel becomes visible again.
+  document.addEventListener('visibilitychange',()=>{if(!$('script-setup').hidden&&document.visibilityState!=='hidden')void refreshScripts();});
+  globalThis.addEventListener?.('focus',()=>{if(!$('script-setup').hidden)void refreshScripts();});
   $('goal-mode').addEventListener('click',()=>{
     if(busy)return;goalMode=!goalMode;
+    if(goalMode)prepareScripts();else $('script-setup').hidden=true;
     void chrome.storage.local?.set({goalMode})?.catch(()=>{});
     if(ongoingTask()&&task.goalMode!==goalMode)void action('task:goal-mode',{taskId:task.taskId,enabled:goalMode});else render();
   });
@@ -492,8 +512,8 @@
   }
   $('grant').addEventListener('click',()=>authorize(false));
   $('grant-all').addEventListener('click',()=>authorize(true));
-  chrome.permissions.onAdded.addListener(()=>void refreshPermissions());
-  chrome.permissions.onRemoved.addListener(()=>void refreshPermissions());
+  chrome.permissions.onAdded.addListener(()=>{void refreshPermissions();void refreshScripts();});
+  chrome.permissions.onRemoved.addListener(()=>{void refreshPermissions();void refreshScripts();});
   chrome.tabs.onActivated.addListener(()=>void selectTab());
   chrome.tabs.onUpdated.addListener((id,change)=>{
     if(id===tabId&&(change.url||change.status==='complete'))void selectTab();
@@ -513,6 +533,6 @@
     }
     if(!scopePending&&task?.taskId&&changes['taskRoot:'+task.taskId])invalidateTask();
   });
-  void loadInputLimit();void loadGoalMode();
+  void loadInputLimit();void loadGoalMode();void refreshScripts();
   void selectTab();
 })();

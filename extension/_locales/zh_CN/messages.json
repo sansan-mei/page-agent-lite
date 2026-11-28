@@ -824,6 +824,15 @@
   "spScriptReject": {
     "message": "拒绝"
   },
+  "spScriptSetup": {
+    "message": "脚本执行还需打开浏览器的「允许用户脚本」"
+  },
+  "spScriptSetupOpen": {
+    "message": "打开扩展详情"
+  },
+  "spScriptSetupDismiss": {
+    "message": "关闭提示"
+  },
   "spScriptRevoke": {
     "message": "撤销"
   },

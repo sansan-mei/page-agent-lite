@@ -824,6 +824,15 @@
   "spScriptReject": {
     "message": "Reject"
   },
+  "spScriptSetup": {
+    "message": "Scripts also need Chrome’s “Allow User Scripts” toggle"
+  },
+  "spScriptSetupOpen": {
+    "message": "Open extension details"
+  },
+  "spScriptSetupDismiss": {
+    "message": "Dismiss"
+  },
   "spScriptRevoke": {
     "message": "Revoke"
   },

@@ -3,7 +3,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');const vm=require('node:vm');const {parseHTML}=require('linkedom');
 const {createRuntime}=require('../extension/runtime.js');
 const G=require('../extension/conditions.js'),P=require('../extension/prompts.js');
-const {runUi}=require('./i18n-helper.js');
+const {runUi,chromeI18n}=require('./i18n-helper.js');
+const chrome_i18n=chromeI18n('zh_CN');
 const flush=()=>new Promise(r=>setImmediate(r));
 
 function fixture(overrides={}){
@@ -145,4 +146,57 @@ test('side panel goal toggle persists across panels, arms every new task and swi
  assert.deepEqual(calls.filter(m=>m.type==='task:goal-mode').map(({enabled})=>enabled),[false],'the live task is switched off too');
  panel=await openPanel();
  assert.equal(panel.toggle.getAttribute('aria-pressed'),'false');assert.equal((await panel.submit('普通任务')).goalMode,false);
+});
+
+test('turning goal mode on requests userScripts in the click and hints once when the Chrome toggle is off',async()=>{
+ const S=require('../extension/script-tools.js');
+ const openPanel=async({granted=false,answer=true,api=false}={})=>{
+  const {document,window}=parseHTML(fs.readFileSync('extension/sidepanel.html','utf8'));
+  const log=[],state={granted,api,inClick:false};
+  const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/cv',title:'CV'}];},create(o){log.push(['open',o.url]);return Promise.resolve({});},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(){}}},
+   permissions:{async contains(q){return q.permissions?state.granted:true;},onAdded:{addListener(){}},onRemoved:{addListener(){}},
+    request(q){log.push(['request',JSON.stringify(q),state.inClick]);if(q.permissions&&answer)state.granted=true;return Promise.resolve(answer);},remove(){log.push(['remove']);return Promise.resolve(true);}},
+   runtime:{id:'abcdef',async sendMessage(m){return {ok:true,value:null};},async openOptionsPage(){}},
+   storage:{local:{async get(){return {};},async set(){}},onChanged:{addListener(){}}}};
+  Object.defineProperty(chrome,'userScripts',{get:()=>state.api?{execute(){},async getScripts(){return [];}}:undefined});
+  runUi('extension/sidepanel.js',{chrome,document,window,URL,Date,PageAgentScriptTools:S});await flush();await flush();
+  const $=id=>document.getElementById(id);
+  // inClick marks whether request() ran synchronously inside the click dispatch (user gesture).
+  const click=async()=>{state.inClick=true;$('goal-mode').dispatchEvent(new window.Event('click'));state.inClick=false;await flush();await flush();};
+  const fire=(el,type='click')=>el.dispatchEvent(new window.Event(type));
+  return {$,log,state,click,fire,document,requests:()=>log.filter(e=>e[0]==='request')};
+ };
+ const tr=key=>chrome_i18n.getMessage(key);
+ // Not granted, user allows, toggle still off: one synchronous request, hint shown, its button opens the details page.
+ let p=await openPanel();
+ assert.equal(p.$('script-setup').hidden,true);
+ await p.click();
+ assert.equal(p.$('goal-mode').getAttribute('aria-pressed'),'true');
+ assert.deepEqual(p.requests(),[['request',JSON.stringify({permissions:['userScripts']}),true]]);
+ assert.equal(p.$('script-setup').hidden,false);
+ assert.equal(p.$('script-setup').querySelector('span').textContent,tr('spScriptSetup'));
+ assert.equal(p.$('script-setup-open').textContent,tr('spScriptSetupOpen'));
+ p.fire(p.$('script-setup-open'));
+ assert.deepEqual(p.log.at(-1),['open','chrome://extensions/?id=abcdef']);
+ p.fire(p.$('script-setup-close'));
+ assert.equal(p.$('script-setup').hidden,true,'dismissible');
+ // Off keeps the permission and hides nothing new; on again (granted now) asks nothing and hints once more.
+ await p.click();
+ assert.equal(p.$('goal-mode').getAttribute('aria-pressed'),'false');assert.equal(p.log.some(e=>e[0]==='remove'),false);assert.equal(p.$('script-setup').hidden,true);
+ await p.click();
+ assert.equal(p.requests().length,1,'granted permission is not requested again');assert.equal(p.$('script-setup').hidden,false);
+ // Toggle flipped in Chrome: the hint goes away on re-check and does not come back.
+ p.state.api=true;p.fire(p.document,'visibilitychange');await flush();await flush();
+ assert.equal(p.$('script-setup').hidden,true);
+ await p.click();await p.click();
+ assert.equal(p.$('script-setup').hidden,true,'no hint once scripts are available');assert.equal(p.requests().length,1);
+ // Already granted and available at startup: no request, no hint.
+ p=await openPanel({granted:true,api:true});
+ await p.click();
+ assert.equal(p.requests().length,0);assert.equal(p.$('script-setup').hidden,true);assert.equal(p.$('goal-mode').getAttribute('aria-pressed'),'true');
+ // Denied: goal mode still turns on, no hint.
+ p=await openPanel({answer:false});
+ await p.click();
+ assert.equal(p.requests().length,1);assert.equal(p.requests()[0][2],true);
+ assert.equal(p.$('goal-mode').getAttribute('aria-pressed'),'true');assert.equal(p.$('script-setup').hidden,true);
 });
