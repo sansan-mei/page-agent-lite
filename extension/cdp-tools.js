@@ -1,6 +1,6 @@
 (function(root){
   'use strict';
-  // Real input through chrome.debugger (CDP). Only the methods below can ever be sent; the model never
+  // Real input and view_image screenshots through chrome.debugger (CDP). Only the methods below can ever be sent; the model never
   // chooses a method, parameters or coordinates. One session per executing tab, owned by one task,
   // attached on first use and detached when the runtime releases the tab or the browser detaches it.
   const MOUSE_TYPES=['mouseMoved','mousePressed','mouseReleased'];
@@ -11,7 +11,16 @@
     if(!['none','left'].includes(p.button)||![0,1].includes(p.buttons)||![0,1].includes(p.clickCount)||p.pointerType!=='mouse')return false;
     return true;
   }
-  const METHODS=Object.freeze({'Input.dispatchMouseEvent':mouseParams});
+  // view_image: one JPEG of a runtime-computed clip (document CSS pixels) inside the current viewport.
+  const CLIP_KEYS=['x','y','width','height','scale'];
+  function shotParams(p){
+    if(!p||typeof p!=='object'||Object.keys(p).sort().join()!=='captureBeyondViewport,clip,format,fromSurface,quality')return false;
+    if(p.format!=='jpeg'||!Number.isInteger(p.quality)||p.quality<1||p.quality>100||p.captureBeyondViewport!==false||p.fromSurface!==true)return false;
+    const c=p.clip;
+    if(!c||typeof c!=='object'||Object.keys(c).some(k=>!CLIP_KEYS.includes(k))||CLIP_KEYS.some(k=>!Number.isFinite(c[k])))return false;
+    return c.x>=0&&c.y>=0&&c.x<=1e6&&c.y<=1e6&&c.width>=1&&c.height>=1&&c.width<=1e5&&c.height<=1e5&&c.scale>0&&c.scale<=1;
+  }
+  const METHODS=Object.freeze({'Input.dispatchMouseEvent':mouseParams,'Page.captureScreenshot':shotParams});
   const fail=(code,message,dispatch='not_sent')=>Object.assign(new Error(message),{code,dispatch});
   function create(chrome){
     const api=chrome?.debugger;
@@ -86,6 +95,20 @@
       }
       return {dispatch:'sent',input:'cdp'};
     }
+    // Screenshot of the task tab, also when it is not the focused tab. The clip is built by browser-tools from the
+    // content script's measurement of a current snapshot target; the model never supplies it.
+    async function capture(tabId,taskId,clip,live=null,timeout=15000){
+      const params={format:'jpeg',quality:70,clip,captureBeyondViewport:false,fromSurface:true};
+      if(!shotParams(params))throw fail('CDP_METHOD_DENIED','截图区域无效');
+      await ensure(tabId,taskId);
+      if(live&&!await live())throw fail('CANCELLED','请求已取消，未截图');
+      let timer;
+      try{
+        const result=await Promise.race([send(tabId,taskId,'Page.captureScreenshot',params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(fail('CAPTURE_TIMEOUT','截图超时，标签页可能未在渲染')),timeout);})]);
+        if(typeof result?.data!=='string'||!result.data||result.data.length>4000000||!/^[A-Za-z0-9+/]+=*$/.test(result.data))throw fail('CAPTURE_FAILED','截图数据无效');
+        return result.data;
+      }finally{clearTimeout(timer);}
+    }
     async function release(tabId){
       const session=sessions.get(tabId);sessions.delete(tabId);
       if(!available())return false;
@@ -93,7 +116,7 @@
       // Also clears a session a restarted worker no longer knows about; detach of a tab we never attached just fails.
       try{await api.detach({tabId});return true;}catch{return false;}
     }
-    return {available,ensure,input,release,attached:tabId=>sessions.get(tabId)?.attached===true};
+    return {available,ensure,input,capture,release,attached:tabId=>sessions.get(tabId)?.attached===true};
   }
   const api={create,METHODS};root.PageAgentCdp=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

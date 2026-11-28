@@ -98,7 +98,7 @@ observe 的 value：
 `cdp-tools.js`（`PageAgentCdp`，后台在 `browser-tools.js` 之前加载）经 `chrome.debugger` 发送真实鼠标输入。
 
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
-- 命令白名单：只有 `Input.dispatchMouseEvent`，参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
+- 命令白名单：`Input.dispatchMouseEvent`，以及截图用的 `Page.captureScreenshot`（只允许 JPEG、视口内 clip、scale ≤ 1，由 `capture()` 组装）。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
 - 回退（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不回退）：
   - 到不了（`unreachable`）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent），后台直接用真实输入。

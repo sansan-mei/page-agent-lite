@@ -137,6 +137,28 @@
         return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));
       }
     }
+    // view_image page capture: the content script measures the area (viewport, or a current snapshot target scrolled
+    // into view) and covers sensitive fields; the debugger captures that clip as JPEG with the long edge <= 1568 px;
+    // the cover is removed in finally. A failed cover throws MASK_FAILED before anything is captured.
+    const LONG_EDGE=1568;
+    function shotClip(m){
+      const a=m?.area,v=m?.viewport,o=m?.scroll,dpr=Number.isFinite(m?.dpr)&&m.dpr>0?m.dpr:1;
+      const fine=[a?.left,a?.top,a?.width,a?.height,v?.width,v?.height,o?.x,o?.y].every(Number.isFinite);
+      if(!fine||a.width<1||a.height<1||a.left<0||a.top<0||a.left+a.width>v.width+1||a.top+a.height>v.height+1)throw Object.assign(new Error('截图区域无效'),{code:'CAPTURE_FAILED'});
+      const round=n=>Math.round(n*100)/100,scale=Math.min(1,LONG_EDGE/(Math.max(a.width,a.height)*dpr));
+      return {x:round(Math.max(0,o.x+a.left)),y:round(Math.max(0,o.y+a.top)),width:round(a.width),height:round(a.height),scale:Math.floor(scale*1000)/1000||0.001};
+    }
+    async function screenshot(tabId,shot,policy,live=null){
+      if(!D.available()||typeof policy?.taskId!=='string')throw Object.assign(new Error('浏览器不支持截图'),{code:'CDP_UNAVAILABLE'});
+      await checkOrigin(tabId,policy);
+      if((await tab(tabId)).url!==shot.url)throw Object.assign(new Error('页面地址已变化，未截图'),{code:'STALE'});
+      const scope=policy?.origin?{expectedOrigin:policy.origin}:{};
+      try{
+        const measured=await call(tabId,{type:'agent:shot',shotId:shot.operationId,snapshotId:shot.snapshotId,url:shot.url,sensitiveFields:policy?.sensitiveFields===true,...(shot.id?{id:shot.id}:{}),...scope});
+        const clip=shotClip(measured),data=await D.capture(tabId,policy.taskId,clip,live);
+        return {data,masked:measured.masked||0,width:Math.round(clip.width*clip.scale*(measured.dpr||1)),height:Math.round(clip.height*clip.scale*(measured.dpr||1))};
+      }finally{await call(tabId,{type:'agent:unshot',shotId:shot.operationId,...scope}).catch(()=>{});}
+    }
     // Task tab lifecycle: open in the opener's window without taking focus; close only by tabId.
     async function openTab(url,{openerTabId}={}){
       const destination=new URL(url);
@@ -152,7 +174,7 @@
       try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }
       try{const frames=await chrome.webNavigation?.getAllFrames({tabId});await Promise.allSettled((frames||[]).filter(f=>f.frameId!==0).map(f=>chrome.tabs.sendMessage(tabId,{type:'agent:clear-pointer'},{frameId:f.frameId})));}catch{ /* No live frame inventory. */ }
     }
-    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,releaseInput:tabId=>D.release(tabId)};
+    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,screenshot,releaseInput:tabId=>D.release(tabId)};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

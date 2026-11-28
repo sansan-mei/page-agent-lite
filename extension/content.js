@@ -21,6 +21,26 @@
     return current;
   }
   function fingerprint(){return JSON.stringify(capture().page);}
+  // view_image: opaque boxes over sensitive fields while the background takes the screenshot. Removed by
+  // agent:unshot (always sent in a finally) or after 15 s if that message never arrives.
+  let shield=null;
+  function unshield(){if(shield){clearTimeout(shield.timer);shield.host.remove();shield=null;}}
+  function cover(boxes,shotId){
+    if(!boxes.length)return null;
+    const win=document.defaultView,failed=()=>Object.assign(new Error('无法遮盖敏感字段，未截图'),{code:'MASK_FAILED'});
+    const css=(n,props)=>{for(const [k,v] of Object.entries(props))n.style.setProperty(k,v,'important');};
+    const host=document.createElement('div');host.setAttribute('data-page-agent','mask');
+    css(host,{position:'fixed',left:'0',top:'0',width:'0',height:'0',overflow:'visible','z-index':'2147483647','pointer-events':'none',display:'block',visibility:'visible',opacity:'1',transform:'none',filter:'none'});
+    for(const b of boxes){const box=document.createElement('div');css(box,{position:'fixed',left:b.left+'px',top:b.top+'px',width:b.width+'px',height:b.height+'px',background:'#000',display:'block',visibility:'visible',opacity:'1',margin:'0',border:'0',padding:'0'});host.appendChild(box);}
+    try{
+      (document.documentElement||document.body).appendChild(host);
+      const root=win.getComputedStyle(document.documentElement);
+      const placed=[...host.children].every((box,i)=>{const r=box.getBoundingClientRect(),style=win.getComputedStyle(box),b=boxes[i];
+        return style.display!=='none'&&style.visibility==='visible'&&Math.abs(r.left-b.left)<=1&&Math.abs(r.top-b.top)<=1&&Math.abs(r.width-b.width)<=1&&Math.abs(r.height-b.height)<=1;});
+      if(!host.isConnected||!placed||!['1',''].includes(String(root.opacity??'1')))throw failed();
+    }catch{host.remove();throw failed();}
+    return {shotId,host,timer:setTimeout(unshield,15000)};
+  }
   function report(operationId,expected,changed,observed){
     const check=expected.length?G.evaluate(expected,captureForChecks(expected)):null;
     return T.result({operationId,documentId,status:check?.status||'unknown',dispatch:'sent',scope:check?'ui':'dispatch',code:check?(check.status==='success'?'CONDITIONS_MATCH':'CONDITIONS_UNMET'):changed,
@@ -43,14 +63,31 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:settle'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:settle','agent:shot','agent:unshot'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
       if(message.type==='agent:frame-guard')return C.agentFrameGuard(message.key,message.frameURL,message.sensitiveFields===true,message.showPointer===true);
       if(message.type==='agent:document')return {documentId,url:location.href};
+      if(message.type==='agent:unshot'){if(shield&&shield.shotId===message.shotId)unshield();return {cleared:true};}
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});
+      if(message.type==='agent:shot'){
+        // Measures the area to capture (viewport, or a current snapshot target scrolled into view) and covers sensitive
+        // fields; any failure leaves no overlay and no screenshot is taken.
+        if(!snapshot||message.snapshotId!==snapshotId||message.url!==location.href)throw Object.assign(new Error('页面快照已失效'),{code:'STALE'});
+        unshield();
+        const win=document.defaultView;let area=null;
+        if(message.id){
+          const ref=snapshot.nodes.get(message.id);if(!ref)throw Object.assign(new Error('截图目标不在当前快照中'),{code:'STALE'});
+          if(C.agentShotScroll(ref))await new Promise(resolve=>setTimeout(resolve,150));
+          area=C.agentShotArea(ref);
+        }
+        const viewport={width:win.innerWidth,height:win.innerHeight};
+        area=area||{left:0,top:0,...viewport};
+        shield=cover(C.agentMaskBoxes(document,message.sensitiveFields===true),message.shotId);
+        return {area,viewport,scroll:{x:win.scrollX||0,y:win.scrollY||0},dpr:win.devicePixelRatio||1,masked:shield?shield.host.children.length:0};
+      }
       const authorized=message.sensitiveFields===true;
       if(message.type==='agent:execute'&&snapshot?.sensitiveFields!==authorized)throw Object.assign(new Error('敏感字段授权已变化，请重新观察'),{code:'STALE'});
       sensitiveFields=authorized;

@@ -21,7 +21,7 @@ test('attaches on first use, keeps one session per task and only sends allow-lis
  assert.deepEqual(f.log.filter(e=>e[0]==='attach'),[['attach',7,'1.3']]);
  assert.deepEqual(sends(f.log),['mouseMoved','mousePressed','mouseReleased','mouseMoved']);
  assert.ok(f.log.filter(e=>e[0]==='send').every(e=>e[2]==='Input.dispatchMouseEvent'));
- assert.deepEqual(Object.keys(METHODS),['Input.dispatchMouseEvent']);
+ assert.deepEqual(Object.keys(METHODS),['Input.dispatchMouseEvent','Page.captureScreenshot']);
  assert.equal(METHODS['Input.dispatchMouseEvent']({type:'mouseWheel',x:1,y:1,button:'none',buttons:0,clickCount:0,pointerType:'mouse'}),false);
  assert.equal(METHODS['Input.dispatchMouseEvent']({type:'mouseMoved',x:1,y:1,button:'none',buttons:0,clickCount:0,pointerType:'mouse',text:'x'}),false);
  await assert.rejects(()=>cdp.input(7,'task-a','double_click',{x:1,y:1}),e=>e.code==='CDP_METHOD_DENIED'&&e.dispatch==='not_sent');

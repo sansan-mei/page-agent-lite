@@ -501,7 +501,50 @@ function agentFrameGuard(key,url,sensitiveFields=false,showPointer=false){
  if(showPointer)try{root.PageAgentPointer?.show(f,document);}catch{}
  return {visible:true};
 }
-const api={agentFrameGuard,agentInputPoint,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
+// view_image target: the live snapshot node, visible, scrolled fully into view when it is not; the caller waits a
+// frame after a scroll. The area is its visible box in top-viewport CSS pixels (frame offsets and overflow clipping
+// included); the trusted background turns it into the screenshot clip, never the model.
+function agentShotScroll(ref){
+ const n=ref?.node,frame=n&&agentFrame(n.ownerDocument);
+ if(!agentLive(n)||agentHidden(n,n.ownerDocument.defaultView)||frame&&agentHidden(frame,frame.ownerDocument.defaultView)||n.closest('[hidden],[aria-hidden="true"],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，未截图'),{code:'STALE'});
+ const r=n.getBoundingClientRect(),win=n.ownerDocument.defaultView;
+ if(r.top>=0&&r.left>=0&&r.top+r.height<=win.innerHeight&&r.left+r.width<=win.innerWidth)return false;
+ n.scrollIntoView?.({block:r.height>win.innerHeight?'start':'center',inline:'nearest',behavior:'instant'});return true;
+}
+function agentShotArea(ref){
+ const n=ref?.node;if(!agentLive(n))throw Object.assign(new Error('页面目标已变化，未截图'),{code:'STALE'});
+ const b=agentVisibleRect(n);
+ if(!b||b.right-b.left<1||b.bottom-b.top<1)throw Object.assign(new Error('目标不在可见区域，未截图'),{code:'TARGET_HIDDEN'});
+ return {left:b.left,top:b.top,width:b.right-b.left,height:b.bottom-b.top};
+}
+// Boxes (top-viewport CSS pixels) to cover before a view_image screenshot. Without the sensitive grant: sensitive
+// fields of the top document, readable same-origin frames and open shadow roots, plus every frame whose document
+// cannot be read (its fields are unknown). With the grant: file inputs only. A box that cannot be measured throws
+// MASK_FAILED, so no screenshot is taken.
+function agentMaskBoxes(doc,sensitiveFields=false){
+ const selector=sensitiveFields?'input[type="file"]':agentSensitiveSelector,boxes=[],win=doc.defaultView;
+ const failed=()=>Object.assign(new Error('无法遮盖敏感字段，未截图'),{code:'MASK_FAILED'});
+ const width=win?.innerWidth,height=win?.innerHeight;if(!Number.isFinite(width)||!Number.isFinite(height))throw failed();
+ const add=(n,o)=>{
+  let r=null;try{r=n.getBoundingClientRect();}catch{}
+  if(!r||![r.left,r.top,r.width,r.height].every(Number.isFinite))throw failed();
+  if(r.width<=0||r.height<=0)return;
+  const left=Math.max(0,r.left+o.x-2),top=Math.max(0,r.top+o.y-2),right=Math.min(width,r.left+o.x+r.width+2),bottom=Math.min(height,r.top+o.y+r.height+2);
+  if(right>left&&bottom>top)boxes.push({left,top,width:right-left,height:bottom-top});
+ };
+ const visit=(root,o,depth)=>{
+  for(const n of root.querySelectorAll(selector))add(n,o);
+  for(const f of root.querySelectorAll('iframe,frame')){
+   let inner=null;try{inner=f.contentDocument;}catch{}
+   if(inner&&depth<4){const fo=agentFrameOffset(f);visit(inner,{x:o.x+fo.x,y:o.y+fo.y},depth+1);}
+   else if(!sensitiveFields)add(f,o);
+  }
+  for(const host of root.querySelectorAll('*'))if(host.shadowRoot)visit(host.shadowRoot,o,depth);
+ };
+ visit(doc,{x:0,y:0},0);
+ return boxes;
+}
+const api={agentShotScroll,agentShotArea,agentMaskBoxes,agentFrameGuard,agentInputPoint,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;
 if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

@@ -30,7 +30,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `history-store.js` | IndexedDB 对话历史：快照、脱敏、50 条上限、中断标记 | [存储](storage.md#对话历史) |
 | `frame-tools.js` | 授权跨源直接子框架发现、快照汇总、动作路由与核对 | [网页工具](browser-tools.md#iframe) |
 | `browser-tools.js` | 标签检查、脚本注入、权限/来源门禁、导航派发、网页工具消息适配 | [网页工具](browser-tools.md) |
-| `cdp-tools.js` | `chrome.debugger` 会话：按任务按需 attach、释放即 detach、方法白名单（仅 `Input.dispatchMouseEvent`）、稳定错误 code | [网页工具](browser-tools.md#真实输入) |
+| `cdp-tools.js` | `chrome.debugger` 会话：按任务按需 attach、释放即 detach、方法白名单（`Input.dispatchMouseEvent`、`Page.captureScreenshot`）、稳定错误 code | [网页工具](browser-tools.md#真实输入) |
 | `content.js` | 一次性快照、执行白名单动作、动作后短观察、只读核对 | [网页工具](browser-tools.md) |
 | `core.js` | DOM 抽取、动作校验与执行、静态工具注册表 `agentToolRegistry`、敏感字段排除 | [网页工具](browser-tools.md) |
 | `conditions.js` | expected 条件校验、语义目标绑定、唯一匹配核对 | [网页工具](browser-tools.md) |
