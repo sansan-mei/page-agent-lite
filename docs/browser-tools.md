@@ -15,11 +15,11 @@
 | history_read | id、value=offset | runtime | 读当前来源的压缩归档，每次 4000 字符 |
 | site_memory_* / global_memory_* | read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
 | read_references | value=2–8 个 `{action:site_memory_read/global_memory_read/skill_read, id}`，不重复，无 id/expected | runtime | 只读批量参考资料；沿用单条读取与来源分区，逐项返回错误，停止或代次变化不再读后续项 |
-| click | id | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click |
+| click | id | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click；到不了或确认无效时改用[真实输入](#真实输入) |
 | fill | id、字符串 value | content | input / textarea / 简单 contenteditable |
 | check | id、布尔 value | content | 原生 radio / checkbox |
 | select | id、字符串 value | content | 存在且未禁用的 option |
-| hover | id | content | pointer/mouse over/enter/move，无 down/up/click |
+| hover | id | content | pointer/mouse over/enter/move，无 down/up/click；确认无效时改用真实鼠标移动 |
 | scroll | value=up/down/left/right，可选容器 id | content | 600px；不传 id 滚窗口 |
 | wheel | id、value=方向 | content | 一次可取消 WheelEvent（±600 像素），只触发监听器，无原生滚动 |
 | press_key | id、value | content | keydown/keyup，见下 |
@@ -33,7 +33,7 @@
 
 - content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。不接受坐标、选择器、脚本或 HTML。
 - press_key：修饰键 Control/Alt/Shift/Meta（不可重复）；主键 Enter/Escape/Tab/Space/方向键/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a–z。不保持按下状态，不触发浏览器原生编辑/快捷键；文本用 fill。
-- 合成事件都不是 `isTrusted` 输入。拖拽、长按、系统输入、纯 CSS `:hover` 不支持。
+- 合成事件都不是 `isTrusted` 输入；只有 click/hover 有[真实输入](#真实输入)回退。拖拽、长按、系统输入不支持。
 
 ## observe 快照
 
@@ -100,6 +100,12 @@ observe 的 value：
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
 - 命令白名单：只有 `Input.dispatchMouseEvent`，参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
+- 回退（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不回退）：
+  - 到不了（`unreachable`）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent），后台直接用真实输入。
+  - 确认无效（`no_effect`）：合成回执 dispatch=sent、status≠success、页面指纹（快照 JSON）在约 600ms 稳定观察后与动作前相同、未导航，且目标 label 不含提交/删除/支付/购买/发布/发送等字样、计划没有 `notice`；再等 800ms，`agent:point` 确认指纹仍未变才回退。任何一项不满足（页面有变化、目标变化 `TARGET_CHANGED`、回执丢失、代次变化）都保留合成结果，不重试。动作前把目标滚入视野导致的变化也算有变化。
+  - 坐标：内容脚本记住上次 click/hover 的快照目标（新 observe 即清除），`agent:point` 对同一节点核对存活、签名、可见，再走合成点击的命中检查（滚入视野、遮挡、iframe 可见框），返回顶层视口 CSS 像素，同源框架加 iframe 偏移；遮挡（`TARGET_BLOCKED`）不回退，因为真实点击同样落在遮挡层上。模型工具不接受坐标。
+  - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`，message 前缀说明已改用真实输入。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
+  - 没回退时：确认无效类保持原回执（`observed.input='synthetic'`，尝试过回退则带 `observed.cdp {code,message}`）；到不了类返回 `SYNTHETIC_UNREACHABLE`（`observed.input='none'` + `cdp`），运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
 - 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
 
 ## 导航
@@ -128,7 +134,7 @@ observe 的 value：
 - dispatch：not_sent / sent / unknown。scope：dispatch / ui / page。success 只对应本次 expected，不代表服务器成功或任务完成。
 - 控制流只看 code/status，不解析 message。旧 navigation/connection/verification 返回由 `tool-protocol.js` 适配；回执丢失一律 unknown。只读 verify 的 not_sent 不覆盖原动作的 dispatch。
 - scroll 回执 observed 含 axis/before/after/delta/atStart/atEnd；wheel 回执的 deltaX/deltaY 是输入量，defaultPrevented 不是成功证据。
-- 常见 code：`STALE`、`NAVIGATION`、`PAGE_BUSY`、`NO_CHANGE`、`TARGET_BLOCKED`、`TARGET_CHANGED`、`TARGET_MISSING`、`AMBIGUOUS_TARGET`、`CONDITION_TIMEOUT`、`DELAY_ELAPSED`、`INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE`、`NAVIGATION_DISPATCHED`、`NAVIGATION_UNKNOWN`。
+- 常见 code：`SYNTHETIC_UNREACHABLE`、`CDP_*`（见[真实输入](#真实输入)）、`STALE`、`NAVIGATION`、`PAGE_BUSY`、`NO_CHANGE`、`TARGET_BLOCKED`、`TARGET_CHANGED`、`TARGET_MISSING`、`AMBIGUOUS_TARGET`、`CONDITION_TIMEOUT`、`DELAY_ELAPSED`、`INPUT_CANCELLED`、`INVALID_FIELD_VALUE`、`UNSUPPORTED_EDITABLE`、`NAVIGATION_DISPATCHED`、`NAVIGATION_UNKNOWN`。
 
 ## expected 条件
 

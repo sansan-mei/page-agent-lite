@@ -1111,12 +1111,13 @@
         t.check=pending.expected?.length?{tabId:task.tabId,origin:task.origin,scopeRevision:task.scopeRevision,operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',dispatch:'unknown',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
       });
       if (!await live()) return;
-      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,policyFor(task),live),live),{operationId:pending.operationId,documentId:pending.documentId});
+      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,{...policyFor(task),taskId:task.taskId},live),live),{operationId:pending.operationId,documentId:pending.documentId});
       if (!await live()) return;
       await update(task.tabId,task.token,t=>{
         t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;t.tabHops=0;
         if(t.check)t.check.dispatch=result.dispatch;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
+        else if(t.check&&result.dispatch==='not_sent')t.check=null; // e.g. unreachable target, real input unavailable: nothing to wait for
         else if(t.check){t.phase='verifying';t.status='waiting_page';}
         const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,sensitive:pending.sensitive,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
         t.results=t.results.concat(entry);event(t,entry.result);

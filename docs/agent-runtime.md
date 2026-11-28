@@ -28,7 +28,7 @@
 3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 的结果作为 `capabilities` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
-6. 网页动作前保存 `executing` 检查点；跨源框架动作另保存可信 `frameRoute`（框架、文档与一次性快照身份），不发给模型。执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
+6. 网页动作前保存 `executing` 检查点（click/hover 的[真实输入](browser-tools.md#真实输入)回退在同一检查点内完成，policy 附 taskId 以绑定调试会话）；跨源框架动作另保存可信 `frameRoute`（框架、文档与一次性快照身份），不发给模型。执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。
 
 同一任务的 tick 串行；运行锁、去重 jobs、请求控制器、timer 和 alarm（`task-id:<taskId>`）都以 taskId 为身份。tabId 入口通过标签发布队列防替换竞态；`tick(tabId, expectedTaskId)` 中的过期调度不会操作同一标签上的新任务。
 
@@ -72,6 +72,7 @@
 | 工具参数无效（`INVALID_PLAN`：操作格式、目标 ID、expected/checks 结构或目标不在快照中，未执行任何动作） | 作为结果退回模型（`dispatch=not_sent`、`recovery=replan`），消息含原因和收到的 expected，计轮数；连续第 3 次暂停为 `model`，不判失败。被拒的计划存在该结果的 `request` 里供排查 |
 | 目标过期（STALE） | 最多两次重新观察规划，然后暂停 |
 | 操作期间目标变化（`TARGET_CHANGED`，`dispatch=unknown`，`recovery=observe`） | 最多两次（目标模式五次）重新观察，由模型按新页面核对结果；运行时不重放该动作，超过上限暂停为 recovery |
+| 动作回执 dispatch=not_sent（如 `SYNTHETIC_UNREACHABLE` 且真实输入不可用） | 不等待 expected，清除检查点回到 observe，交回模型 |
 | 点击被遮挡（`TARGET_BLOCKED`，未派发） | 最多两次重新观察规划；模型按回执中的遮挡层 `key` 先关闭或完成遮挡层 |
 | 动作核对到期仍未核实（not_satisfied 或 unknown） | 最多两次回到 observe（`recovery=replan`，`CONDITION_TIMEOUT`），结果照实记录，运行时不重发；成功核对后计数清零，继续/补充指令/选择也清零。unknown 或非字段动作记入 `uncertainClicks`；字段值明确不符时模型可重写 |
 | 完成条件或 wait 条件未核实 | 暂停；目标模式下按上一行重新规划 |
