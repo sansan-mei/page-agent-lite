@@ -830,6 +830,18 @@
   "optSaved": {
     "message": "Settings saved; they apply to new tasks or after Continue task. No model call has been made yet."
   },
+  "optTestConnection": {
+    "message": "Test connection"
+  },
+  "optTesting": {
+    "message": "Saved. Testing the connection…"
+  },
+  "optTestVision": {
+    "message": "Connected · can see images"
+  },
+  "optTestNoVision": {
+    "message": "Connected · cannot see images; images will be turned into text"
+  },
   "optImageChoose": {
     "message": "Choose image"
   },

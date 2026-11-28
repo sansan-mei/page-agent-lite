@@ -830,6 +830,18 @@
   "optSaved": {
     "message": "设置已保存，新任务或点击「继续任务」后生效；尚未调用模型。"
   },
+  "optTestConnection": {
+    "message": "测试连接"
+  },
+  "optTesting": {
+    "message": "已保存，正在测试连接…"
+  },
+  "optTestVision": {
+    "message": "连接正常 · 支持看图"
+  },
+  "optTestNoVision": {
+    "message": "连接正常 · 不支持看图，图片将转成文字"
+  },
   "optImageChoose": {
     "message": "选择图片"
   },

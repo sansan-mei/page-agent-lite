@@ -12,7 +12,7 @@
 <div class="field"><label for="key" data-i18n="optKey">API 密钥</label><input id="key" type="password" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="本机服务可留空" data-i18n-placeholder="optKeyPlaceholder"></div>
 </div>
 <p id="connection-hint" class="hint" data-i18n="optConnectionHint">地址填到 /v1，不含 /chat/completions；密钥只存本机。</p>
-<div class="save-row"><button id="save-settings" class="primary" type="submit" data-i18n="optSave">保存</button><p id="status" role="status" aria-live="polite" hidden></p></div>
+<div class="save-row"><button id="save-settings" class="primary" type="submit" data-i18n="optSave">保存</button><button id="test-connection" type="submit" data-i18n="optTestConnection">测试连接</button><p id="status" role="status" aria-live="polite" hidden></p></div>
 </section>
 <section id="scripts" class="card script-row"><div class="script-text"><div class="script-title"><h2 data-i18n="optScriptsTitle">脚本执行</h2><span id="script-badge" class="badge" data-state="off" data-i18n="optScriptsBadgeOff">未开启</span></div><p class="hint" data-i18n="optScriptsIntro">普通工具做不到时运行 JavaScript，每次须你批准。</p><p id="script-status" class="script-status" role="status" aria-live="polite"></p></div>
 <div class="script-actions"><button id="script-grant" type="button" data-i18n="optScriptsGrant">允许</button><button id="script-details" type="button" hidden data-i18n="optScriptsDetails">打开扩展详情</button><button id="script-revoke" class="link" type="button" hidden data-i18n="optScriptsRevoke">关闭</button></div></section>

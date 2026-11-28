@@ -9,7 +9,7 @@
   const browserLanguage = PageAgentI18n.defaultReplyLanguage();
   const presets = ['简体中文', 'English', '繁體中文', '日本語'];
   let busy = true, status = $('status');
-  function controls() { for (const id of ['save-settings', 'save-more']) $(id).disabled = busy; }
+  function controls() { for (const id of ['save-settings', 'save-more', 'test-connection']) $(id).disabled = busy; }
   // The result shows next to the Save button that was used; the other line is cleared.
   function report(text, error = false) {
     for (const element of [$('status'), $('status-more')]) {
@@ -53,6 +53,7 @@
   $('config').addEventListener('submit', event => {
     event.preventDefault();
     status = event.submitter?.id === 'save-more' ? $('status-more') : $('status');
+    const testing = event.submitter?.id === 'test-connection';
     // run invokes the callback synchronously up to the permission request, preserving user activation.
     void run(async () => {
       const config = {apiFormat: $('apiFormat').value, endpoint: C.endpoint($('endpoint').value.trim()), model: $('model').value.trim(), key: $('key').value.trim(), language: language.value.trim(), reasoningEffort: $('reasoningEffort').value, toolMode: $('toolMode').value};
@@ -62,7 +63,11 @@
       if (!granted) throw new Error(t('optApiDenied'));
       await send({type: 'configure', config});
       await send({type: 'setAgentPreferences', preferences});
-      report(t('optSaved'));
+      if (!testing) { report(t('optSaved')); return; }
+      // Test = save, then one tiny-image request; the result is remembered for this model.
+      report(t('optTesting'));
+      const result = await send({type: 'testConnection'});
+      report(t(result?.vision === 'supported' ? 'optTestVision' : 'optTestNoVision'));
     });
   });
   // Endpoint placeholder and hint follow the chosen API format; the saved address is never rewritten.
