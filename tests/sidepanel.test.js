@@ -372,7 +372,8 @@ test('decision cards sit below the conversation and each new request scrolls int
  const base={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'running',phase:'observe',steps:1,prefs:{},results:[],events:[{time:1,text:'第一步'},{time:2,text:'第二步'}]};
  let current=base;const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:current}:undefined);
  const conversation=f.document.getElementById('conversation'),order=[...conversation.children].map(el=>el.id),timeline=order.indexOf('timeline');
- for(const id of ['choice-form','confirmation','sensitive-confirmation','script-approval','script-grant','browser-target'])assert.ok(order.indexOf(id)>timeline,id+' is below the timeline');
+ for(const id of ['choice-form','confirmation','sensitive-confirmation','script-approval','browser-target'])assert.ok(order.indexOf(id)>timeline,id+' is below the timeline');
+ for(const id of ['script-grant','input-grant'])assert.ok(order.indexOf(id)===order.indexOf('task')+1+(id==='input-grant'),id+' sits right under the goal, above the timeline');
  const scrolled=[];for(const id of ['script-approval','sensitive-confirmation','choice-form'])f.document.getElementById(id).scrollIntoView=function(){scrolled.push(this.id);};
  const paused=request=>({...base,status:'paused',reason:'script_approval',scriptRequest:{id:request,code:'return 1;',world:'USER_SCRIPT',url:'https://example.test/task',reply:'Need state'},events:base.events.concat({time:3,text:'等待你在侧栏批准脚本'})});
  current=paused('r1');f.updated(9,{status:'complete'});await flush();
@@ -483,5 +484,6 @@ test('real-input approval card says what and where, hides resume, sends the deci
  f.document.getElementById('input-revoke').click();await flush();
  const sent=f.calls.find(c=>c[1]?.type==='task:input-revoke')[1];assert.equal(sent.taskId,'input-task');assert.equal(f.document.getElementById('input-grant').hidden,true);
  const conversation=f.document.getElementById('conversation'),order=[...conversation.children].map(el=>el.id);
- for(const id of ['input-approval','input-grant'])assert.ok(order.indexOf(id)>order.indexOf('timeline'),id+' is below the timeline');
+ assert.ok(order.indexOf('input-approval')>order.indexOf('timeline'),'input-approval is below the timeline');
+ assert.ok(order.indexOf('input-grant')<order.indexOf('timeline'),'input-grant is above the timeline');
 });
