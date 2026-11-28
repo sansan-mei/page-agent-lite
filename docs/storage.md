@@ -44,6 +44,7 @@
 | members、memberSeq、membersRevision | 成员目录（≤ 8）：tab0 为 kind=initial 的初始标签页，其余为 kind=user_joined 或 task_created；tabRef 按 memberSeq 递增、不复用；membersRevision 是目录版本，与 scopeRevision 独立 |
 | goal、instructions | 原目标与每条补充指令 ≤ inputChars；带时间的补充指令总长 ≤ max(12000, inputChars × 6) |
 | attachments | 附图元数据 `[{id, type, width, height, size, time, text?, failed?, error?}]`（≤ 4），text 为识别文字（≤ 2000 字符）；不含图片数据；来源切换保留 |
+| lastView | 最新一次 `view_image` 视口截图的坐标空间（无图片数据），供 `click_point` 换算，点击一次后清空；见 [坐标点击](browser-tools.md#坐标点击) |
 | shots | 待发的 `view_image` 截图 `[{id, source, question?, url, origin, time}]`（最新 3 张）；不含图片数据；来源切换时丢弃，见 [附图](context-and-skills.md#附图) |
 | goalMode | 目标模式开关，见 [任务运行器](agent-runtime.md#目标模式)；来源切换保留 |
 | tabTrail / handoffs / tabHops | 标签切换轨迹（≤ 12）、模型交接笔记（最近 3 条，各 ≤ 2000 字符）、连续切换计数，见 [多标签执行](agent-runtime.md#多标签执行)；来源切换保留 |

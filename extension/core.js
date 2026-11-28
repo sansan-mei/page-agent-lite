@@ -14,6 +14,9 @@ const agentToolRegistry=(()=>{
  add(['observe','verify','history_read','skill_read','read_references'],{});add(['wait'],{timeout:true});
  // view_image: runtime-handled read; the area comes from a snapshot target or the viewport, never from coordinates.
  add(['view_image'],{});
+ // click_point: one real click at {x,y} of the latest viewport screenshot; the runtime checks and converts the point,
+ // and only offers the tool to models that see screenshots. The page executor refuses it (browser route).
+ add(['click_point'],{route:'browser',effect:'page',timeout:true});
  add(['click','fill','check','select','wheel','press_key','double_click','right_click'],{route:'content',effect:'page',target:'required',timeout:true,guard:true});
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
  add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
@@ -305,6 +308,7 @@ function agentPlan(raw,snap){
  }
  if(p.action==='press_key')agentKey(p.value);
  if(p.action==='view_image'&&(typeof p.id!=='string'||!/^(viewport|image[1-9]|[tr][0-9]{1,4})$/.test(p.id)||p.id[0]==='t'&&!snap.nodes.has(p.id)||p.expected!==undefined||p.value!==undefined&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>300)))throw new Error('看图参数无效：id 为 viewport、当前快照的元素/区域 ID 或附图 imageN，value 为可选问题（≤ 300 字符）');
+ if(p.action==='click_point'&&(p.id!==undefined||!p.value||typeof p.value!=='object'||Array.isArray(p.value)||Object.keys(p.value).sort().join()!=='x,y'||![p.value.x,p.value.y].every(v=>Number.isFinite(v)&&v>=0&&v<=10000)))throw new Error('坐标点击参数无效：value 为最新 viewport 截图中的 {x,y} 像素，不带 id');
  if(agentToolRegistry.run_script&&p.action==='run_script')(typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools).validate(p);
  return p;
 }

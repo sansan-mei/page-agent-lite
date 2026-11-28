@@ -105,8 +105,33 @@
         return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'sent',scope:'dispatch',code:moved?'DOCUMENT_CHANGED':'CDP_RESULT_UNKNOWN',recovery:'observe',observed:{input:'cdp',fallback:reason},message:lead+'回执未返回；重新读取页面核对，不重复操作'}),navigation:moved};
       }
     }
+    // click_point: one real click at the runtime-converted viewport point of the model's latest viewport screenshot. Sent
+    // only while the document, URL, scroll position and viewport size still match that screenshot; never replayed.
+    async function pointClick(tabId,pending,policy,live){
+      const base={operationId:pending.operationId,documentId:pending.documentId},{x,y}=pending.plan.value,target={input:'cdp',target:'point',x,y};
+      const skip=(code,message)=>T.result({...base,status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',observed:{...target,input:'none'},message});
+      const codeOf=(error,fallback)=>/^[A-Z][A-Z0-9_]{0,60}$/.test(error?.code||'')?error.code:fallback;
+      if(!D.available()||typeof policy?.taskId!=='string'||!pending.view)return skip('CDP_UNAVAILABLE','真实输入不可用，未点击');
+      let view;
+      try{
+        await checkOrigin(tabId,policy);
+        if((await tab(tabId)).url!==pending.url)return skip('POINT_STALE','页面地址已变化，截图坐标作废，未点击');
+        view=await call(tabId,{type:'agent:viewport',...(policy?.origin?{expectedOrigin:policy.origin}:{})});
+      }catch(error){return skip(codeOf(error,'POINT_STALE'),'未点击：'+String(error?.message||'').slice(0,120));}
+      const near=(a,b)=>Math.abs(a-b)<=1,w=pending.view;
+      if(view?.documentId!==pending.documentId||view.url!==pending.url||!near(view.scroll?.x,w.scroll.x)||!near(view.scroll?.y,w.scroll.y)||view.viewport?.width!==w.viewport.width||view.viewport?.height!==w.viewport.height)
+        return skip('POINT_STALE','页面已滚动、缩放或换了文档，截图坐标作废，未点击；请重新 view_image viewport');
+      try{await D.input(tabId,policy.taskId,'click',pending.point,live);}
+      catch(error){
+        if(error.dispatch!=='unknown')return skip(codeOf(error,'CDP_COMMAND_FAILED'),'未点击：'+String(error?.message||'').slice(0,120));
+        return T.result({...base,status:'unknown',dispatch:'unknown',scope:'dispatch',code:codeOf(error,'CDP_COMMAND_FAILED'),recovery:'observe',observed:target,message:'坐标点击中途失败，结果不确定；重新读取页面核对，不会重发'});
+      }
+      const current=await tab(tabId).catch(()=>null),moved=!current||current.status==='loading'||current.url!==pending.url;
+      return {...T.result({...base,status:'unknown',dispatch:'sent',scope:'dispatch',code:moved?'DOCUMENT_CHANGED':'POINT_CLICKED',recovery:'observe',observed:target,message:'已按截图坐标发送真实点击；重新读取页面核对效果，不重复点击'}),navigation:moved};
+    }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
+      if(pending.plan?.action==='click_point')return pointClick(tabId,pending,policy,live);
       // run_script runs through userScripts after the runtime's approval step (auto-approved only in the developer build).
       const S=scripts();if(S?.handles(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return S.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab,live,documentId});}
       if(pending.frameRoute||pending.expected?.some(c=>c.target?.frame?.startsWith('remote:')))return F.execute(tabId,pending,policy,live,{checkOrigin,call,observe});
@@ -156,7 +181,9 @@
       try{
         const measured=await call(tabId,{type:'agent:shot',shotId:shot.operationId,snapshotId:shot.snapshotId,url:shot.url,sensitiveFields:policy?.sensitiveFields===true,...(shot.id?{id:shot.id}:{}),...scope});
         const clip=shotClip(measured),data=await D.capture(tabId,policy.taskId,clip,live);
-        return {data,masked:measured.masked||0,width:Math.round(clip.width*clip.scale*(measured.dpr||1)),height:Math.round(clip.height*clip.scale*(measured.dpr||1))};
+        // view: the viewport geometry at capture time, so the runtime can map click_point pixels back to CSS pixels.
+        return {data,masked:measured.masked||0,width:Math.round(clip.width*clip.scale*(measured.dpr||1)),height:Math.round(clip.height*clip.scale*(measured.dpr||1)),
+          view:{area:{...measured.area},viewport:{...measured.viewport},scroll:{x:measured.scroll.x,y:measured.scroll.y}}};
       }finally{await call(tabId,{type:'agent:unshot',shotId:shot.operationId,...scope}).catch(()=>{});}
     }
     // Task tab lifecycle: open in the opener's window without taking focus; close only by tabId.

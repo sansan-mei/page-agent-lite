@@ -1,7 +1,8 @@
 (function(root){
   'use strict';
   // Real input and view_image screenshots through chrome.debugger (CDP). Only the methods below can ever be sent; the model never
-  // chooses a method, parameters or coordinates. One session per executing tab, owned by one task,
+  // chooses a method or parameters. Points come from a snapshot target, or for click_point from the model's latest viewport
+  // screenshot after the runtime has checked and converted them. One session per executing tab, owned by one task,
   // attached on first use and detached when the runtime releases the tab or the browser detaches it.
   const MOUSE_TYPES=['mouseMoved','mousePressed','mouseReleased'];
   const MOUSE_KEYS=['type','x','y','button','buttons','clickCount','pointerType'];

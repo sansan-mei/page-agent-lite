@@ -22,7 +22,7 @@ test('auto mode sends one native tool per registry action with forced single too
   const result=await s.generateAgent('observe');
   const body=requests[0];
   // run_script is offered only when the runtime passes capabilities.scripts (permission + API available).
-  assert.deepEqual(body.tools.map(t=>t.function.name),C.agentToolNames().filter(name=>name!=='run_script'));
+  assert.deepEqual(body.tools.map(t=>t.function.name),C.agentToolNames().filter(name=>!['run_script','click_point'].includes(name)));
   assert.equal(body.tool_choice,'required');assert.equal(body.parallel_tool_calls,false);
   for(const tool of body.tools){assert.equal(tool.type,'function');assert.equal(tool.function.parameters.additionalProperties,false);assert.ok(tool.function.parameters.required.includes('reply'));}
   assert.match(body.messages[0].content,/Call exactly one of the provided tools per turn/);assert.doesNotMatch(body.messages[0].content,/Return ONLY strict JSON/);
@@ -124,7 +124,7 @@ test('token pressure includes the native tools schema',()=>{
 test('run_script joins native tools and the prompt only when script capabilities are passed',async()=>{
   const names=caps=>P.agentTools(caps).map(t=>t.function.name);
   assert.ok(!names().includes('run_script'));assert.ok(!names({scripts:false}).includes('run_script'));
-  assert.deepEqual(names({scripts:true}),C.agentToolNames());
+  assert.deepEqual(names({scripts:true,vision:true}),C.agentToolNames());assert.ok(!names({scripts:true}).includes('click_point'));
   const tool=P.agentTools({scripts:true}).find(t=>t.function.name==='run_script');
   assert.deepEqual(tool.function.parameters.required,['reply','value']);
   assert.doesNotMatch(P.agentSystem('English','native'),/run_script/);assert.match(P.agentSystem('English','native',{scripts:true}),/OPTIONAL TOOL run_script[\s\S]*SCRIPT_REJECTED/);

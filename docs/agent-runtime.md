@@ -25,7 +25,7 @@
 
 1. 读取任务，核对运行代次、当前 URL 来源属于 `allowedOrigins` 且有主机权限、页面就绪。来源变化走 [跨来源切换](#跨来源切换)。
 2. `executing` 恢复：有条件则只读核对，无条件则暂停（目标模式下改为记一条 `INTERRUPTED` unknown 结果并重新观察，由模型按页面核对，与 `TARGET_CHANGED` 共用重新核对上限）；`approved` 页面已变则重新规划（已批准的 run_script 记 `STALE`，不执行）。
-3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 的结果作为 `capabilities` 传给模型请求和上下文估算。
+3. 普通路径：读取快照（`nextObservation` 指定的范围只用一次）；超过上下文预算先压缩（phase=compacting），否则计一轮并调用模型（phase=thinking）。本轮 `scriptAccess()` 与看图能力（`images.mode()` 不是 unsupported）作为 `capabilities {scripts, vision}` 传给模型请求和上下文估算。
 4. 模型返回后再次核对代次、URL、记忆版本，任一变化则丢弃。
 5. 严格解析动作（`backend.parseChatResponse` + 动作校验）。done 有 expected 或已保存的完成条件必须核实，否则标为“模型报告完成”；pause 表示受阻未完成。
 6. 网页动作前保存 `executing` 检查点（click/hover 的[真实输入](browser-tools.md#真实输入)回退在同一检查点内完成，policy 附 taskId 以绑定调试会话）；跨源框架动作另保存可信 `frameRoute`（框架、文档与一次性快照身份），不发给模型。执行后保存结果并调度下一 tick。记忆、history_read 等由后台处理，不发网页。

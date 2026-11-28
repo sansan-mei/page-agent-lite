@@ -16,6 +16,7 @@
 | history_read | id、value=offset | runtime | 读当前来源的压缩归档，每次 4000 字符 |
 | site_memory_* / global_memory_* | read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
 | read_references | value=2–8 个 `{action:site_memory_read/global_memory_read/skill_read, id}`，不重复，无 id/expected | runtime | 只读批量参考资料；沿用单条读取与来源分区，逐项返回错误，停止或代次变化不再读后续项 |
+| click_point | value=`{x,y}`（最新视口截图像素），可选 expected；只对能看图的模型提供 | browser | 按截图坐标真实点击一次，见 [坐标点击](#坐标点击) |
 | click | id | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click；到不了或确认无效时改用[真实输入](#真实输入) |
 | fill | id、字符串 value | content | input / textarea / 简单 contenteditable |
 | check | id、布尔 value | content | 原生 radio / checkbox |
@@ -32,7 +33,7 @@
 | tab_open | 绝对 HTTP/HTTPS URL，无 id/expected | browser | 后台打开并登记为任务标签页，切换执行目标 |
 | tab_close | id=tabRef | browser | 关闭非执行中的任务创建标签页 |
 
-- content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。不接受坐标、选择器、脚本或 HTML。
+- content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。除 `click_point` 外不接受坐标；不接受选择器、脚本或 HTML。
 - press_key：修饰键 Control/Alt/Shift/Meta（不可重复）；主键 Enter/Escape/Tab/Space/方向键/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a–z。不保持按下状态，不触发浏览器原生编辑/快捷键；文本用 fill。
 - 合成事件都不是 `isTrusted` 输入；只有 click/hover 有[真实输入](#真实输入)回退。拖拽、长按、系统输入不支持。
 
@@ -99,7 +100,7 @@ observe 的 value：
 `cdp-tools.js`（`PageAgentCdp`，后台在 `browser-tools.js` 之前加载）经 `chrome.debugger` 发送真实鼠标输入。
 
 - 会话：每个执行标签页一个，归属一个 taskId；第一次需要时 attach（协议 1.3），同一任务内复用，换任务先 detach。运行器在任务离开 running/waiting_page（完成、暂停、停止、失败）、接管、结束、清空、切换执行标签时调用 `tools.releaseInput(tabId)` detach；worker 启动恢复时对非运行任务的标签也 detach 一次（清理重启前遗留的会话）。标签关闭由浏览器自动断开。
-- 命令白名单：`Input.dispatchMouseEvent` 与[截图](#截图)用的 `Page.captureScreenshot`。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法、参数或坐标。
+- 命令白名单：`Input.dispatchMouseEvent` 与[截图](#截图)用的 `Page.captureScreenshot`。鼠标参数只允许 type（mouseMoved/mousePressed/mouseReleased）、x、y、button（none/left）、buttons、clickCount（0/1）、pointerType=mouse。点击 = 移动 + 按下 + 抬起；悬停 = 移动。不转发其他方法，不接受模型给的方法或参数；坐标来自快照目标，或来自运行时核对换算后的 [坐标点击](#坐标点击)。
 - attach 后、按下前都核对运行代次（`live`），代次已变则不发送；释放发生在 attach 途中则不发送并 detach。
 - 回退（`browser-tools.realInput`，只用于 click/hover，顶层或同源框架目标；跨源框架路由目标不回退）：
   - 到不了（`unreachable`）：命中点是 iframe/frame/embed/object（合成事件进不了嵌入文档），内容脚本在派发任何事件前抛 `SYNTHETIC_UNREACHABLE`（unsupported、not_sent），后台直接用真实输入。
@@ -108,6 +109,15 @@ observe 的 value：
   - 派发后 `agent:settle` 只做稳定观察和 expected 核对（不再发事件）；回执 `observed.input='cdp'`、`observed.fallback`，message 前缀说明已改用真实输入。回执丢失时：地址变了或在加载 → `DOCUMENT_CHANGED`（navigation），否则 `CDP_RESULT_UNKNOWN`，都 unknown、不重发。
   - 没回退时：确认无效类保持原回执（`observed.input='synthetic'`，尝试过回退则带 `observed.cdp {code,message}`）；到不了类返回 `SYNTHETIC_UNREACHABLE`（`observed.input='none'` + `cdp`），运行器不等待 expected，直接交回模型。按下后失败返回 unknown/unknown 与 CDP code。
 - 错误 code（都不自动重连、不重发）：`CDP_UNAVAILABLE`（无 API 或 attach 失败）、`CDP_BUSY`（DevTools 或其他扩展已占用；若是重启前遗留的自身会话则先 detach 再 attach 一次）、`CDP_CANCELLED`（用户在提示条点取消，`onDetach` reason=canceled_by_user，本任务之后不再 attach，新任务重新判断；只存于后台内存）、`CDP_DETACHED`（发送中断开）、`CDP_COMMAND_FAILED`、`CDP_METHOD_DENIED`。错误带 `dispatch`：按下（悬停为移动）之前失败为 not_sent，之后为 unknown。
+
+## 坐标点击
+
+`click_point` 让能看图的模型点快照里没有的位置（图片、画布、嵌入内容）。`capabilities.vision`（看图能力不是已知不支持）为真时才进工具列表和系统提示；否则运行器记 `POINT_UNAVAILABLE`，不派发。
+
+- 坐标空间：任务字段 `lastView` 只记最新一次 `view_image` 截图，且只在来源为 `viewport` 时有值（元素/区域截图或识别路径清空它）：`{shotId, tabId, documentId, url, time, image {width,height}, area, viewport, scroll, seen}`。截图随模型请求发出后 `seen=true`；截图丢失（`SHOT_EXPIRED`）或改走识别时清空。
+- 运行器（`runtime.pointAction`）：要求 `seen`、同一执行标签、当前快照的 documentId 与 URL 一致、截图不超过 60 秒，否则 `POINT_NO_SCREENSHOT`；点须在图内，按 `area + 像素 × area / image` 换成顶层视口 CSS 像素后仍在视口内，否则 `POINT_OUTSIDE`。通过后清空 `lastView`（一张截图只点一次），写 pending 并走普通 `execute`（先写 `executing` 检查点）。
+- 后台（`browser-tools.pointClick`）：核对来源与标签 URL，内容脚本 `agent:viewport` 只读返回 documentId、URL、视口大小和滚动位置；与截图时不一致（滚动差超过 1px、窗口大小变化、换文档）记 `POINT_STALE`，不派发。之后经 `cdp-tools.input` 发移动 + 按下 + 抬起。
+- 回执：`POINT_CLICKED`（unknown/sent，recovery=observe），点击后地址变化或在加载为 `DOCUMENT_CHANGED`（navigation）；`observed {input:'cdp', target:'point', x, y}`（截图像素），未派发时 `input:'none'`。按下后失败为 unknown/unknown，不重发。带 expected 时照常进入核对。
 
 ## 截图
 
@@ -190,4 +200,4 @@ observe 的 value：
 
 ## 未支持
 
-快照差异、点击/导航类批量动作、按截图坐标操作、整页长截图、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。其中同源 iframe、开放式 Shadow DOM 等可由 run_script 处理，范围见[使用指南](usage.md#脚本执行)。
+快照差异、点击/导航类批量动作、按截图坐标的悬停/拖拽/输入、整页长截图、嵌套/重定向/重复 URL iframe、Shadow DOM、原生 confirm/alert、复杂编辑器、IME、RTL 负向 scrollLeft、多标签工具。其中同源 iframe、开放式 Shadow DOM 等可由 run_script 处理，范围见[使用指南](usage.md#脚本执行)。

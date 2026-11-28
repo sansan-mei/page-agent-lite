@@ -63,12 +63,14 @@
       if(sender.id!==chrome.runtime.id||sender.tab||sender.url)return;
     }
     if(message?.type==='agent:clear-pointer'){globalThis.PageAgentPointer?.clear();respond({ok:true});return;}
-    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:settle','agent:shot','agent:unshot'].includes(message?.type))return;
+    if(!['agent:observe','agent:execute','agent:verify','agent:prepare-navigation','agent:document','agent:frame-guard','agent:consume','agent:point','agent:settle','agent:shot','agent:unshot','agent:viewport'].includes(message?.type))return;
     let dispatched=false;
     (async()=>{
       if(message.expectedOrigin&&message.expectedOrigin!==location.origin)throw Object.assign(new Error('页面来源已变化，拒绝读取旧任务范围之外的 DOM'),{code:'ORIGIN_BOUNDARY'});
       if(message.type==='agent:frame-guard')return C.agentFrameGuard(message.key,message.frameURL,message.sensitiveFields===true,message.showPointer===true);
       if(message.type==='agent:document')return {documentId,url:location.href};
+      // click_point: read-only geometry compared with the screenshot's before a real click is sent.
+      if(message.type==='agent:viewport'){const win=document.defaultView;return {documentId,url:location.href,viewport:{width:win.innerWidth,height:win.innerHeight},scroll:{x:win.scrollX||0,y:win.scrollY||0}};}
       if(message.type==='agent:unshot'){if(shield&&shield.shotId===message.shotId)unshield();return {cleared:true};}
       if(document.readyState==='loading')throw Object.assign(new Error('等待页面 DOM 就绪'),{code:'NAVIGATION'});
       if(executing)throw Object.assign(new Error('页面操作尚未完成'),{code:'PAGE_BUSY'});

@@ -678,7 +678,9 @@
         if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
         // Attached images: sent with every request unless this model is known not to see them; then each
         // image is turned into text once by the recognition model (one round), and the text is sent instead.
-        const vision=images&&(task.attachments?.length||task.shots?.length)?await images.mode().catch(()=>'unknown'):null;
+        const vision=images?await images.mode().catch(()=>'unknown'):null;
+        // Screenshots reach models not known to be blind; only those get click_point.
+        capabilities.vision=!!vision&&vision!=='unsupported';
         const unread=vision==='unsupported'?(task.attachments||[]).filter(a=>a.text===undefined&&!a.failed):[];
         if(unread.length){
           task=await update(tabId,token,t=>{t.phase='thinking';t.steps++;event(t,'正在识别图片（'+unread.length+' 张）');});
@@ -702,7 +704,7 @@
           const present=new Set(sameOrigin.length?await images.present(sameOrigin.map(shot=>shot.id)).catch(()=>[]):[]);
           if(present.size!==task.shots.length){
             const lost=task.shots.filter(shot=>!present.has(shot.id)&&shot.origin===task.origin);
-            task=await update(tabId,token,t=>{t.shots=(t.shots||[]).filter(shot=>present.has(shot.id));
+            task=await update(tabId,token,t=>{t.shots=(t.shots||[]).filter(shot=>present.has(shot.id));if(t.lastView&&!present.has(t.lastView.shotId))t.lastView=null;
               if(lost.length)t.results=t.results.concat({action:'view_image',label:lost.map(shot=>shot.source).join(','),time:now(),outcome:T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'SHOT_EXPIRED',recovery:'replan',message:'截图已失效（后台重启或存储已清理），本轮看不到；如仍需要请重新调用 view_image'})});});
             if(!task||!await live())return;
             await images.dropShots(task.taskId,(task.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
@@ -761,6 +763,8 @@
         const sentShots=capabilities.shots||[];
         task=await update(tabId,token,t=>{t.compactionGuard=false;t.contextPressure=pressure;
           if(sentShots.length)t.shots=(t.shots||[]).filter(shot=>!sentShots.includes(shot.id));
+          // The model has now seen this viewport screenshot: its pixels become valid click_point coordinates.
+          if(t.lastView&&sentShots.includes(t.lastView.shotId))t.lastView={...t.lastView,seen:true};
           t.contextUsage=result.usage&&Number.isSafeInteger(result.usage.promptTokens)?{...result.usage,estimatedTokens:sentEstimate,modelIdentity:result.modelIdentity||modelIdentity}:null;
         });
         if(sentShots.length)await images.dropShots(runningTaskId,(task?.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
@@ -859,6 +863,7 @@
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'observe',result:reading?{text:reading.page.text,textRange:reading.page.textRange,untrusted:true}:undefined,outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
         }
         if(plan.action==='view_image'){await viewImage(task,plan,call,snap,live,controller.signal);return;}
+        if(plan.action==='click_point'){await pointAction(task,plan,call,snap,live,capabilities.vision===true);return;}
         if(plan.action==='wait'&&!plan.expected){
           task=await update(tabId,token,t=>{t.phase='verifying';t.status='waiting_page';t.check={operationId:uuid(),expected:[],deadline:now()+plan.timeoutMs,kind:'delay',request:plan,time:call.time};event(t,plan.reply);});
           return;
@@ -1008,12 +1013,32 @@
       try{shotId=await images.saveShot(task.taskId,shot.data);}catch(error){return fail('CAPTURE_FAILED','截图保存失败：'+String(error?.message||'').slice(0,120));}
       const saved=await update(tabId,token,t=>{
         t.shots=(t.shots||[]).concat({id:shotId,source,...(question?{question}:{}),url:snap.url,origin:t.origin,time:now()}).slice(-3);
+        // click_point coordinate space: only the latest screenshot, and only if it shows the whole viewport.
+        t.lastView=source==='viewport'&&shot.view?{shotId,tabId,documentId:snap.documentId||null,url:snap.url,time:now(),image:{width:shot.width,height:shot.height},...shot.view,seen:false}:null;
         const outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_NEXT_TURN',recovery:'none',documentId:snap.documentId,observed:{source,width:shot.width,height:shot.height,masked:shot.masked||0},
           message:'截图'+masked+'只在下一轮请求中可见，之后不再发送；把看到的要点写进 progress'});
         t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'view_image',label:source,outcome,result:outcome.message});event(t,'已截图：'+source+masked);
       });
       // Older screenshots beyond the newest 3, or this one if the task moved on meanwhile, are deleted.
       await images.dropShots(task.taskId,(saved||task).shots?.map(s=>s.id)||[])?.catch?.(()=>{});
+    }
+    // click_point: one real click at {x,y} of the latest viewport screenshot the model has seen. The runtime converts
+    // screenshot pixels to viewport CSS pixels; valid on the same tab, document and URL for 60 s, used up by the click.
+    async function pointAction(task,plan,call,snap,live,vision){
+      const {tabId,token}=task,v=task.lastView,{x,y}=plan.value,label='坐标 ('+x+','+y+')';
+      const reject=(code,message)=>update(tabId,token,t=>{
+        const outcome=T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',documentId:snap.documentId,observed:{input:'none',target:'point',x,y},message});
+        t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'click_point',label,outcome,result:message});event(t,message);
+      });
+      if(!vision)return reject('POINT_UNAVAILABLE','当前模型不能看图，坐标点击不可用；请用快照元素 ID');
+      if(!v?.seen||v.tabId!==tabId||v.documentId!==(snap.documentId||null)||v.url!==snap.url||!(now()-v.time<=60000))return reject('POINT_NO_SCREENSHOT','坐标点击需要本页面 60 秒内、已看过的最新 viewport 截图；请先 view_image viewport');
+      if(!(x<v.image.width&&y<v.image.height))return reject('POINT_OUTSIDE','坐标超出截图范围（'+v.image.width+'×'+v.image.height+'）');
+      const point={x:v.area.left+x*v.area.width/v.image.width,y:v.area.top+y*v.area.height/v.image.height};
+      if(!(point.x>=0&&point.y>=0&&point.x<v.viewport.width&&point.y<v.viewport.height))return reject('POINT_OUTSIDE','坐标不在可见区域内');
+      const pending={tabId,origin:task.origin,scopeRevision:task.scopeRevision,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label,operationId:uuid(),expected:bindPlan(plan.expected||[],snap),time:call.time,point,view:{viewport:v.viewport,scroll:v.scroll}};
+      task=await update(tabId,token,t=>{t.lastView=null;t.pending=pending;t.retries=0;event(t,plan.reply);if(plan.notice){t.notice=plan.notice;event(t,'重要操作：'+plan.notice);}});
+      if(!task||!await live())return;
+      await execute(task,pending,live);
     }
     // A model that turned out not to see images (image-type 400 after view_image) gets the pending screenshots
     // as recognition text, one round for the batch; the images are then deleted.
@@ -1029,7 +1054,7 @@
         if(!await live())return;
         results.push({action:'view_image',label:shot.source,time:now(),outcome,result:outcome.message});
       }
-      const saved=await update(tabId,token,t=>{t.shots=[];t.phase='observe';t.results=t.results.concat(results);});
+      const saved=await update(tabId,token,t=>{t.shots=[];t.lastView=null;t.phase='observe';t.results=t.results.concat(results);});
       if(saved)await images.dropShots(task.taskId,[])?.catch?.(()=>{});
     }
     // Model-visible directory: this task's open members, plus other open web tabs owned by no task
