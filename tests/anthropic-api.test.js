@@ -23,7 +23,7 @@ test('Claude format sends a Messages request with x-api-key, cached system promp
   assert.equal(body.model,'claude-x');assert.equal(body.max_tokens,4096);assert.equal(body.messages.length,1);assert.equal(body.messages[0].role,'user');
   assert.equal(body.system[0].cache_control.type,'ephemeral');assert.match(body.system[0].text,/Call exactly one of the provided tools/);
   assert.deepEqual(body.tool_choice,{type:'auto',disable_parallel_tool_use:true},'some Claude models reject any/tool choices');
-  assert.deepEqual(body.tools.map(t=>t.name),C.agentToolNames().filter(name=>!['run_script','click_point'].includes(name)));
+  assert.deepEqual(body.tools.map(t=>t.name),C.agentPublicTools(C.agentToolNames()).filter(name=>!['run_script','click_point'].includes(name)));
   assert.equal(body.tools[0].input_schema.additionalProperties,false);
   assert.equal(body.reasoning_effort,undefined);assert.equal(body.thinking,undefined);
   assert.deepEqual(JSON.parse(result.text),{reply:'Look',action:'observe'});

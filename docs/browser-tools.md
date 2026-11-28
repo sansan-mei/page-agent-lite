@@ -4,7 +4,9 @@
 
 ## 动作
 
-模型每轮给出一个动作：原生工具调用（工具名即 action，参数为其余字段）或严格 JSON，如 `{"action":"click","id":"t2","reply":"保存","expected":[...]}`；两者都转成同一 plan 由 `agentPlan` 校验，见 [模型响应](context-and-skills.md#模型响应)。
+模型每轮给出一个动作：原生工具调用（工具名即 action，参数为其余字段）或严格 JSON，如 `{"action":"click","id":"t2","reply":"保存","expected":[...]}`；两者都先经 `agentModelPlan` 把分组工具换回注册表动作，再由 `agentPlan` 校验，见 [模型响应](context-and-skills.md#模型响应)。
+
+模型看到的是分组后的工具名（`agentToolGroups`）：`click` 加 `op=double/right` 对应 double_click/right_click；`tab` 加 `op=switch/open/close` 对应 tab_*；`site_memory`、`global_memory` 加 `op=read/write/delete/clear` 对应 *_memory_*。`op` 缺失或取值不对即为无效计划；注册表动作名仍作别名接受。执行、任务记录和侧栏只用注册表动作名；发给模型的 results（含 request、read_references 子项）换成分组形式。下表按注册表动作列出。
 
 | action | 参数 | 路由 | 说明 |
 |---|---|---|---|
@@ -14,8 +16,8 @@
 | view_image | id=`viewport`、当前快照元素/区域 ID 或附图 `imageN`；可选 value=问题（≤ 300 字符） | runtime | 看截图或再问附图，见 [截图](#截图) |
 | wait | expected + 可选 timeoutMs；或仅 timeoutMs | runtime | 条件等待（默认 10s，最多 30s）；仅 timeoutMs 为纯延时（100–30000ms） |
 | history_read | id、value=offset | runtime | 读当前来源的压缩归档，每次 4000 字符 |
-| site_memory_* / global_memory_* | read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
-| read_references | value=2–8 个 `{action:site_memory_read/global_memory_read/skill_read, id}`，不重复，无 id/expected | runtime | 只读批量参考资料；沿用单条读取与来源分区，逐项返回错误，停止或代次变化不再读后续项 |
+| site_memory_* / global_memory_* | 模型侧 `site_memory`/`global_memory` + op=read/write/delete/clear | runtime | 网站与全局长期记忆，见 [上下文](context-and-skills.md) |
+| read_references | value=2–8 个 `{action:site_memory/global_memory/skill_read, id}`（也接受 *_read），不重复，无 id/expected | runtime | 只读批量参考资料；沿用单条读取与来源分区，逐项返回错误，停止或代次变化不再读后续项 |
 | click_point | value=`{x,y}`（最新视口截图像素），可选 expected；只对能看图的模型提供 | browser | 按截图坐标真实点击一次，见 [坐标点击](#坐标点击) |
 | click | id，可选 `trusted` | content | 滚入视野、命中检查、pointer/mouse/focus 序列后一次 click；到不了或 `trusted:true` 时用[真实输入](#真实输入) |
 | fill | id、字符串 value | content | input / textarea / 简单 contenteditable |
@@ -25,13 +27,13 @@
 | scroll | value=up/down/left/right，可选容器 id | content | 600px；不传 id 滚窗口 |
 | wheel | id、value=方向 | content | 一次可取消 WheelEvent（±600 像素），只触发监听器，无原生滚动 |
 | press_key | id、value | content | keydown/keyup，见下 |
-| double_click | id | content | 两次受保护 click 后派发 detail=2 的 dblclick |
-| right_click | id | content | 右键 pointer/mouse down/up + contextmenu，不打开原生菜单 |
+| double_click | id；模型侧 `click` + op=double | content | 两次受保护 click 后派发 detail=2 的 dblclick |
+| right_click | id；模型侧 `click` + op=right | content | 右键 pointer/mouse down/up + contextmenu，不打开原生菜单 |
 | fill_fields | value=2–8 个 `{action:fill/check/select, id, value}`，目标不重复，无 id/expected | runtime | 一轮里按顺序写多个字段，逐项走 fill/check/select 原路径，见 [运行器](agent-runtime.md#批量填写) |
 | navigate | 绝对 HTTP/HTTPS URL（≤ 2000 字符） | browser | 见 [导航](#导航) |
-| tab_switch | id=tabRef | runtime | 切换执行标签页，见 [任务标签页](#任务标签页) |
-| tab_open | 绝对 HTTP/HTTPS URL，无 id/expected | browser | 后台打开并登记为任务标签页，切换执行目标 |
-| tab_close | id=tabRef | browser | 关闭非执行中的任务创建标签页 |
+| tab_switch | id=tabRef；模型侧 `tab` + op=switch | runtime | 切换执行标签页，见 [任务标签页](#任务标签页) |
+| tab_open | 绝对 HTTP/HTTPS URL，无 id/expected；模型侧 `tab` + op=open | browser | 后台打开并登记为任务标签页，切换执行目标 |
+| tab_close | id=tabRef；模型侧 `tab` + op=close | browser | 关闭非执行中的任务创建标签页 |
 
 - content 路由的动作（hover、scroll 除外）都有防重放保护；目标必须是当前快照 ID。除 `click_point` 外不接受坐标；不接受选择器、脚本或 HTML。
 - press_key：修饰键 Control/Alt/Shift/Meta（不可重复）；主键 Enter/Escape/Tab/Space/方向键/Home/End/PageUp/PageDown/Backspace/Delete 或小写 a–z。不保持按下状态，不触发浏览器原生编辑/快捷键；文本用 fill。

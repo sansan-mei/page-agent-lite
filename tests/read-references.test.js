@@ -44,7 +44,7 @@ test('native and JSON prompts expose the same bounded read-only batch',()=>{
   const tool=P.agentTools().find(t=>t.function.name==='read_references');
   assert.ok(tool);assert.equal(tool.function.parameters.properties.value.maxItems,8);
   assert.equal(tool.function.parameters.properties.value.items.additionalProperties,false);
-  assert.deepEqual(tool.function.parameters.properties.value.items.properties.action.enum,refs.map(r=>r.action));
+  assert.deepEqual(tool.function.parameters.properties.value.items.properties.action.enum,refs.map(r=>C.agentPublicAction(r.action).action));
   for(const protocol of ['native','json'])assert.match(P.agentSystem('English',protocol),/do not batch reads whose selection depends on an earlier result/i);
 });
 

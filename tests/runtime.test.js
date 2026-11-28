@@ -330,6 +330,24 @@ test('durable notes share exact origin across tabs and tasks, index omits bodies
  assert.equal((await siteMemory.read('https://sub.example.test')).notes.length,0);
 });
 
+test('grouped model tools: site_memory op write/read run the registry actions and results come back in the grouped form',async()=>{
+ const siteMemory=durableFixture();let payload,calls=0;
+ const f=fixture({siteMemory,model:async text=>{payload=JSON.parse(text);return {text:JSON.stringify(++calls===1?{reply:'save',action:'site_memory',op:'write',id:'workflow',value:'verified site procedure'}:calls===2?{reply:'read',action:'site_memory',op:'read',id:'workflow'}:{reply:'done',action:'done'})};}});
+ await f.runtime.start(1,'任务');await f.runtime.tick(1);assert.equal((await f.runtime.getSiteMemory(1)).notes[0].text,'verified site procedure');
+ await f.runtime.tick(1);const t=await f.runtime.get(1);
+ assert.deepEqual(t.results.map(r=>r.action).filter(a=>a.startsWith('site_memory')),['site_memory_write','site_memory_read'],'stored records keep registry names');
+ assert.equal(t.results.at(-1).result.note.text,'verified site procedure');
+ await f.runtime.tick(1);const shown=payload.results.filter(r=>r.action==='site_memory').map(r=>r.op);
+ assert.deepEqual(shown,['write','read'],'the model sees its own grouped tool names');assert.ok(!JSON.stringify(payload.results).includes('_memory_'),'requests and results use grouped names too');
+});
+
+test('grouped model tools: a bad op is an invalid plan and nothing runs',async()=>{
+ const siteMemory=durableFixture();
+ const f=fixture({siteMemory,model:async()=>({text:JSON.stringify({reply:'save',action:'site_memory',op:'append',id:'workflow',value:'x'})})});
+ await f.runtime.start(1,'任务');await f.runtime.tick(1);
+ assert.equal((await siteMemory.read('https://example.test')).notes.length,0);assert.notEqual((await f.runtime.get(1)).status,'complete');
+});
+
 test('manual durable edit invalidates all same-origin tasks and blocks late writes',async()=>{
  let resolve,signal;const siteMemory=durableFixture(),f=fixture({siteMemory,model:async(text,s)=>{signal=s;return new Promise(r=>resolve=r);}});
  await f.runtime.start(1,'任务');await f.runtime.start(2,'第二任务');const job=f.runtime.tick(1);while(!resolve)await new Promise(r=>setImmediate(r));

@@ -22,13 +22,32 @@ test('auto mode sends one native tool per registry action with forced single too
   const result=await s.generateAgent('observe');
   const body=requests[0];
   // run_script is offered only when the runtime passes capabilities.scripts (permission + API available).
-  assert.deepEqual(body.tools.map(t=>t.function.name),C.agentToolNames().filter(name=>!['run_script','click_point'].includes(name)));
+  assert.deepEqual(body.tools.map(t=>t.function.name),C.agentPublicTools(C.agentToolNames()).filter(name=>!['run_script','click_point'].includes(name)));
   assert.equal(body.tool_choice,'required');assert.equal(body.parallel_tool_calls,false);
   for(const tool of body.tools){assert.equal(tool.type,'function');assert.equal(tool.function.parameters.additionalProperties,false);assert.ok(tool.function.parameters.required.includes('reply'));}
   assert.match(body.messages[0].content,/Call exactly one of the provided tools per turn/);assert.doesNotMatch(body.messages[0].content,/Return ONLY strict JSON/);
   assert.deepEqual(JSON.parse(result.text),{reply:'Look',action:'observe'});
   assert.equal(P.agentTools().find(t=>t.function.name==='click').function.parameters.properties.timeoutMs.maximum,30000);
-  assert.equal(P.agentTools().find(t=>t.function.name==='tab_open').function.parameters.properties.timeoutMs,undefined);
+  assert.equal(P.agentTools().find(t=>t.function.name==='tab').function.parameters.properties.timeoutMs,undefined);
+});
+
+test('grouped model tools: 33 registry actions are offered as 23-25 tools and map back to registry actions',()=>{
+  const names=caps=>P.agentTools(caps).map(t=>t.function.name);
+  assert.equal(names().length,23);assert.equal(names({scripts:true,vision:true,realInput:true}).length,25);
+  for(const gone of ['double_click','right_click','tab_switch','tab_open','tab_close','site_memory_read','site_memory_write','site_memory_delete','site_memory_clear','global_memory_read','global_memory_write','global_memory_delete','global_memory_clear'])assert.ok(!names({scripts:true,vision:true,realInput:true}).includes(gone),gone);
+  const covered=new Set(names({scripts:true,vision:true,realInput:true}).flatMap(n=>C.agentToolMembers(n)));assert.deepEqual([...covered].sort(),C.agentToolNames().slice().sort(),'every registry action stays reachable');
+  const spec=n=>P.agentTools().find(t=>t.function.name===n).function.parameters;
+  assert.deepEqual(spec('site_memory').properties.op.enum,['read','write','delete','clear']);assert.deepEqual(spec('site_memory').required,['reply','op']);
+  assert.deepEqual(spec('tab').properties.op.enum,['switch','open','close']);assert.deepEqual(spec('click').properties.op.enum,['double','right']);assert.ok(!spec('click').required.includes('op'));
+  assert.match(P.agentSystem('English','json'),/action \(done\|pause\|[^)]*\bclick\|[^)]*\btab\|[^)]*site_memory\|global_memory\)/);
+  const snap={nodes:new Map([['e1',true]])},plan=p=>C.agentModelPlan(JSON.stringify({reply:'r',...p}),snap);
+  assert.equal(plan({action:'click',id:'e1'}).action,'click');assert.equal(plan({action:'click',id:'e1',op:'double'}).action,'double_click');assert.equal(plan({action:'click',id:'e1',op:'right'}).action,'right_click');
+  assert.equal(plan({action:'tab',op:'switch',id:'open1'}).action,'tab_switch');assert.equal(plan({action:'tab',op:'open',value:'https://a.test/'}).action,'tab_open');assert.equal(plan({action:'tab',op:'close',id:'tab2'}).action,'tab_close');
+  const w=plan({action:'global_memory',op:'write',id:'pref',value:'v'});assert.equal(w.action,'global_memory_write');assert.equal('op' in w,false);
+  assert.deepEqual(plan({action:'read_references',value:[{action:'site_memory',id:'a'},{action:'global_memory',id:'b'},{action:'skill_read',id:'c'}]}).value.map(r=>r.action),['site_memory_read','global_memory_read','skill_read']);
+  assert.equal(plan({action:'site_memory_read',id:'a'}).action,'site_memory_read','registry names stay accepted as aliases');
+  for(const bad of [{action:'site_memory',id:'a'},{action:'site_memory',op:'append',id:'a'},{action:'tab',op:'double',id:'tab1'},{action:'click',id:'e1',op:'triple'},{action:'observe',op:'read'},{action:'tab',op:'close',id:'open1'},{action:'click',id:'e1',op:'double',trusted:true}])assert.throws(()=>plan(bad),undefined,JSON.stringify(bad));
+  assert.deepEqual(C.agentPublicAction('tab_open'),{action:'tab',op:'open'});assert.deepEqual(C.agentPublicAction('click'),{action:'click'});assert.deepEqual(C.agentPublicAction('observe'),{action:'observe'});
 });
 
 test('a native tool call yields the same validated plan as the strict JSON text',()=>{
@@ -124,7 +143,7 @@ test('token pressure includes the native tools schema',()=>{
 test('run_script joins native tools and the prompt only when script capabilities are passed',async()=>{
   const names=caps=>P.agentTools(caps).map(t=>t.function.name);
   assert.ok(!names().includes('run_script'));assert.ok(!names({scripts:false}).includes('run_script'));
-  assert.deepEqual(names({scripts:true,vision:true,realInput:true}),C.agentToolNames());assert.ok(!names({scripts:true}).includes('click_point'));
+  assert.deepEqual(names({scripts:true,vision:true,realInput:true}),C.agentPublicTools(C.agentToolNames()));assert.ok(!names({scripts:true}).includes('click_point'));
   const tool=P.agentTools({scripts:true}).find(t=>t.function.name==='run_script');
   assert.deepEqual(tool.function.parameters.required,['reply','value']);
   assert.doesNotMatch(P.agentSystem('English','native'),/run_script/);assert.match(P.agentSystem('English','native',{scripts:true}),/OPTIONAL TOOL run_script[\s\S]*SCRIPT_REJECTED/);

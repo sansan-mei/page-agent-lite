@@ -837,7 +837,7 @@
         if(!await live())return;
         planText=result.text;
         }
-        let plan;try{plan=C.agentPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});}catch(error){throw invalidPlan(error,planText);}
+        let plan;try{plan=C.agentModelPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});}catch(error){throw invalidPlan(error,planText);}
         if(task.origin==='browser'&&!['navigate','tab_switch','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
         if(plan.subgoals!==undefined){
           const updates=plan.subgoals.map(g=>{
@@ -1257,7 +1257,7 @@
     async function closeTabAction(task,plan,call,live){
       const member=(task.members||[]).find(item=>item.tabRef===plan.id);
       if(!member||member.kind!=='task_created')return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','只能关闭本任务打开的标签页');
-      if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ACTIVE','不能关闭执行标签页；请先用 tab_switch 切到其他成员');
+      if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ACTIVE','不能关闭执行标签页；请先用 tab（op=switch）切到其他成员');
       if((await store.owner(member.tabId))?.taskId!==task.taskId)return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已不属于本任务');
       let tab=null;try{tab=await tools.tab(member.tabId,true);}catch(error){if(error.code==='NAVIGATION')throw error; /* Already gone: only the directory changes. */ }
       if(tab&&!(task.allowedOrigins||[]).includes(originOf(tab)))return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已离开任务站点，可能正被你使用，不会关闭');

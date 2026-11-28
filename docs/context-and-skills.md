@@ -25,7 +25,7 @@
 
 | 协议 | 请求 | 回复 |
 |---|---|---|
-| native | `tools`（`prompts.agentTools()`：注册表每个动作一个 function，参数只描述 plan 字段，`reply` 必填，`additionalProperties:false`）、`tool_choice:"required"`、`parallel_tool_calls:false`；系统指令要求每轮恰好调用一个工具 | 恰好一个 `type:function` 的 tool_call；arguments 解析为对象后以工具名作 `action` 转成同一 JSON plan，交给 `agentPlan` 校验 |
+| native | `tools`（`prompts.agentTools()`：按[分组工具](browser-tools.md#动作)每个工具一个 function，参数只描述 plan 字段，`reply` 必填，`additionalProperties:false`）、`tool_choice:"required"`、`parallel_tool_calls:false`；系统指令要求每轮恰好调用一个工具 | 恰好一个 `type:function` 的 tool_call；arguments 解析为对象后以工具名作 `action` 转成同一 JSON plan，经 `agentModelPlan` 交给 `agentPlan` 校验 |
 | json | 不带 tools；系统指令要求只返回严格 JSON | `content` 严格 JSON plan |
 
 接口格式 `apiFormat=anthropic` 时请求改走 `/messages`：native 的 tools 转成 `{name,description,input_schema}`，`tool_choice:{type:"auto",disable_parallel_tool_use:true}`（部分 Claude 模型如 claude-opus-5-5 拒绝 any/tool，强制改由系统指令要求恰好一个工具；只回文本按现有规则处理），系统指令作带 `cache_control` 的 system 块，不发送思考参数；`anthropicToChat` 把回复映射成 Chat Completions 形状（`stop_reason` end_turn/tool_use/max_tokens/refusal → stop/tool_calls/length/content_filter，其余为不支持；tool_use 块 → tool_calls；整段 ```json 围栏去掉；usage 含缓存读写 tokens），之后同样交给 `parseChatResponse`。
@@ -42,8 +42,8 @@ auto 回退：回复只有文本但文本本身是严格 JSON 动作时，本轮
 
 | 层 | 工具 | 目录 | 存储与范围 | 容量 |
 |---|---|---|---|---|
-| 网站 | `site_memory_read/write/delete/clear` | `siteMemoryIndex`（id、updatedAt、source） | IndexedDB，按完整 origin，跨任务/标签/重启 | 32 条/64000 字符，单条 2000 |
-| 全局 | `global_memory_read/write/delete/clear` | `globalMemoryIndex` | IndexedDB 单一 global 记录 | 同网站 |
+| 网站 | `site_memory` + op=read/write/delete/clear | `siteMemoryIndex`（id、updatedAt、source） | IndexedDB，按完整 origin，跨任务/标签/重启 | 32 条/64000 字符，单条 2000 |
+| 全局 | `global_memory` + op=read/write/delete/clear | `globalMemoryIndex` | IndexedDB 单一 global 记录 | 同网站 |
 | 技能 | 只有 `skill_read` | `skillIndex`（id、description、sites；本站 → 通用 → 其他网站排序） | IndexedDB `skillLibrary`，所有网站共用一个库 | 32 个/96000 字符，说明 200、步骤 4000、sites ≤ 8 |
 
 - 容量满时返回工具错误，由模型删除或压缩，不静默丢弃。

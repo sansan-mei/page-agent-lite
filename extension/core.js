@@ -35,6 +35,34 @@ const agentToolRegistry=(()=>{
 })();
 function agentTool(name){return typeof name==='string'&&Object.prototype.hasOwnProperty.call(agentToolRegistry,name)?agentToolRegistry[name]:null;}
 function agentToolNames(){return Object.keys(agentToolRegistry);}
+// Model-facing tools group related registry actions under one name plus op (click double/right, tab
+// switch/open/close, site/global memory read/write/delete/clear). agentModelPlan maps them back before
+// validation, so execution, stored results and the side panel keep registry names. Registry names stay
+// accepted from the model as aliases.
+const agentToolGroups=Object.freeze({
+ click:Object.freeze({fallback:'click',ops:Object.freeze({double:'double_click',right:'right_click'})}),
+ tab:Object.freeze({ops:Object.freeze({switch:'tab_switch',open:'tab_open',close:'tab_close'})}),
+ site_memory:Object.freeze({ops:Object.freeze({read:'site_memory_read',write:'site_memory_write',delete:'site_memory_delete',clear:'site_memory_clear'})}),
+ global_memory:Object.freeze({ops:Object.freeze({read:'global_memory_read',write:'global_memory_write',delete:'global_memory_delete',clear:'global_memory_clear'})})
+});
+const agentPublicOf=(()=>{const map=Object.create(null);for(const [tool,g] of Object.entries(agentToolGroups)){if(g.fallback)map[g.fallback]={action:tool};for(const [op,name] of Object.entries(g.ops))map[name]={action:tool,op};}return Object.freeze(map);})();
+const own=(o,k)=>typeof k==='string'&&Object.prototype.hasOwnProperty.call(o,k);
+function agentPublicAction(action){return own(agentPublicOf,action)?{...agentPublicOf[action]}:{action};}
+function agentPublicTools(names){const out=[];for(const name of names){const tool=agentPublicAction(name).action;if(!out.includes(tool))out.push(tool);}return out;}
+function agentToolMembers(tool){const g=own(agentToolGroups,tool)?agentToolGroups[tool]:null;return g?(g.fallback?[g.fallback]:[]).concat(Object.values(g.ops)):[tool];}
+function agentModelPlan(raw,snap){
+ let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
+ if(p&&typeof p==='object'&&!Array.isArray(p)){
+  const g=own(agentToolGroups,p.action)?agentToolGroups[p.action]:null;
+  if(p.op!==undefined||g&&!g.fallback){
+   const name=g&&own(g.ops,p.op)?g.ops[p.op]:null;
+   if(!name)throw new Error('op 无效：'+(g?p.action+' 只接受 '+Object.keys(g.ops).join('/'):'只有 '+Object.keys(agentToolGroups).join('/')+' 使用 op'));
+   const {op,...rest}=p;p={...rest,action:name};
+  }
+  if(p.action==='read_references'&&Array.isArray(p.value))p={...p,value:p.value.map(r=>r&&typeof r==='object'&&!Array.isArray(r)&&['site_memory','global_memory'].includes(r.action)?{...r,action:r.action+'_read'}:r)};
+ }
+ return agentPlan(JSON.stringify(p),snap);
+}
 const agentSensitiveSelector=['current-password','new-password','one-time-code','cc-number','cc-csc'].map(token=>'[autocomplete~="'+token+'" i]').concat(['input[type="password"]','input[type="file"]','input[type="hidden"]']).join(',');
 function agentText(n){
  if(!n||n.closest(agentSensitiveSelector+',script,style,noscript,[hidden],[aria-hidden="true"],[data-page-agent]'))return '';
@@ -554,7 +582,7 @@ function agentMaskBoxes(doc,sensitiveFields=false){
  visit(doc,{x:0,y:0},0);
  return boxes;
 }
-const api={agentShotScroll,agentShotArea,agentMaskBoxes,agentFrameGuard,agentInputPoint,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
+const api={agentShotScroll,agentShotArea,agentMaskBoxes,agentFrameGuard,agentInputPoint,endpoint,agentTool,agentToolNames,agentPublicAction,agentPublicTools,agentToolMembers,agentModelPlan,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;
 if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
