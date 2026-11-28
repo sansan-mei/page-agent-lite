@@ -6,6 +6,8 @@
 
 ## 未发布
 
+## 1.2.0（2026-11-28）
+
 ### 模型连接
 
 - 设置新增「接口格式」：除 OpenAI 兼容接口外，可直接连接 Claude（Anthropic Messages，`/v1/messages` + `x-api-key`），原生工具调用、JSON 回退和各项安全检查与 OpenAI 格式一致；系统指令带提示缓存标记，重复请求更省。思考强度对 Claude 格式不生效。
