@@ -4,7 +4,7 @@
 
 ## 下一步
 
-1. **目标模式 CDP 通道**：声明 `debugger` 权限，功能默认关闭，仅目标模式启用时向模型提供受限工具调用。见 [设计](docs/plans/goal-mode-cdp.md)。
+1. **图片识别与 CDP 通道（1.3）**：上传图片识别、页面截图看图、`debugger` 权限与合成点击无效时的真实输入回退。见 [设计](docs/plans/vision-and-cdp.md)。
 2. **PA8 收尾**：多标签执行的真实浏览器验收、侧栏手动切换执行标签页、`tabs.create` 丢回执的只读对账。见 [任务范围与标签归属](docs/plans/task-scope-v3.md#实施顺序)。
 3. **Page Agent 能力吸收的剩余项**：组合输入与真实框架兼容、上下文分层、原生工具调用评估、统一事件与轨迹导出。见 [能力吸收计划](docs/plans/page-agent-integration.md)。
 4. **跨会话检索与恢复**：在任务复盘与技能库之上评估跨会话检索/恢复与技能导入导出。
@@ -63,13 +63,13 @@
 
 ## 未实现
 
-- [ ] 目标模式 CDP 通道：`debugger` 权限与受限 function calling，见[设计](docs/plans/goal-mode-cdp.md)
+- [ ] 图片识别与 CDP 通道：`debugger` 权限、真实输入回退、上传图片与页面截图，见[设计](docs/plans/vision-and-cdp.md)
 - [ ] 组合输入（IME）、真实框架/组件库兼容验证（PA2 剩余）
 - [ ] 完整工具参数 schema 与生命周期 hooks（PA9 剩余）、上下文分层与 llms.txt 评估（PA10）
 - [ ] 内容过滤配置与预览（PA11 剩余）
 - [ ] 统一执行事件、脱敏轨迹导出、历史检索与跨重启续接（PA13 剩余；历史已跨重启保存但不续接）
 - [ ] 技能导入导出；跨会话任务恢复
-- [ ] 截图与视觉模型；嵌套/重定向/同 URL 多 iframe；Shadow DOM；复杂富文本编辑器；手动选取元素作为上下文
+- [ ] 嵌套/重定向/同 URL 多 iframe；Shadow DOM；复杂富文本编辑器；手动选取元素作为上下文
 - [ ] 可选外部集成：SDK、扩展任务 API、MCP（PA14–PA16，后期评估）
 
 ## 已退役
