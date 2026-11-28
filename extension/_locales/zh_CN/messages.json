@@ -991,5 +991,11 @@
   },
   "optRealInputFailed": {
     "message": "保存失败，请重试。"
+  },
+  "spRealInputSetup": {
+    "message": "目标模式建议开启「真实输入与截图」"
+  },
+  "spRealInputEnable": {
+    "message": "开启"
   }
 }

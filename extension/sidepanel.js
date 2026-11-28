@@ -422,30 +422,35 @@
   // Turning goal mode on also gets run_script ready: ask for the optional userScripts permission
   // inside this click (user gesture), then hint once if Chrome's "Allow User Scripts" toggle is off.
   // Approval of each script is unchanged; turning goal mode off keeps the permission.
-  const S=globalThis.PageAgentScriptTools;let scriptsGranted=null;
+  // The same compact hint offers one-click "Turn on" for the real input & screenshots switch (storage.local
+  // debuggerEnabled) when it is off; both parts share one line and one dismiss button.
+  const S=globalThis.PageAgentScriptTools;let scriptsGranted=null,realInputOn=false;
+  function setupHint(part,shown){$(part).hidden=!shown;$('script-setup').hidden=$('real-input-setup').hidden&&$('script-toggle-setup').hidden;}
   async function refreshScripts(){
     if(!S)return null;let state={permission:false,api:false,available:false};
     try{state=await S.status(chrome);}catch{ /* treated as unavailable */ }
-    scriptsGranted=state.permission;if(state.available)$('script-setup').hidden=true;return state;
+    scriptsGranted=state.permission;if(state.available)setupHint('script-toggle-setup',false);return state;
   }
   function prepareScripts(){
     if(!S)return;let request=true;
     if(scriptsGranted!==true)try{request=chrome.permissions.request({permissions:[S.permission]});}catch{request=false;}
-    void Promise.resolve(request).catch(()=>false).then(()=>refreshScripts()).then(state=>{if(goalMode&&state?.permission&&!state.available)$('script-setup').hidden=false;});
+    void Promise.resolve(request).catch(()=>false).then(()=>refreshScripts()).then(state=>{if(goalMode&&state?.permission&&!state.available)setupHint('script-toggle-setup',true);});
   }
   $('script-setup-open').addEventListener('click',()=>{void Promise.resolve(chrome.tabs.create({url:'chrome://extensions/?id='+chrome.runtime.id})).catch(()=>{});});
-  $('script-setup-close').addEventListener('click',()=>{$('script-setup').hidden=true;});
+  $('real-input-enable').addEventListener('click',()=>{realInputOn=true;setupHint('real-input-setup',false);void chrome.storage.local?.set({debuggerEnabled:true})?.catch(()=>{});});
+  $('script-setup-close').addEventListener('click',()=>{setupHint('real-input-setup',false);setupHint('script-toggle-setup',false);});
   // The toggle is flipped in another tab: re-check when the panel becomes visible again.
   document.addEventListener('visibilitychange',()=>{if(!$('script-setup').hidden&&document.visibilityState!=='hidden')void refreshScripts();});
   globalThis.addEventListener?.('focus',()=>{if(!$('script-setup').hidden)void refreshScripts();});
   $('goal-mode').addEventListener('click',()=>{
     if(busy)return;goalMode=!goalMode;
-    if(goalMode)prepareScripts();else $('script-setup').hidden=true;
+    if(goalMode){setupHint('real-input-setup',!realInputOn);prepareScripts();}else{setupHint('real-input-setup',false);setupHint('script-toggle-setup',false);}
     void chrome.storage.local?.set({goalMode})?.catch(()=>{});
     if(ongoingTask()&&task.goalMode!==goalMode)void action('task:goal-mode',{taskId:task.taskId,enabled:goalMode});else render();
   });
   async function loadGoalMode(){
     try{const value=(await chrome.storage.local.get('goalMode')).goalMode;goalMode=value===true;render();}catch{}
+    try{realInputOn=(await chrome.storage.local.get('debuggerEnabled')).debuggerEnabled===true;}catch{}
   }
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
   $('instruction').addEventListener('compositionend',()=>{composing=false;});
@@ -523,6 +528,7 @@
   }
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area==='local'&&changes.goalMode){goalMode=changes.goalMode.newValue===true;render();}
+    if(area==='local'&&changes.debuggerEnabled){realInputOn=changes.debuggerEnabled.newValue===true;if(realInputOn)setupHint('real-input-setup',false);}
     if(area==='local'&&changes.agentPreferences){void loadInputLimit();return;}
     if(area!=='session'||tabId===null)return;
     const registry=changes.taskRegistry;

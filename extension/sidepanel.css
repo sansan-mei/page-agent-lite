@@ -121,4 +121,5 @@ button { font-size: 12px; padding: 6px 10px; font-weight: 500; }
 #script-grant { margin: 8px 0; font-size: 12px; color: #6b5a2e; overflow-wrap: anywhere; }
 #script-setup { margin: 0 0 6px; font-size: 12px; color: #6b5a2e; }
 #script-setup-close { float: right; text-decoration: none !important; }
+#real-input-setup:not([hidden]) + #script-toggle-setup:not([hidden])::before { content: " · "; }
 #script-grant .inline-link, #script-setup .inline-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }

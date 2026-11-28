@@ -991,5 +991,11 @@
   },
   "optRealInputFailed": {
     "message": "Couldn’t save, try again."
+  },
+  "spRealInputSetup": {
+    "message": "Goal mode works best with real input & screenshots"
+  },
+  "spRealInputEnable": {
+    "message": "Turn on"
   }
 }

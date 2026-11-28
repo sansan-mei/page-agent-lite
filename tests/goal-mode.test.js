@@ -157,7 +157,8 @@ test('turning goal mode on requests userScripts in the click and hints once when
    permissions:{async contains(q){return q.permissions?state.granted:true;},onAdded:{addListener(){}},onRemoved:{addListener(){}},
     request(q){log.push(['request',JSON.stringify(q),state.inClick]);if(q.permissions&&answer)state.granted=true;return Promise.resolve(answer);},remove(){log.push(['remove']);return Promise.resolve(true);}},
    runtime:{id:'abcdef',async sendMessage(m){return {ok:true,value:null};},async openOptionsPage(){}},
-   storage:{local:{async get(){return {};},async set(){}},onChanged:{addListener(){}}}};
+   // Real input & screenshots already on here, so only the script part of the hint is under test.
+   storage:{local:{async get(k){return k==='debuggerEnabled'?{debuggerEnabled:true}:{};},async set(){}},onChanged:{addListener(){}}}};
   Object.defineProperty(chrome,'userScripts',{get:()=>state.api?{execute(){},async getScripts(){return [];}}:undefined});
   runUi('extension/sidepanel.js',{chrome,document,window,URL,Date,PageAgentScriptTools:S});await flush();await flush();
   const $=id=>document.getElementById(id);
@@ -174,7 +175,7 @@ test('turning goal mode on requests userScripts in the click and hints once when
  assert.equal(p.$('goal-mode').getAttribute('aria-pressed'),'true');
  assert.deepEqual(p.requests(),[['request',JSON.stringify({permissions:['userScripts']}),true]]);
  assert.equal(p.$('script-setup').hidden,false);
- assert.equal(p.$('script-setup').querySelector('span').textContent,tr('spScriptSetup'));
+ assert.equal(p.$('script-toggle-setup').querySelector('span').textContent,tr('spScriptSetup'));assert.equal(p.$('real-input-setup').hidden,true);
  assert.equal(p.$('script-setup-open').textContent,tr('spScriptSetupOpen'));
  p.fire(p.$('script-setup-open'));
  assert.deepEqual(p.log.at(-1),['open','chrome://extensions/?id=abcdef']);

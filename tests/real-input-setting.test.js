@@ -156,3 +156,41 @@ test('settings row flips the stored switch without any permission prompt and sur
  // Changed elsewhere (side panel "Turn on"): the row follows.
  await s.api.local.set({debuggerEnabled:true});assert.equal(page.$('real-input-badge').getAttribute('data-state'),'on');
 });
+
+test('goal mode on with the switch off shows one compact hint whose button turns it on directly',async()=>{
+ const open=async(s,scripts=null)=>{
+  const {document,window}=parseHTML(fs.readFileSync('extension/sidepanel.html','utf8'));
+  const state={granted:true,api:false};
+  const chrome={tabs:{async query(){return [{id:9,url:'https://example.test/cv',title:'CV'}];},create(){return Promise.resolve({});},onRemoved:{addListener(){}},onActivated:{addListener(){}},onUpdated:{addListener(){}}},
+   permissions:{async contains(q){return q.permissions?state.granted:true;},onAdded:{addListener(){}},onRemoved:{addListener(){}},request(){return Promise.resolve(true);}},
+   runtime:{id:'abcdef',async sendMessage(){return {ok:true,value:null};},async openOptionsPage(){}},storage:s.api};
+  Object.defineProperty(chrome,'userScripts',{get:()=>state.api?{execute(){},async getScripts(){return [];}}:undefined});
+  runUi('extension/sidepanel.js',{chrome,document,window,URL,Date,...(scripts?{PageAgentScriptTools:scripts}:{})});await flush();await flush();
+  const $=id=>document.getElementById(id),fire=async el=>{el.dispatchEvent(new window.Event('click'));await flush();await flush();};
+  return {$,fire,goal:()=>fire($('goal-mode'))};
+ };
+ const s=storage();let p=await open(s);
+ assert.equal(p.$('script-setup').hidden,true);
+ await p.goal();
+ assert.equal(p.$('goal-mode').getAttribute('aria-pressed'),'true');
+ assert.equal(p.$('script-setup').hidden,false);assert.equal(p.$('real-input-setup').hidden,false);assert.equal(p.$('script-toggle-setup').hidden,true);
+ assert.equal(p.$('real-input-setup').querySelector('span').textContent,tr('spRealInputSetup'));assert.equal(p.$('real-input-enable').textContent,tr('spRealInputEnable'));
+ await p.fire(p.$('real-input-enable'));
+ assert.equal(s.local.debuggerEnabled,true,'one click turns the setting on');assert.equal(p.$('script-setup').hidden,true);
+ await p.goal();await p.goal();assert.equal(p.$('script-setup').hidden,true,'no hint once enabled');
+ // Off again (settings page): next enable shows it once more; dismiss hides it until the next enable.
+ await s.api.local.set({debuggerEnabled:false});await p.goal();await p.goal();
+ assert.equal(p.$('real-input-setup').hidden,false);
+ await p.fire(p.$('script-setup-close'));assert.equal(p.$('script-setup').hidden,true);
+ // Turned on elsewhere while the hint is up: it hides.
+ await p.goal();await p.goal();assert.equal(p.$('script-setup').hidden,false);
+ await s.api.local.set({debuggerEnabled:true});assert.equal(p.$('script-setup').hidden,true);
+ // Both needs at once fit in the same single hint line with one dismiss.
+ const both=storage();p=await open(both,require('../extension/script-tools.js'));
+ await p.goal();
+ assert.equal(p.$('script-setup').hidden,false);assert.equal(p.$('real-input-setup').hidden,false);assert.equal(p.$('script-toggle-setup').hidden,false);
+ assert.equal(p.$('script-setup').querySelectorAll('#script-setup-close').length,1);
+ await p.fire(p.$('real-input-enable'));
+ assert.equal(p.$('real-input-setup').hidden,true);assert.equal(p.$('script-toggle-setup').hidden,false);assert.equal(p.$('script-setup').hidden,false,'script part stays');
+ await p.goal();assert.equal(p.$('script-setup').hidden,true,'goal mode off hides the hint');
+});
