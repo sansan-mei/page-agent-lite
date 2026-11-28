@@ -70,7 +70,7 @@ function fixture(service,replies=[{reply:'ok',action:'done'}]){
   const data=new Map(),models=[];let seq=0;
   const store={async get(id){return structuredClone(data.get(id)||null);},async set(id,t){data.set(id,structuredClone(t));},async remove(id){data.delete(id);},async list(){return [...data.values()].map(t=>structuredClone(t));}};
   const tools={async tab(id){return {id,url:'https://a.test/',status:'complete'};},async observe(){return {url:'https://a.test/',documentId:'d',page:{text:'page',elements:[]}};}};
-  const runtime=createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),
+  const runtime=createRuntime({store,tools,images:service,schedule:()=>{},cancelSchedule:async()=>{},uuid:()=>'id'+(++seq),preferences:async()=>({maxSteps:50}),recognitionBackoff:0,
     model:async(text,signal,capabilities)=>{models.push({input:JSON.parse(text),images:capabilities.images});const next=replies.shift();if(next instanceof Error)throw next;return {text:JSON.stringify(next||{reply:'ok',action:'done'})};}});
   return {runtime,models,data};
 }
@@ -109,12 +109,12 @@ test('models without vision get recognition text once per image, labelled as pos
   await f.runtime.tick(1);
   let task=await f.runtime.get(1);
   assert.equal(f.models.length,0,'recognition runs before the first agent request');
-  assert.equal(task.steps,1,'recognition counts as one round');
-  assert.deepEqual(service.calls.filter(c=>c[0]==='recognize').map(c=>c[1]),['img_00000001','img_broken01']);
+  assert.equal(task.steps,1,'recognition, retries included, counts as one round');
+  assert.deepEqual(service.calls.filter(c=>c[0]==='recognize').map(c=>c[1]),['img_00000001','img_broken01','img_broken01','img_broken01'],'a failure is retried twice');
   assert.equal(service.calls.find(c=>c[0]==='recognize')[2],'Book the flight in the image');
   assert.match(task.events.at(-1).text,/图片识别失败 1 张/);
   await f.runtime.tick(1);
-  assert.equal(service.calls.filter(c=>c[0]==='recognize').length,2,'never recognized twice');
+  assert.equal(service.calls.filter(c=>c[0]==='recognize').length,4,'never recognized again after the final failure');
   assert.equal(f.models[0].images,undefined);
   assert.deepEqual(f.models[0].input.images,[{ref:'image1',note:'来自图片识别，可能有误',text:'TEXT OF img_00000001'},{ref:'image2',note:'图片识别失败，内容未知'}]);
   task=await f.runtime.get(1);assert.equal(task.status,'completed');

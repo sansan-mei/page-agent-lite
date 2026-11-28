@@ -26,7 +26,7 @@
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), images=null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), images=null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now(), recognitionBackoff=1000}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const PLAN_RETRIES=2; // consecutive INVALID_PLAN results returned to the model before pausing
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
@@ -687,7 +687,7 @@
           if(!task||!await live())return;
           const goal=[task.goal,...(task.instructions||[]).map(i=>i.text)].join('\n').slice(0,2000),texts=new Map();
           for(const a of unread){
-            try{texts.set(a.id,{text:await images.recognize(a.id,goal,controller.signal)});}
+            try{texts.set(a.id,{text:await recognizeRetrying(task,()=>images.recognize(a.id,goal,controller.signal),live,controller.signal)});}
             catch(error){if(!await live())return;texts.set(a.id,{failed:true,error:String(error?.message||'').slice(0,120)});}
             if(!await live())return;
           }
@@ -965,6 +965,22 @@
       while(JSON.stringify(observed).length>4400&&observed.text)observed.text=observed.text.slice(0,Math.max(0,observed.text.length-Math.ceil((JSON.stringify(observed).length-4400)/2)-1));
       return observed;
     }
+    // Image recognition: up to 2 retries (3 attempts) with a 1 s, then 2 s backoff, inside the round already counted for
+    // it; a stop, takeover or new instruction ends the retries at once and the caller keeps its failure handling.
+    async function recognizeRetrying(task,run,live,signal){
+      for(let attempt=1;;attempt++){
+        try{return await run();}
+        catch(error){
+          if(attempt>=3||signal?.aborted||!await live())throw error;
+          await update(task.tabId,task.token,t=>{event(t,'图片识别失败，稍后重试（'+attempt+'/2）');});
+          await new Promise(resolve=>{
+            const done=()=>{clearTimeout(timer);signal?.removeEventListener?.('abort',done);resolve();};
+            const timer=setTimeout(done,recognitionBackoff*attempt);signal?.addEventListener?.('abort',done,{once:true});
+          });
+          if(signal?.aborted||!await live())throw error;
+        }
+      }
+    }
     const imageGoal=task=>[task.goal,...(task.instructions||[]).map(i=>i.text)].join('\n').slice(0,2000);
     // view_image: a page screenshot (viewport or a current element/region) with sensitive fields masked, or a new
     // question about an attached image. Vision models see the screenshot in the next request only; models without
@@ -981,7 +997,7 @@
       const recognized=async(run,suffix='')=>{
         task=await update(tabId,token,t=>{t.steps++;event(t,'正在识别图片：'+source);});
         if(!task||!await live())return;
-        let text;try{text=await run();}catch(error){if(!await live())return;return fail('RECOGNITION_FAILED','图片识别失败：'+String(error?.message||'').slice(0,120));}
+        let text;try{text=await recognizeRetrying(task,run,live,signal);}catch(error){if(!await live())return;return fail('RECOGNITION_FAILED','图片识别失败：'+String(error?.message||'').slice(0,120));}
         if(!await live())return;
         return record({status:'success',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(source,question,text),message:'识别结果见 observed.text'+suffix+'；可能有误，金额、编号等以页面文字为准'});
       };
@@ -1049,7 +1065,7 @@
       const results=[];
       for(const shot of shots){
         let outcome;
-        try{outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(shot.source,shot.question,await images.recognize(shot.id,imageGoal(task),signal,shot.question||null)),message:'模型不能看图，截图已转成识别文字（可能有误）'});}
+        try{outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(shot.source,shot.question,await recognizeRetrying(task,()=>images.recognize(shot.id,imageGoal(task),signal,shot.question||null),live,signal)),message:'模型不能看图，截图已转成识别文字（可能有误）'});}
         catch(error){if(!await live())return;outcome=T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'RECOGNITION_FAILED',recovery:'replan',message:'截图识别失败：'+String(error?.message||'').slice(0,120)});}
         if(!await live())return;
         results.push({action:'view_image',label:shot.source,time:now(),outcome,result:outcome.message});

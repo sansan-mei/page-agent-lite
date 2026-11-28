@@ -131,7 +131,7 @@ observe 的 value：
 - 捕获（`browser-tools.screenshot`）：核对来源与标签 URL → 内容脚本 `agent:shot` 按当前快照 ID 找到节点（须存活、可见；不完全在视口内时 `scrollIntoView` 后等 150ms），量出可见框（顶层视口 CSS 像素，含同源框架偏移与 overflow 裁剪），`viewport` 为整个视口 → 后台以「可见框 + 顶层滚动偏移」为 clip，`scale = min(1, 1568 / (长边 × devicePixelRatio))`，经 `cdp-tools.capture` 发一次 `Page.captureScreenshot`（JPEG，quality 70，`captureBeyondViewport:false`，15 秒超时）→ `finally` 发 `agent:unshot` 移除遮盖。白名单校验 clip 只含 x/y/width/height/scale 且 scale ≤ 1。不激活或聚焦标签页；会话与[真实输入](#真实输入)共用（同一 taskId，同样的 attach/detach 与错误 code）。
 - 遮盖（`core.agentMaskBoxes` + 内容脚本）：未授权敏感字段时遮盖 `agentSensitiveSelector` 匹配的元素（顶层、可读同源框架、开放 Shadow DOM）和所有读不到文档的框架（跨源、嵌套过深）；已授权时只遮盖文件选择框。每处外扩 2px，画成顶层 `position:fixed` 黑块（`data-page-agent="mask"`，不进快照），插入后逐块核对位置与可见性；量不到、放不准或根元素半透明即 `MASK_FAILED`，不截图、不留遮盖。内容脚本 15 秒后自行移除未收到 `agent:unshot` 的遮盖。封闭 Shadow DOM 和无标准标记的敏感内容不在遮盖范围内。
 - 拒绝：跨源框架路由的目标（`VIEW_IMAGE_UNSUPPORTED`，可改用 viewport）、不在快照中的 ID（`TARGET_MISSING`）、过期快照或节点（`STALE`）、不可见（`TARGET_HIDDEN`）、`CAPTURE_TIMEOUT`、`CAPTURE_FAILED`、`CDP_*`、识别失败 `RECOGNITION_FAILED`、无附图 `IMAGE_NOT_FOUND`。都是交回模型的工具结果，不暂停任务。
-- 识别文字放在 `observed {source, question?, note:'来自图片识别，可能有误', untrusted:true, text}`，text ≤ 2000 字符，并按 JSON 转义后长度裁到 4500 字符的 observed 上限以内。识别计一轮。
+- 识别文字放在 `observed {source, question?, note:'来自图片识别，可能有误', untrusted:true, text}`，text ≤ 2000 字符，并按 JSON 转义后长度裁到 4500 字符的 observed 上限以内。识别计一轮，失败重试见 [附图](context-and-skills.md#附图)。
 - 截图暂存与发送见 [附图](context-and-skills.md#附图)。
 
 ## 导航
