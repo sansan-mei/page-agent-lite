@@ -125,6 +125,9 @@
   "spHistoryBack": {
     "message": "Back to chat"
   },
+  "spHistoryList": {
+    "message": "Back to list"
+  },
   "spHistoryNote": {
     "message": "Conversations from all sites, saved on this device (latest 50); sensitive field values are hidden"
   },

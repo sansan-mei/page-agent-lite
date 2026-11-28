@@ -125,6 +125,9 @@
   "spHistoryBack": {
     "message": "返回对话"
   },
+  "spHistoryList": {
+    "message": "返回列表"
+  },
   "spHistoryNote": {
     "message": "所有网站的对话，保存在本机（最近 50 条）；敏感字段的值已隐藏"
   },

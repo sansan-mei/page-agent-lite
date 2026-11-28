@@ -140,6 +140,8 @@ test('header history is read-only and new dialogue resets the view while retaini
  await flush();d.querySelector('.conversation-item').click();await flush();
  assert.equal(d.getElementById('history-goal').textContent,'Current goal');assert.match(d.getElementById('event-log').textContent,/Recent reply/);
  assert.deepEqual(f.calls.map(c=>c[1].type),['task:history','task:history-get']);f.calls.length=0;
+ assert.equal(d.getElementById('conversation-list').hidden,true);assert.equal(d.getElementById('history-back').textContent,'返回列表');
+ d.getElementById('history-back').click();assert.equal(d.getElementById('conversation-list').hidden,false);assert.equal(d.getElementById('history-view').hidden,false);assert.equal(d.getElementById('history-messages').hidden,true);
  d.getElementById('history-back').click();assert.equal(d.getElementById('conversation').hidden,false);
  d.getElementById('instruction').value='Old draft';d.getElementById('finish').click();await flush();assert.equal(f.calls[0][1].type,'task:finish');assert.equal(d.getElementById('finish').disabled,true);
  assert.equal(d.getElementById('empty-state').hidden,false);assert.equal(d.getElementById('timeline').hidden,true);assert.equal(d.getElementById('instruction').value,'');
@@ -181,10 +183,21 @@ test('history selects one conversation as text, returns to live task and discard
  d.querySelector('[data-task-id="old"]').click();await flush();
  assert.match(d.getElementById('history-messages').textContent,/Old reply only/);assert.doesNotMatch(d.getElementById('history-messages').textContent,/Live reply/);
  assert.equal(d.getElementById('composer').hidden,true);assert.equal(d.getElementById('clear').hidden,true);assert.equal(d.getElementById('finish').disabled,false);
- d.getElementById('history-back').click();assert.equal(d.getElementById('goal').textContent,'Current work');assert.match(d.getElementById('timeline').textContent,/Live reply/);
+ d.getElementById('history-back').click();d.getElementById('history-back').click();assert.equal(d.getElementById('goal').textContent,'Current work');assert.match(d.getElementById('timeline').textContent,/Live reply/);
  delayed=true;d.getElementById('history').click();await flush();d.querySelector('[data-task-id="old"]').click();d.getElementById('history-back').click();resolve({ok:true,value:old});await flush();
  assert.equal(d.getElementById('goal').textContent,'Current work');assert.equal(d.getElementById('history-view').hidden,true);
  assert.equal(f.calls.some(c=>['task:submit','task:resume','task:finish'].includes(c[1].type)),false);
+});
+
+test('live task updates keep history rows in place so a click is not lost',async()=>{
+ let live={taskId:'live',origin:'https://example.test',goal:'Current work',status:'running',phase:'thinking',steps:1,prefs:{maxSteps:50},events:[],results:[],updatedAt:5};
+ const old={taskId:'old',origin:'https://example.test',goal:'Old work',status:'ended',events:[{time:1,text:'Old reply only'}],results:[],updatedAt:1};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:live}:m.type==='task:history'?{ok:true,value:[live,old]}:m.type==='task:history-get'?{ok:true,value:old}:undefined),d=f.document;
+ d.getElementById('history').click();await flush();
+ const row=d.querySelector('[data-task-id="old"]');
+ live={...live,phase:'executing',steps:2};f.storageChanged({'taskRoot:live':{newValue:{taskId:'live'}}},'session');await flush();
+ assert.equal(d.querySelector('[data-task-id="old"]'),row);
+ row.click();await flush();assert.match(d.getElementById('history-messages').textContent,/Old reply only/);
 });
 
 test('decision form renders escaped options and submits multiple choices once',async()=>{

@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   const $=id=>document.getElementById(id),t=PageAgentI18n.t;
-  let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
+  let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0,listScroll=0;
   let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalMode=false,shownPrompt='';
   const ongoingTask=()=>!!task&&task.status!=='ended';
   // Goal mode is a persistent local preference: it arms every new task and supplement until toggled off.
@@ -135,10 +135,15 @@
       label.textContent=origin;button.type='button';button.textContent=t('spForgetFrameOrigin');button.disabled=busy;
       button.addEventListener('click',()=>editScope('remove',origin));li.append(label,button);$('frame-grant-origins').append(li);
     }
-    const list=$('conversation-list');list.replaceChildren();
+    const list=$('conversation-list');
     const items=historyIndex.map(item=>item.taskId===current?.taskId?{...item,goal:current.goal,status:current.status,updatedAt:current.updatedAt}:item);
     if(current?.taskId&&!items.some(item=>item.taskId===current.taskId))items.unshift({taskId:current.taskId,goal:current.goal,status:current.status,updatedAt:current.updatedAt,origin:current.initialOrigin||current.origin,origins:current.allowedOrigins});
-    for(const item of items){
+    // Rebuilding on every live-task update would swap a row out between mousedown and mouseup and drop the click.
+    const listSignature=JSON.stringify([items,historyTask?.taskId,busy]);
+    list.hidden=!!historyTask;$('history-back').textContent=t(historyTask?'spHistoryList':'spHistoryBack');
+    const rebuildList=list.dataset.signature!==listSignature;
+    if(rebuildList){list.dataset.signature=listSignature;list.replaceChildren();}
+    for(const item of rebuildList?items:[]){
       const row=document.createElement('div');row.className='conversation-row';
       const button=document.createElement('button');button.type='button';button.className='conversation-item';button.dataset.taskId=item.taskId;
       button.setAttribute('aria-pressed',String(historyTask?.taskId===item.taskId));
@@ -503,12 +508,13 @@
   }
   async function openConversation(taskId){
     const request=++historyRequest,target=tabId;
-    try{const value=await send('task:history-get',{taskId});if(request!==historyRequest||target!==tabId||!historyOpen)return;historyTask=value;$('run-details').open=true;render();}
+    try{const value=await send('task:history-get',{taskId});if(request!==historyRequest||target!==tabId||!historyOpen)return;listScroll=$('history-view').scrollTop;historyTask=value;$('run-details').open=true;render();$('history-view').scrollTop=0;}
     catch(e){if(request===historyRequest&&target===tabId)$('status').textContent=e.message;}
   }
-  function showHistory(open){++historyRequest;historyOpen=open;historyTask=null;render();if(open)void loadHistory();}
+  function showHistory(open){++historyRequest;historyOpen=open;historyTask=null;render();if(open){$('history-view').scrollTop=0;void loadHistory();}}
   $('history').addEventListener('click',()=>showHistory(!historyOpen));
-  $('history-back').addEventListener('click',()=>showHistory(false));
+  // From one opened conversation, Back returns to the list where the user left it.
+  $('history-back').addEventListener('click',()=>{if(!historyTask)return showHistory(false);++historyRequest;historyTask=null;render();$('history-view').scrollTop=listScroll;});
   $('settings').addEventListener('click',()=>void chrome.runtime.openOptionsPage());
   function authorize(all){
     if(busy||!tabOrigin||tabId===null)return;
