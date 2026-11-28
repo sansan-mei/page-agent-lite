@@ -233,10 +233,13 @@
         if(previous)previous.entry={...previous.entry,...record,action:previous.entry.action,request:record.request||previous.entry.request,time:previous.entry.time};
         else shown.push({entry:record,index:i});
       }
+      // Records are chronological; one without a time (older builds) stays after its predecessor instead of jumping to the newest event.
+      let lastTime=events[0]?.time??0;
       for(const {entry:record,index:i} of shown){
         const operationId=record.outcome?.operationId;
         const current=operationId&&operationId===task?.check?.operationId&&task.lastOutcome?{...record,outcome:task.lastOutcome}:record;
-        entries.push({time:record.time??events.at(-1)?.time??0,entry:current,key:task?.taskId+':'+(operationId||((task?.contextSummary?.through||0)+i))});
+        const time=record.time??lastTime;lastTime=time;
+        entries.push({time,entry:current,key:task?.taskId+':'+(operationId||((task?.contextSummary?.through||0)+i))});
       }
       if(task?.pending?.plan)entries.push({time:task.pending.time??Date.now(),entry:{action:task.pending.plan.action,request:task.pending.plan,label:task.pending.label,pending:true},key:task.taskId+':'+(task.pending.operationId||'pending')});
       if(!task?.pending&&task?.check?.request&&!records.some(r=>r.outcome?.operationId===task.check.operationId))entries.push({time:task.check.time??Date.now(),entry:{action:task.check.request.action,request:task.check.request,outcome:task.lastOutcome||{status:'pending',message:t('spWaitingReadonly')},label:t('spCurrentCheck')},key:task.taskId+':check'});

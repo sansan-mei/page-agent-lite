@@ -439,6 +439,7 @@ test('blocked model pauses get three replans but essential user decisions pause 
  const f=fixture({model:async()=>({text:JSON.stringify({action:'pause',reply:'入口尚未找到'})})});await f.runtime.start(1,'查找');
  for(let i=0;i<3;i++){await f.runtime.tick(1);assert.equal(f.data.get(1).status,'running');}
  await f.runtime.tick(1);assert.equal(f.data.get(1).status,'paused');assert.equal(f.data.get(1).helpAttempts,3);
+ const replans=f.data.get(1).results.filter(r=>r.action==='replan');assert.equal(replans.length,3);assert.ok(replans.every(r=>typeof r.time==='number'),'replan records carry a time so the side panel keeps them in order');
  const g=fixture({model:async()=>({text:JSON.stringify({action:'pause',pauseReason:'user',reply:'需要提供账号信息'})})});await g.runtime.start(1,'查找');await g.runtime.tick(1);assert.equal(g.data.get(1).status,'paused');
 });
 test('choice submissions reject stale questions and origins, resume with selected labels only',async()=>{

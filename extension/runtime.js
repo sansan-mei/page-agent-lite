@@ -882,7 +882,7 @@
           }
           const helpCap=caps(task).help;
           if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<helpCap){
-            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索'+(t.goalMode?'；先核对当前页面再决定是否重做':'；禁止重复结果不确定的操作')+'。自主恢复 '+t.helpAttempts+'/'+helpCap});event(t,'正在尝试其他方法（'+t.helpAttempts+'/'+helpCap+'）');});return;
+            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',time:now(),result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索'+(t.goalMode?'；先核对当前页面再决定是否重做':'；禁止重复结果不确定的操作')+'。自主恢复 '+t.helpAttempts+'/'+helpCap});event(t,'正在尝试其他方法（'+t.helpAttempts+'/'+helpCap+'）');});return;
           }
           await pause(task,plan.reply,'model');return;
         }

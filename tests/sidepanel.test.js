@@ -166,6 +166,14 @@ test('conversation tool cards show safe parameters, outcomes and legacy paramete
  assert.match(cards[1].textContent,/旧记录未保存完整参数/);assert.match(cards[2].textContent,/执行中/);
 });
 
+test('timeline keeps a record without a time in its place instead of pinning it to the newest message',async()=>{
+ const task={taskId:'order',goal:'Work',status:'running',phase:'thinking',steps:3,prefs:{maxSteps:50},events:[{time:1,text:'你：Work'},{time:2,text:'Clicking'},{time:4,text:'正在尝试其他方法（1/3）'},{time:6,text:'Newest reply'}],
+  results:[{time:3,action:'click',request:{action:'click',id:'t0'},outcome:{status:'error',code:'NO_CHANGE'}},{action:'replan',result:'尚未解决：入口未找到'}]};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:undefined);
+ const order=[...f.document.getElementById('timeline').children].map(el=>el.classList.contains('tool-call')?'tool:'+el.querySelector('summary').textContent.split(' · ')[0].replace('ƒ ',''):el.querySelector('p').textContent);
+ assert.deepEqual(order,['Clicking','tool:click','tool:replan','正在尝试其他方法（1/3）','Newest reply']);
+});
+
 
 test('later verification updates one operation card and preserves its original request',async()=>{
  const task={taskId:'verify',goal:'Work',status:'running',steps:2,prefs:{maxSteps:50},events:[],results:[{time:1,action:'click',request:{action:'click',id:'t0'},outcome:{operationId:'op',status:'unknown'}},{time:2,action:'action',outcome:{operationId:'op',status:'success',code:'CONDITIONS_MATCH'}}]};
