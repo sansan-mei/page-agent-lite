@@ -144,7 +144,7 @@
       remove.addEventListener('click',()=>void deleteConversation(item.taskId));
       row.append(button,remove);list.append(row);
     }
-    $('history-empty').hidden=!!items.length;$('history-goal').textContent=historyTask?.goal||'';
+    $('history-empty').hidden=!!items.length;$('history-goal').textContent=(historyTask?.goal||'')+(historyTask?.images?.count?' · '+t('spImagesCount',historyTask.images.count):'');
     const messageList=$('timeline');
     if(historyOpen&&historyTask)$('history-messages').append(messageList);
     else $('conversation').insertBefore(messageList,$('important-notice'));
@@ -153,6 +153,10 @@
     $('empty-state').hidden=!fresh;$('task').hidden=fresh;$('timeline').hidden=historyOpen?!historyTask:fresh;$('run-details').hidden=historyOpen?!historyTask:!task;
     $('goal').textContent=task?.goal||'';
     $('goal').title=task?.goal||'';
+    // Attached images: count plus recognition text (shown as text only, never as HTML).
+    const attached=task?.attachments||[];
+    $('task-images').hidden=!attached.length;$('task-images-count').textContent=attached.length?t('spImagesCount',attached.length):'';
+    $('task-images-text').replaceChildren(...attached.filter(a=>typeof a.text==='string'&&a.text).map(a=>{const p=document.createElement('p');p.textContent=t('spImageRecognized',a.text);return p;}));
     const usage=task?.contextUsage;
     $('context-usage').textContent=usage?t('spContextUsage',usage.promptTokens,usage.cachedTokens??t('spNotReported')):(task?.contextPressure?t('spContextEstimate',task.contextPressure.tokens):'');
     $('context-panel').hidden=!task?.contextSummary;
@@ -259,6 +263,7 @@
     for(const id of ['grant','grant-all'])$(id).disabled=busy||tabId===null||!tabOrigin;
     const ongoing=ongoingTask();
     $('goal-mode').setAttribute('aria-pressed',String(goalOn()));$('goal-mode').disabled=busy||tabId===null;
+    $('attach').disabled=busy||tabId===null;
     $('start').textContent=t('spSend');
     $('start').title=ongoing?t('spSendContinue'):t('spSendStart');
     $('instruction').placeholder=ongoing?t('spPlaceholderOngoing'):t('spPlaceholderNew');
@@ -308,6 +313,8 @@
       if(tabId===target){task=value;historyTask=null;historyIndex=[];}
       if(type==='task:finish'&&tabId===target){historyOpen=false;if($('instruction').value===previousDraft)$('instruction').value='';$('instruction').focus?.();}
       if(type==='task:submit'&&tabId===target){historyOpen=false;if($('instruction').value===draft)$('instruction').value='';}
+      // Sent images now belong to the task; only drafts added meanwhile stay in the composer.
+      if(type==='task:submit'&&extra?.attachments){const sent=new Set(extra.attachments);drafts=drafts.filter(item=>!sent.has(item.id));renderDrafts();}
     }
     catch(e){$('status').textContent=e.message;}
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
@@ -376,7 +383,42 @@
   $('members-refresh').addEventListener('click',()=>void loadMembers());
   $('member-form').addEventListener('submit',event=>{event.preventDefault();const id=Number($('member-candidate').value);if(Number.isInteger(id))void editMembers({action:'join',memberTabId:id},t('spMemberJoined'));});
   $('member-list').addEventListener('click',event=>{const ref=event.target.dataset?.tabRef;if(ref)void editMembers({action:'remove',tabRef:ref},t('spMemberRemoved'));});
-  $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim(),goalMode:goalOn()},draft);});
+  $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;if(adding){$('status').textContent=t('spImageBusy');return;}void action('task:submit',{goal:draft.trim(),goalMode:goalOn(),...(drafts.length?{attachments:drafts.map(item=>item.id)}:{})},draft);});
+  // Task images: compressed and stored as drafts in IndexedDB here; only their ids go with the next send.
+  const A=globalThis.PageAgentAttachments;let drafts=[],adding=false;
+  const imageRoom=()=>A.PER_TASK-drafts.length-(ongoingTask()?task.attachments?.length||0:0);
+  function renderDrafts(){
+    const box=$('drafts');box.replaceChildren();box.hidden=!drafts.length;
+    drafts.forEach((item,i)=>{
+      const wrap=document.createElement('span'),img=document.createElement('img'),remove=document.createElement('button');
+      wrap.className='draft';img.src=item.data;img.alt=t('spImageAlt',i+1);
+      remove.type='button';remove.textContent='×';remove.title=t('spImageRemove',i+1);remove.setAttribute('aria-label',t('spImageRemove',i+1));
+      remove.addEventListener('click',()=>void discardDraft(item.id));wrap.append(img,remove);box.append(wrap);
+    });
+  }
+  async function addImages(files){
+    if(!A||adding||!files.length)return;adding=true;$('status').textContent='';
+    try{
+      for(const file of files){
+        if(imageRoom()<=0){$('status').textContent=t('spImageLimit',A.PER_TASK);break;}
+        const problem=A.check(file);if(problem){$('status').textContent=t(problem);continue;}
+        let image;try{image=await A.compress(file);}catch{$('status').textContent=t('spImageDecode');continue;}
+        const id=A.newId();
+        try{await A.store().put({id,...image});}catch{$('status').textContent=t('spImageSaveFailed');continue;}
+        drafts.push({id,data:image.data});renderDrafts();
+      }
+    }finally{adding=false;}
+  }
+  async function discardDraft(id){drafts=drafts.filter(item=>item.id!==id);renderDrafts();try{await A.store().discard(id);}catch{ /* pruned after a day */ }}
+  if(A){
+    $('attach').hidden=false;
+    $('attach').addEventListener('click',()=>$('image-file').click());
+    $('image-file').addEventListener('change',()=>{const files=Array.from($('image-file').files||[]);$('image-file').value='';void addImages(files);});
+    $('instruction').addEventListener('paste',e=>{const {files}=A.fromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();void addImages(files);});
+    $('composer').addEventListener('dragover',e=>{e.preventDefault();$('composer').classList.add('dragging');});
+    $('composer').addEventListener('dragleave',()=>$('composer').classList.remove('dragging'));
+    $('composer').addEventListener('drop',e=>{e.preventDefault();$('composer').classList.remove('dragging');const {files,url}=A.fromTransfer(e.dataTransfer);if(url){$('status').textContent=t('spImageUrl');return;}void addImages(files);});
+  }
   $('goal-mode').addEventListener('click',()=>{
     if(busy)return;goalMode=!goalMode;
     void chrome.storage.local?.set({goalMode})?.catch(()=>{});

@@ -67,7 +67,9 @@ const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemor
   identity:()=>service.identity(),
   protocol:()=>service.agentProtocol(),
   // run_script is offered to the model only on turns where the optional permission and API are usable.
-  scriptAccess:()=>PageAgentScriptTools.status(chrome)
+  scriptAccess:()=>PageAgentScriptTools.status(chrome),
+  // Task images: claim/delete in IndexedDB, vision mode per model, recognition for models without vision.
+  images:service.images
 });
 const ready=(async()=>{
   await service.init();await store.migrate();
@@ -156,7 +158,10 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:site-memory')return runtime.getSiteMemory(m.tabId);
       if(m.type==='task:site-memory-change')return runtime.editSiteMemory(m.tabId,{origin:m.origin,action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
-      if(m.type==='task:start'||m.type==='task:submit')return typeof m.goalMode==='boolean'?runtime.submit(m.tabId,m.goal,{goalMode:m.goalMode}):runtime.submit(m.tabId,m.goal);
+      if(m.type==='task:start'||m.type==='task:submit'){
+        const submitOptions={...(typeof m.goalMode==='boolean'?{goalMode:m.goalMode}:{}),...(m.attachments!==undefined?{attachments:m.attachments}:{})};
+        return Object.keys(submitOptions).length?runtime.submit(m.tabId,m.goal,submitOptions):runtime.submit(m.tabId,m.goal);
+      }
       if(m.type==='task:goal-mode'){
         if(typeof m.taskId!=='string'||typeof m.enabled!=='boolean')throw new Error('目标模式参数无效');
         return runtime.setGoalMode(taskTab,m.taskId,m.enabled);

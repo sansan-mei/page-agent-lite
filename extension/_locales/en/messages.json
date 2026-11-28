@@ -182,6 +182,45 @@
   "spGoalModeTitle": {
     "message": "When on, unverified results, stale targets and obstacles are replanned automatically until the task is done, stopped or out of steps"
   },
+  "spAttach": {
+    "message": "Add image"
+  },
+  "spAttachTitle": {
+    "message": "Add images (or paste / drop them), up to 4 per task"
+  },
+  "spImageAlt": {
+    "message": "Image {1} to send"
+  },
+  "spImageRemove": {
+    "message": "Remove image {1}"
+  },
+  "spImageType": {
+    "message": "Only PNG, JPEG, WebP and GIF images are supported"
+  },
+  "spImageSize": {
+    "message": "Images must be 5 MB or smaller"
+  },
+  "spImageLimit": {
+    "message": "Up to {1} images per task"
+  },
+  "spImageDecode": {
+    "message": "This image cannot be read"
+  },
+  "spImageSaveFailed": {
+    "message": "Could not save the image; try again"
+  },
+  "spImageUrl": {
+    "message": "Only local image files are supported, not web addresses"
+  },
+  "spImageBusy": {
+    "message": "Images are still being processed; send again in a moment"
+  },
+  "spImagesCount": {
+    "message": "{1} image(s) attached"
+  },
+  "spImageRecognized": {
+    "message": "Recognized text (may be wrong): {1}"
+  },
   "spComposerHint": {
     "message": "Enter to send, Shift + Enter for a new line"
   },
@@ -265,6 +304,24 @@
   },
   "optCompression": {
     "message": "Compaction threshold (%)"
+  },
+  "optRecognition": {
+    "message": "Image recognition model (optional)"
+  },
+  "optRecognitionModel": {
+    "message": "Model"
+  },
+  "optRecognitionPlaceholder": {
+    "message": "Empty = main model"
+  },
+  "optRecognitionEndpoint": {
+    "message": "API address"
+  },
+  "optRecognitionEndpointPlaceholder": {
+    "message": "Empty = main address and key"
+  },
+  "optRecognitionKey": {
+    "message": "API key"
   },
   "optManagementHint": {
     "message": "Editing or clearing memory pauses related tasks; continue them from the side panel."
@@ -829,6 +886,18 @@
   },
   "optSaved": {
     "message": "Settings saved; they apply to new tasks or after Continue task. No model call has been made yet."
+  },
+  "optTestConnection": {
+    "message": "Test connection"
+  },
+  "optTesting": {
+    "message": "Saved. Testing the connection…"
+  },
+  "optTestVision": {
+    "message": "Connected · can see images"
+  },
+  "optTestNoVision": {
+    "message": "Connected · cannot see images; images will be turned into text"
   },
   "optImageChoose": {
     "message": "Choose image"
