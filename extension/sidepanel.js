@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   const $=id=>document.getElementById(id),t=PageAgentI18n.t;
-  let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0;
+  let tabId=null,task=null,busy=false,selection=0,tabOrigin=null,composing=false,historyOpen=false,historyTask=null,historyIndex=[],historyRequest=0,listScroll=0;
   let permissionCheck=0,taskRefresh=0,scopePending=false,refreshAfterAction=false,goalMode=false,shownPrompt='';
   const ongoingTask=()=>!!task&&task.status!=='ended';
   // Goal mode is a persistent local preference: it arms every new task and supplement until toggled off.
@@ -39,7 +39,7 @@
       return t('outcomeNotSent');
     }
     // Only ordinary dispatch receipts qualify; lost replies and failed checks stay unknown.
-    if(outcome.dispatch==='sent'&&outcome.scope==='dispatch'&&['PAGE_CHANGED','NO_CHANGE'].includes(outcome.code)){
+    if(outcome.dispatch==='sent'&&outcome.scope==='dispatch'&&['PAGE_CHANGED','NO_CHANGE','TARGET_VISUAL_CHANGED'].includes(outcome.code)){
       const scroll=outcome.observed;
       if(entry.action==='scroll'&&scroll&&Number.isFinite(scroll.delta)){
         if(scroll.delta!==0)return t('outcomeScrolled');
@@ -110,6 +110,14 @@
     // Task-scoped script approval stays visible with a Revoke control while the task keeps it.
     const scriptGrant=!historyOpen&&current?.scriptApproval?.scope==='task'&&current.status!=='ended'?current.scriptApproval:null;
     $('script-grant').hidden=!scriptGrant;$('script-grant-text').textContent=scriptGrant?t('spScriptGrant',scriptGrant.origin):'';$('script-revoke').disabled=busy||!scriptGrant;
+    // Pending chrome.debugger use (screenshot, coordinate click, real click/hover): what, where, and the same three choices.
+    const inputRequest=!historyOpen&&current?.status==='paused'&&current?.reason==='real_input_approval'?current.inputRequest:null,r=inputRequest;
+    $('input-approval').hidden=!r;
+    $('input-action').textContent=!r?'':r.kind==='shot'?(r.label?t('spInputShot',r.label):t('spInputShotViewport')):r.kind==='point'?t('spInputPoint',r.x,r.y):t(r.kind==='hover'?'spInputHover':'spInputClick',r.label||'');
+    $('input-target').textContent=r?t('spInputTarget',r.origin||''):'';
+    for(const id of ['input-approve','input-approve-task','input-reject'])$(id).disabled=busy||!r;
+    const inputGrant=!historyOpen&&current?.inputApproval?.scope==='task'&&current.status!=='ended'?current.inputApproval:null;
+    $('input-grant').hidden=!inputGrant;$('input-grant-text').textContent=inputGrant?t('spInputGrant',inputGrant.origin):'';$('input-revoke').disabled=busy||!inputGrant;
     const editableScope=current&&Number.isSafeInteger(current.scopeRevision)&&!['ended','completed'].includes(current.status);
     if($('task-scope').dataset.taskId!==(current?.taskId||'')){$('task-scope').dataset.taskId=current?.taskId||'';$('scope-status').textContent='';$('member-status').textContent='';$('member-list').replaceChildren();$('member-candidate').replaceChildren();$('member-form').hidden=true;}
     $('task-scope').hidden=historyOpen||!editableScope;
@@ -127,10 +135,15 @@
       label.textContent=origin;button.type='button';button.textContent=t('spForgetFrameOrigin');button.disabled=busy;
       button.addEventListener('click',()=>editScope('remove',origin));li.append(label,button);$('frame-grant-origins').append(li);
     }
-    const list=$('conversation-list');list.replaceChildren();
+    const list=$('conversation-list');
     const items=historyIndex.map(item=>item.taskId===current?.taskId?{...item,goal:current.goal,status:current.status,updatedAt:current.updatedAt}:item);
     if(current?.taskId&&!items.some(item=>item.taskId===current.taskId))items.unshift({taskId:current.taskId,goal:current.goal,status:current.status,updatedAt:current.updatedAt,origin:current.initialOrigin||current.origin,origins:current.allowedOrigins});
-    for(const item of items){
+    // Rebuilding on every live-task update would swap a row out between mousedown and mouseup and drop the click.
+    const listSignature=JSON.stringify([items,historyTask?.taskId,busy]);
+    list.hidden=!!historyTask;$('history-back').textContent=t(historyTask?'spHistoryList':'spHistoryBack');
+    const rebuildList=list.dataset.signature!==listSignature;
+    if(rebuildList){list.dataset.signature=listSignature;list.replaceChildren();}
+    for(const item of rebuildList?items:[]){
       const row=document.createElement('div');row.className='conversation-row';
       const button=document.createElement('button');button.type='button';button.className='conversation-item';button.dataset.taskId=item.taskId;
       button.setAttribute('aria-pressed',String(historyTask?.taskId===item.taskId));
@@ -144,7 +157,7 @@
       remove.addEventListener('click',()=>void deleteConversation(item.taskId));
       row.append(button,remove);list.append(row);
     }
-    $('history-empty').hidden=!!items.length;$('history-goal').textContent=historyTask?.goal||'';
+    $('history-empty').hidden=!!items.length;$('history-goal').textContent=(historyTask?.goal||'')+(historyTask?.images?.count?' · '+t('spImagesCount',historyTask.images.count):'');
     const messageList=$('timeline');
     if(historyOpen&&historyTask)$('history-messages').append(messageList);
     else $('conversation').insertBefore(messageList,$('important-notice'));
@@ -153,6 +166,10 @@
     $('empty-state').hidden=!fresh;$('task').hidden=fresh;$('timeline').hidden=historyOpen?!historyTask:fresh;$('run-details').hidden=historyOpen?!historyTask:!task;
     $('goal').textContent=task?.goal||'';
     $('goal').title=task?.goal||'';
+    // Attached images: count plus recognition text (shown as text only, never as HTML).
+    const attached=task?.attachments||[];
+    $('task-images').hidden=!attached.length;$('task-images-count').textContent=attached.length?t('spImagesCount',attached.length):'';
+    $('task-images-text').replaceChildren(...attached.filter(a=>typeof a.text==='string'&&a.text).map(a=>{const p=document.createElement('p');p.textContent=t('spImageRecognized',a.text);return p;}));
     const usage=task?.contextUsage;
     $('context-usage').textContent=usage?t('spContextUsage',usage.promptTokens,usage.cachedTokens??t('spNotReported')):(task?.contextPressure?t('spContextEstimate',task.contextPressure.tokens):'');
     $('context-panel').hidden=!task?.contextSummary;
@@ -216,10 +233,13 @@
         if(previous)previous.entry={...previous.entry,...record,action:previous.entry.action,request:record.request||previous.entry.request,time:previous.entry.time};
         else shown.push({entry:record,index:i});
       }
+      // Records are chronological; one without a time (older builds) stays after its predecessor instead of jumping to the newest event.
+      let lastTime=events[0]?.time??0;
       for(const {entry:record,index:i} of shown){
         const operationId=record.outcome?.operationId;
         const current=operationId&&operationId===task?.check?.operationId&&task.lastOutcome?{...record,outcome:task.lastOutcome}:record;
-        entries.push({time:record.time??events.at(-1)?.time??0,entry:current,key:task?.taskId+':'+(operationId||((task?.contextSummary?.through||0)+i))});
+        const time=record.time??lastTime;lastTime=time;
+        entries.push({time,entry:current,key:task?.taskId+':'+(operationId||((task?.contextSummary?.through||0)+i))});
       }
       if(task?.pending?.plan)entries.push({time:task.pending.time??Date.now(),entry:{action:task.pending.plan.action,request:task.pending.plan,label:task.pending.label,pending:true},key:task.taskId+':'+(task.pending.operationId||'pending')});
       if(!task?.pending&&task?.check?.request&&!records.some(r=>r.outcome?.operationId===task.check.operationId))entries.push({time:task.check.time??Date.now(),entry:{action:task.check.request.action,request:task.check.request,outcome:task.lastOutcome||{status:'pending',message:t('spWaitingReadonly')},label:t('spCurrentCheck')},key:task.taskId+':check'});
@@ -259,6 +279,7 @@
     for(const id of ['grant','grant-all'])$(id).disabled=busy||tabId===null||!tabOrigin;
     const ongoing=ongoingTask();
     $('goal-mode').setAttribute('aria-pressed',String(goalOn()));$('goal-mode').disabled=busy||tabId===null;
+    $('attach').disabled=busy||tabId===null;
     $('start').textContent=t('spSend');
     $('start').title=ongoing?t('spSendContinue'):t('spSendStart');
     $('instruction').placeholder=ongoing?t('spPlaceholderOngoing'):t('spPlaceholderNew');
@@ -266,14 +287,14 @@
     $('takeover').disabled=busy;
     $('resume').textContent=task?.reason==='user_takeover'?t('spTakeoverDone'):t('spResume');
     $('stop').hidden=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
-    $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status)||task.reason==='script_approval'&&!!task.scriptRequest;
+    $('resume').hidden=!task||['running','waiting_page','ended'].includes(task.status)||task.reason==='script_approval'&&!!task.scriptRequest||task.reason==='real_input_approval'&&!!task.inputRequest;
     $('stop').disabled=!task||!['running','waiting_page','waiting_confirmation'].includes(task.status);
     $('resume').disabled=busy||!task||['running','waiting_page','ended'].includes(task.status);
     $('finish').disabled=busy||!current||current.status==='ended';
     $('clear').hidden=historyOpen&&(!historyTask||historyTask.taskId!==current?.taskId||historyTask.origin!==current?.origin);
     $('clear').disabled=busy||!current;$('approve').disabled=busy||!pending;
     // A decision card can appear while the conversation is scrolled elsewhere; bring each new one into view once.
-    const prompt=[['frame-access',frameAccess?current.frameAccessRequest.url:null],['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
+    const prompt=[['frame-access',frameAccess?current.frameAccessRequest.url:null],['tab-access',tabRequest?.id],['script-approval',scriptRequest?.id],['input-approval',inputRequest?.id],['sensitive-confirmation',sensitiveRequest?.id],['choice-form',question?.id],['confirmation',task?.status==='waiting_confirmation'?pending?.operationId||'confirm':null],['browser-target',$('browser-target').hidden?null:current?.browserTarget]].find(([,key])=>key);
     const promptKey=prompt?prompt[0]+':'+prompt[1]:'';
     if(promptKey!==shownPrompt){shownPrompt=promptKey;if(prompt)$(prompt[0]).scrollIntoView?.({block:'end'});}
   }
@@ -308,12 +329,16 @@
       if(tabId===target){task=value;historyTask=null;historyIndex=[];}
       if(type==='task:finish'&&tabId===target){historyOpen=false;if($('instruction').value===previousDraft)$('instruction').value='';$('instruction').focus?.();}
       if(type==='task:submit'&&tabId===target){historyOpen=false;if($('instruction').value===draft)$('instruction').value='';}
+      // Sent images now belong to the task; only drafts added meanwhile stay in the composer.
+      if(type==='task:submit'&&extra?.attachments){const sent=new Set(extra.attachments);drafts=drafts.filter(item=>!sent.has(item.id));renderDrafts();}
     }
     catch(e){$('status').textContent=e.message;}
     finally{busy=false;render();if(refreshAfterAction&&!scopePending){refreshAfterAction=false;void refreshTask();}}
   }
   for(const [id,allow,scope] of [['script-approve',true,'once'],['script-approve-task',true,'task'],['script-reject',false,'once']])$(id).addEventListener('click',()=>{if(task?.scriptRequest)void action('task:script-approval',{taskId:task.taskId,requestId:task.scriptRequest.id,allow,scope});});
   $('script-revoke').addEventListener('click',()=>{if(task?.scriptApproval)void action('task:script-revoke',{taskId:task.taskId});});
+  for(const [id,allow,scope] of [['input-approve',true,'once'],['input-approve-task',true,'task'],['input-reject',false,'once']])$(id).addEventListener('click',()=>{if(task?.inputRequest)void action('task:input-approval',{taskId:task.taskId,requestId:task.inputRequest.id,allow,scope});});
+  $('input-revoke').addEventListener('click',()=>{if(task?.inputApproval)void action('task:input-revoke',{taskId:task.taskId});});
   for(const [id,allow] of [['tab-access-allow',true],['tab-access-deny',false]])$(id).addEventListener('click',()=>{if(task?.tabRequest)void action('task:tab-access',{taskId:task.taskId,requestId:task.tabRequest.id,allow});});
   for(const [id,allow] of [['sensitive-allow',true],['sensitive-deny',false]])$(id).addEventListener('click',()=>{if(task?.sensitiveRequest)void action('task:sensitive-access',{taskId:task.taskId,requestId:task.sensitiveRequest.id,allow});});
   function editScope(action,origin,continueTask=false,rememberFrame=false){
@@ -376,14 +401,74 @@
   $('members-refresh').addEventListener('click',()=>void loadMembers());
   $('member-form').addEventListener('submit',event=>{event.preventDefault();const id=Number($('member-candidate').value);if(Number.isInteger(id))void editMembers({action:'join',memberTabId:id},t('spMemberJoined'));});
   $('member-list').addEventListener('click',event=>{const ref=event.target.dataset?.tabRef;if(ref)void editMembers({action:'remove',tabRef:ref},t('spMemberRemoved'));});
-  $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;void action('task:submit',{goal:draft.trim(),goalMode:goalOn()},draft);});
+  $('chat').addEventListener('submit',e=>{e.preventDefault();const draft=$('instruction').value;if(!draft.trim())return;if(adding){$('status').textContent=t('spImageBusy');return;}void action('task:submit',{goal:draft.trim(),goalMode:goalOn(),...(drafts.length?{attachments:drafts.map(item=>item.id)}:{})},draft);});
+  // Task images: compressed and stored as drafts in IndexedDB here; only their ids go with the next send.
+  const A=globalThis.PageAgentAttachments;let drafts=[],adding=false;
+  const imageRoom=()=>A.PER_TASK-drafts.length-(ongoingTask()?task.attachments?.length||0:0);
+  function renderDrafts(){
+    const box=$('drafts');box.replaceChildren();box.hidden=!drafts.length;
+    drafts.forEach((item,i)=>{
+      const wrap=document.createElement('span'),img=document.createElement('img'),remove=document.createElement('button');
+      wrap.className='draft';img.src=item.data;img.alt=t('spImageAlt',i+1);
+      remove.type='button';remove.textContent='×';remove.title=t('spImageRemove',i+1);remove.setAttribute('aria-label',t('spImageRemove',i+1));
+      remove.addEventListener('click',()=>void discardDraft(item.id));wrap.append(img,remove);box.append(wrap);
+    });
+  }
+  async function addImages(files){
+    if(!A||adding||!files.length)return;adding=true;$('status').textContent='';
+    try{
+      for(const file of files){
+        if(imageRoom()<=0){$('status').textContent=t('spImageLimit',A.PER_TASK);break;}
+        const problem=A.check(file);if(problem){$('status').textContent=t(problem);continue;}
+        let image;try{image=await A.compress(file);}catch{$('status').textContent=t('spImageDecode');continue;}
+        const id=A.newId();
+        try{await A.store().put({id,...image});}catch{$('status').textContent=t('spImageSaveFailed');continue;}
+        drafts.push({id,data:image.data});renderDrafts();
+      }
+    }finally{adding=false;}
+  }
+  async function discardDraft(id){drafts=drafts.filter(item=>item.id!==id);renderDrafts();try{await A.store().discard(id);}catch{ /* pruned after a day */ }}
+  if(A){
+    $('attach').hidden=false;
+    $('attach').addEventListener('click',()=>$('image-file').click());
+    $('image-file').addEventListener('change',()=>{const files=Array.from($('image-file').files||[]);$('image-file').value='';void addImages(files);});
+    $('instruction').addEventListener('paste',e=>{const {files}=A.fromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();void addImages(files);});
+    $('composer').addEventListener('dragover',e=>{e.preventDefault();$('composer').classList.add('dragging');});
+    $('composer').addEventListener('dragleave',()=>$('composer').classList.remove('dragging'));
+    $('composer').addEventListener('drop',e=>{e.preventDefault();$('composer').classList.remove('dragging');const {files,url}=A.fromTransfer(e.dataTransfer);if(url){$('status').textContent=t('spImageUrl');return;}void addImages(files);});
+  }
+  // Turning goal mode on also gets run_script ready: ask for the optional userScripts permission
+  // inside this click (user gesture), then hint once if Chrome's "Allow User Scripts" toggle is off.
+  // Approval of each script is unchanged; turning goal mode off keeps the permission.
+  // The same compact hint offers one-click "Turn on" for the real input & screenshots switch (storage.local
+  // debuggerEnabled) when it is off; both parts share one line and one dismiss button.
+  const S=globalThis.PageAgentScriptTools;let scriptsGranted=null,realInputOn=false;
+  function setupHint(part,shown){$(part).hidden=!shown;$('script-setup').hidden=$('real-input-setup').hidden&&$('script-toggle-setup').hidden;}
+  async function refreshScripts(){
+    if(!S)return null;let state={permission:false,api:false,available:false};
+    try{state=await S.status(chrome);}catch{ /* treated as unavailable */ }
+    scriptsGranted=state.permission;if(state.available)setupHint('script-toggle-setup',false);return state;
+  }
+  function prepareScripts(){
+    if(!S)return;let request=true;
+    if(scriptsGranted!==true)try{request=chrome.permissions.request({permissions:[S.permission]});}catch{request=false;}
+    void Promise.resolve(request).catch(()=>false).then(()=>refreshScripts()).then(state=>{if(goalMode&&state?.permission&&!state.available)setupHint('script-toggle-setup',true);});
+  }
+  $('script-setup-open').addEventListener('click',()=>{void Promise.resolve(chrome.tabs.create({url:'chrome://extensions/?id='+chrome.runtime.id})).catch(()=>{});});
+  $('real-input-enable').addEventListener('click',()=>{realInputOn=true;setupHint('real-input-setup',false);void chrome.storage.local?.set({debuggerEnabled:true})?.catch(()=>{});});
+  $('script-setup-close').addEventListener('click',()=>{setupHint('real-input-setup',false);setupHint('script-toggle-setup',false);});
+  // The toggle is flipped in another tab: re-check when the panel becomes visible again.
+  document.addEventListener('visibilitychange',()=>{if(!$('script-setup').hidden&&document.visibilityState!=='hidden')void refreshScripts();});
+  globalThis.addEventListener?.('focus',()=>{if(!$('script-setup').hidden)void refreshScripts();});
   $('goal-mode').addEventListener('click',()=>{
     if(busy)return;goalMode=!goalMode;
+    if(goalMode){setupHint('real-input-setup',!realInputOn);prepareScripts();}else{setupHint('real-input-setup',false);setupHint('script-toggle-setup',false);}
     void chrome.storage.local?.set({goalMode})?.catch(()=>{});
     if(ongoingTask()&&task.goalMode!==goalMode)void action('task:goal-mode',{taskId:task.taskId,enabled:goalMode});else render();
   });
   async function loadGoalMode(){
     try{const value=(await chrome.storage.local.get('goalMode')).goalMode;goalMode=value===true;render();}catch{}
+    try{realInputOn=(await chrome.storage.local.get('debuggerEnabled')).debuggerEnabled===true;}catch{}
   }
   $('instruction').addEventListener('compositionstart',()=>{composing=true;});
   $('instruction').addEventListener('compositionend',()=>{composing=false;});
@@ -426,12 +511,13 @@
   }
   async function openConversation(taskId){
     const request=++historyRequest,target=tabId;
-    try{const value=await send('task:history-get',{taskId});if(request!==historyRequest||target!==tabId||!historyOpen)return;historyTask=value;$('run-details').open=true;render();}
+    try{const value=await send('task:history-get',{taskId});if(request!==historyRequest||target!==tabId||!historyOpen)return;listScroll=$('history-view').scrollTop;historyTask=value;$('run-details').open=true;render();$('history-view').scrollTop=0;}
     catch(e){if(request===historyRequest&&target===tabId)$('status').textContent=e.message;}
   }
-  function showHistory(open){++historyRequest;historyOpen=open;historyTask=null;render();if(open)void loadHistory();}
+  function showHistory(open){++historyRequest;historyOpen=open;historyTask=null;render();if(open){$('history-view').scrollTop=0;void loadHistory();}}
   $('history').addEventListener('click',()=>showHistory(!historyOpen));
-  $('history-back').addEventListener('click',()=>showHistory(false));
+  // From one opened conversation, Back returns to the list where the user left it.
+  $('history-back').addEventListener('click',()=>{if(!historyTask)return showHistory(false);++historyRequest;historyTask=null;render();$('history-view').scrollTop=listScroll;});
   $('settings').addEventListener('click',()=>void chrome.runtime.openOptionsPage());
   function authorize(all){
     if(busy||!tabOrigin||tabId===null)return;
@@ -450,8 +536,8 @@
   }
   $('grant').addEventListener('click',()=>authorize(false));
   $('grant-all').addEventListener('click',()=>authorize(true));
-  chrome.permissions.onAdded.addListener(()=>void refreshPermissions());
-  chrome.permissions.onRemoved.addListener(()=>void refreshPermissions());
+  chrome.permissions.onAdded.addListener(()=>{void refreshPermissions();void refreshScripts();});
+  chrome.permissions.onRemoved.addListener(()=>{void refreshPermissions();void refreshScripts();});
   chrome.tabs.onActivated.addListener(()=>void selectTab());
   chrome.tabs.onUpdated.addListener((id,change)=>{
     if(id===tabId&&(change.url||change.status==='complete'))void selectTab();
@@ -461,6 +547,7 @@
   }
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area==='local'&&changes.goalMode){goalMode=changes.goalMode.newValue===true;render();}
+    if(area==='local'&&changes.debuggerEnabled){realInputOn=changes.debuggerEnabled.newValue===true;if(realInputOn)setupHint('real-input-setup',false);}
     if(area==='local'&&changes.agentPreferences){void loadInputLimit();return;}
     if(area!=='session'||tabId===null)return;
     const registry=changes.taskRegistry;
@@ -471,6 +558,6 @@
     }
     if(!scopePending&&task?.taskId&&changes['taskRoot:'+task.taskId])invalidateTask();
   });
-  void loadInputLimit();void loadGoalMode();
+  void loadInputLimit();void loadGoalMode();void refreshScripts();
   void selectTab();
 })();

@@ -140,6 +140,8 @@ test('header history is read-only and new dialogue resets the view while retaini
  await flush();d.querySelector('.conversation-item').click();await flush();
  assert.equal(d.getElementById('history-goal').textContent,'Current goal');assert.match(d.getElementById('event-log').textContent,/Recent reply/);
  assert.deepEqual(f.calls.map(c=>c[1].type),['task:history','task:history-get']);f.calls.length=0;
+ assert.equal(d.getElementById('conversation-list').hidden,true);assert.equal(d.getElementById('history-back').textContent,'返回列表');
+ d.getElementById('history-back').click();assert.equal(d.getElementById('conversation-list').hidden,false);assert.equal(d.getElementById('history-view').hidden,false);assert.equal(d.getElementById('history-messages').hidden,true);
  d.getElementById('history-back').click();assert.equal(d.getElementById('conversation').hidden,false);
  d.getElementById('instruction').value='Old draft';d.getElementById('finish').click();await flush();assert.equal(f.calls[0][1].type,'task:finish');assert.equal(d.getElementById('finish').disabled,true);
  assert.equal(d.getElementById('empty-state').hidden,false);assert.equal(d.getElementById('timeline').hidden,true);assert.equal(d.getElementById('instruction').value,'');
@@ -164,6 +166,14 @@ test('conversation tool cards show safe parameters, outcomes and legacy paramete
  assert.match(cards[1].textContent,/旧记录未保存完整参数/);assert.match(cards[2].textContent,/执行中/);
 });
 
+test('timeline keeps a record without a time in its place instead of pinning it to the newest message',async()=>{
+ const task={taskId:'order',goal:'Work',status:'running',phase:'thinking',steps:3,prefs:{maxSteps:50},events:[{time:1,text:'你：Work'},{time:2,text:'Clicking'},{time:4,text:'正在尝试其他方法（1/3）'},{time:6,text:'Newest reply'}],
+  results:[{time:3,action:'click',request:{action:'click',id:'t0'},outcome:{status:'error',code:'NO_CHANGE'}},{action:'replan',result:'尚未解决：入口未找到'}]};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:undefined);
+ const order=[...f.document.getElementById('timeline').children].map(el=>el.classList.contains('tool-call')?'tool:'+el.querySelector('summary').textContent.split(' · ')[0].replace('ƒ ',''):el.querySelector('p').textContent);
+ assert.deepEqual(order,['Clicking','tool:click','tool:replan','正在尝试其他方法（1/3）','Newest reply']);
+});
+
 
 test('later verification updates one operation card and preserves its original request',async()=>{
  const task={taskId:'verify',goal:'Work',status:'running',steps:2,prefs:{maxSteps:50},events:[],results:[{time:1,action:'click',request:{action:'click',id:'t0'},outcome:{operationId:'op',status:'unknown'}},{time:2,action:'action',outcome:{operationId:'op',status:'success',code:'CONDITIONS_MATCH'}}]};
@@ -181,10 +191,21 @@ test('history selects one conversation as text, returns to live task and discard
  d.querySelector('[data-task-id="old"]').click();await flush();
  assert.match(d.getElementById('history-messages').textContent,/Old reply only/);assert.doesNotMatch(d.getElementById('history-messages').textContent,/Live reply/);
  assert.equal(d.getElementById('composer').hidden,true);assert.equal(d.getElementById('clear').hidden,true);assert.equal(d.getElementById('finish').disabled,false);
- d.getElementById('history-back').click();assert.equal(d.getElementById('goal').textContent,'Current work');assert.match(d.getElementById('timeline').textContent,/Live reply/);
+ d.getElementById('history-back').click();d.getElementById('history-back').click();assert.equal(d.getElementById('goal').textContent,'Current work');assert.match(d.getElementById('timeline').textContent,/Live reply/);
  delayed=true;d.getElementById('history').click();await flush();d.querySelector('[data-task-id="old"]').click();d.getElementById('history-back').click();resolve({ok:true,value:old});await flush();
  assert.equal(d.getElementById('goal').textContent,'Current work');assert.equal(d.getElementById('history-view').hidden,true);
  assert.equal(f.calls.some(c=>['task:submit','task:resume','task:finish'].includes(c[1].type)),false);
+});
+
+test('live task updates keep history rows in place so a click is not lost',async()=>{
+ let live={taskId:'live',origin:'https://example.test',goal:'Current work',status:'running',phase:'thinking',steps:1,prefs:{maxSteps:50},events:[],results:[],updatedAt:5};
+ const old={taskId:'old',origin:'https://example.test',goal:'Old work',status:'ended',events:[{time:1,text:'Old reply only'}],results:[],updatedAt:1};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:live}:m.type==='task:history'?{ok:true,value:[live,old]}:m.type==='task:history-get'?{ok:true,value:old}:undefined),d=f.document;
+ d.getElementById('history').click();await flush();
+ const row=d.querySelector('[data-task-id="old"]');
+ live={...live,phase:'executing',steps:2};f.storageChanged({'taskRoot:live':{newValue:{taskId:'live'}}},'session');await flush();
+ assert.equal(d.querySelector('[data-task-id="old"]'),row);
+ row.click();await flush();assert.match(d.getElementById('history-messages').textContent,/Old reply only/);
 });
 
 test('decision form renders escaped options and submits multiple choices once',async()=>{
@@ -201,6 +222,7 @@ test('tool summaries distinguish dispatch, scroll boundaries, stale targets and 
  const receipt={status:'unknown',dispatch:'sent',scope:'dispatch',code:'PAGE_CHANGED'};
  const cases=[
   {action:'click',outcome:receipt,label:'已派发，待核对'},
+  {action:'click',outcome:{...receipt,code:'TARGET_VISUAL_CHANGED'},label:'已派发，待核对'},
   {action:'wheel',outcome:{...receipt,observed:{input:'wheel',deltaY:600}},label:'已派发，待核对'},
   {action:'click',outcome:{...receipt,scope:'page',code:'CONDITION_TIMEOUT'},label:'结果未知'},
   {action:'click',outcome:{...receipt,dispatch:'not_sent',code:'STALE'},label:'目标过期，未执行'},
@@ -371,7 +393,8 @@ test('decision cards sit below the conversation and each new request scrolls int
  const base={taskId:'script-task',origin:'https://example.test',goal:'Read',status:'running',phase:'observe',steps:1,prefs:{},results:[],events:[{time:1,text:'第一步'},{time:2,text:'第二步'}]};
  let current=base;const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:current}:undefined);
  const conversation=f.document.getElementById('conversation'),order=[...conversation.children].map(el=>el.id),timeline=order.indexOf('timeline');
- for(const id of ['choice-form','confirmation','sensitive-confirmation','script-approval','script-grant','browser-target'])assert.ok(order.indexOf(id)>timeline,id+' is below the timeline');
+ for(const id of ['choice-form','confirmation','sensitive-confirmation','script-approval','browser-target'])assert.ok(order.indexOf(id)>timeline,id+' is below the timeline');
+ for(const id of ['script-grant','input-grant'])assert.ok(order.indexOf(id)===order.indexOf('task')+1+(id==='input-grant'),id+' sits right under the goal, above the timeline');
  const scrolled=[];for(const id of ['script-approval','sensitive-confirmation','choice-form'])f.document.getElementById(id).scrollIntoView=function(){scrolled.push(this.id);};
  const paused=request=>({...base,status:'paused',reason:'script_approval',scriptRequest:{id:request,code:'return 1;',world:'USER_SCRIPT',url:'https://example.test/task',reply:'Need state'},events:base.events.concat({time:3,text:'等待你在侧栏批准脚本'})});
  current=paused('r1');f.updated(9,{status:'complete'});await flush();
@@ -458,4 +481,30 @@ test('remembered embedded access is listed and removable even outside the curren
  assert.equal(f.document.getElementById('frame-grants').hidden,false);const rows=[...f.document.querySelectorAll('#frame-grant-origins li')];const row=rows.find(r=>r.textContent.includes('https://embedded.test'));
  assert(row);f.calls.length=0;row.querySelector('button').dispatchEvent(new f.window.Event('click',{bubbles:true}));await flush();
  assert(!f.calls.some(c=>c[0]==='permission'));const call=f.calls.find(c=>c[1]?.type==='task:scope-change')[1];assert.equal(call.action,'remove');assert.equal(call.origin,'https://embedded.test');assert.equal(call.expectedRevision,2);
+});
+
+test('real-input approval card says what and where, hides resume, sends the decision; the task grant has a revoke',async()=>{
+ const zh=require('../extension/_locales/zh_CN/messages.json'),msg=(k,...a)=>a.reduce((s,v,i)=>s.replace('{'+(i+1)+'}',v),zh[k].message);
+ for(const [request,text] of [[{kind:'shot',label:null},msg('spInputShotViewport')],[{kind:'shot',label:'<b>Chart</b>'},msg('spInputShot','<b>Chart</b>')],[{kind:'point',x:12,y:34},msg('spInputPoint',12,34)],[{kind:'click',label:'Buy'},msg('spInputClick','Buy')],[{kind:'hover',label:'Menu'},msg('spInputHover','Menu')]]){
+  for(const [id,allow,scope] of [['input-approve',true,'once'],['input-approve-task',true,'task'],['input-reject',false,'once']]){
+   const task={taskId:'input-task',origin:'https://example.test',goal:'Look',status:'paused',reason:'real_input_approval',phase:'observe',steps:1,prefs:{},results:[],events:[],inputRequest:{id:'req-3',origin:'https://example.test',url:'https://example.test/a',...request}};
+   const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:input-approval'?{ok:true,value:{...task,status:'running',reason:null,inputRequest:null}}:undefined);
+   const box=f.document.getElementById('input-approval');assert.equal(box.hidden,false);assert.equal(box.querySelector('b'),null);
+   assert.equal(f.document.getElementById('input-action').textContent,text);assert.match(f.document.getElementById('input-target').textContent,/https:\/\/example\.test/);
+   assert.equal(f.document.getElementById('resume').hidden,true);assert.equal(f.document.getElementById('script-approval').hidden,true);
+   f.document.getElementById(id).click();await flush();
+   const sent=f.calls.find(c=>c[1]?.type==='task:input-approval')[1];
+   assert.equal(sent.allow,allow);assert.equal(sent.scope,scope);assert.equal(sent.taskId,'input-task');assert.equal(sent.requestId,'req-3');assert.equal(sent.tabId,9);
+   assert.equal(box.hidden,true);
+  }
+ }
+ const grant={scope:'task',origin:'https://example.test',tabId:9,grantedAt:1};
+ const task={taskId:'input-task',origin:'https://example.test',goal:'Look',status:'running',phase:'observe',steps:1,prefs:{},results:[],events:[],inputApproval:grant};
+ const f=await fixture(true,m=>m.type==='task:get'?{ok:true,value:task}:m.type==='task:input-revoke'?{ok:true,value:{...task,inputApproval:null}}:undefined);
+ assert.equal(f.document.getElementById('input-grant').hidden,false);assert.match(f.document.getElementById('input-grant-text').textContent,/https:\/\/example\.test/);
+ f.document.getElementById('input-revoke').click();await flush();
+ const sent=f.calls.find(c=>c[1]?.type==='task:input-revoke')[1];assert.equal(sent.taskId,'input-task');assert.equal(f.document.getElementById('input-grant').hidden,true);
+ const conversation=f.document.getElementById('conversation'),order=[...conversation.children].map(el=>el.id);
+ assert.ok(order.indexOf('input-approval')>order.indexOf('timeline'),'input-approval is below the timeline');
+ assert.ok(order.indexOf('input-grant')<order.indexOf('timeline'),'input-grant is above the timeline');
 });

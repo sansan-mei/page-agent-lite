@@ -284,7 +284,7 @@ test('cached usage anchors pressure without counting cached tokens as free capac
  const anchored=P.pressure(task,'{}','one');assert.equal(anchored.tokens,26000);assert.equal(anchored.source,'api_plus_estimate');assert.ok(anchored.tokens>anchored.trigger);
  assert.equal(P.pressure(task,'{}','two').source,'estimate');
  let seen;const f=fixture({identity:async()=> 'one',model:async()=>({text:'{"reply":"read","action":"observe"}',usage:{promptTokens:26000,cachedTokens:25000},modelIdentity:'one'}),summarize:async text=>{seen=JSON.parse(text);return {text:summaryText};}});
- await f.runtime.start(1,'任务');let t=await f.runtime.get(1);t.results=Array.from({length:20},()=>({action:'observe',result:'small'}));await f.store.set(1,t);
+ await f.runtime.start(1,'任务');let t=await f.runtime.get(1);t.results=Array.from({length:20},(_,i)=>({action:'observe',result:'small '+i}));await f.store.set(1,t);
  await f.runtime.tick(1);assert.equal((await f.runtime.get(1)).contextSummary,undefined);
  await f.runtime.tick(1);assert.ok(seen);assert.equal((await f.runtime.get(1)).contextUsage,null);
 });
@@ -328,6 +328,24 @@ test('durable notes share exact origin across tabs and tasks, index omits bodies
  assert.equal((await f.runtime.get(2)).results.at(-1).result.note.text,'verified site procedure');
  await f.runtime.remove(1);assert.equal((await siteMemory.read('https://example.test')).notes.length,1);
  assert.equal((await siteMemory.read('https://sub.example.test')).notes.length,0);
+});
+
+test('grouped model tools: site_memory op write/read run the registry actions and results come back in the grouped form',async()=>{
+ const siteMemory=durableFixture();let payload,calls=0;
+ const f=fixture({siteMemory,model:async text=>{payload=JSON.parse(text);return {text:JSON.stringify(++calls===1?{reply:'save',action:'site_memory',op:'write',id:'workflow',value:'verified site procedure'}:calls===2?{reply:'read',action:'site_memory',op:'read',id:'workflow'}:{reply:'done',action:'done'})};}});
+ await f.runtime.start(1,'任务');await f.runtime.tick(1);assert.equal((await f.runtime.getSiteMemory(1)).notes[0].text,'verified site procedure');
+ await f.runtime.tick(1);const t=await f.runtime.get(1);
+ assert.deepEqual(t.results.map(r=>r.action).filter(a=>a.startsWith('site_memory')),['site_memory_write','site_memory_read'],'stored records keep registry names');
+ assert.equal(t.results.at(-1).result.note.text,'verified site procedure');
+ await f.runtime.tick(1);const shown=payload.results.filter(r=>r.action==='site_memory').map(r=>r.op);
+ assert.deepEqual(shown,['write','read'],'the model sees its own grouped tool names');assert.ok(!JSON.stringify(payload.results).includes('_memory_'),'requests and results use grouped names too');
+});
+
+test('grouped model tools: a bad op is an invalid plan and nothing runs',async()=>{
+ const siteMemory=durableFixture();
+ const f=fixture({siteMemory,model:async()=>({text:JSON.stringify({reply:'save',action:'site_memory',op:'append',id:'workflow',value:'x'})})});
+ await f.runtime.start(1,'任务');await f.runtime.tick(1);
+ assert.equal((await siteMemory.read('https://example.test')).notes.length,0);assert.notEqual((await f.runtime.get(1)).status,'complete');
 });
 
 test('manual durable edit invalidates all same-origin tasks and blocks late writes',async()=>{
@@ -439,6 +457,7 @@ test('blocked model pauses get three replans but essential user decisions pause 
  const f=fixture({model:async()=>({text:JSON.stringify({action:'pause',reply:'入口尚未找到'})})});await f.runtime.start(1,'查找');
  for(let i=0;i<3;i++){await f.runtime.tick(1);assert.equal(f.data.get(1).status,'running');}
  await f.runtime.tick(1);assert.equal(f.data.get(1).status,'paused');assert.equal(f.data.get(1).helpAttempts,3);
+ const replans=f.data.get(1).results.filter(r=>r.action==='replan');assert.equal(replans.length,3);assert.ok(replans.every(r=>typeof r.time==='number'),'replan records carry a time so the side panel keeps them in order');
  const g=fixture({model:async()=>({text:JSON.stringify({action:'pause',pauseReason:'user',reply:'需要提供账号信息'})})});await g.runtime.start(1,'查找');await g.runtime.tick(1);assert.equal(g.data.get(1).status,'paused');
 });
 test('choice submissions reject stale questions and origins, resume with selected labels only',async()=>{

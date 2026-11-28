@@ -4,6 +4,8 @@
   const scripts=()=>typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools;
   function createBrowserTools(chrome) {
     const F=(typeof module!=='undefined'?require('./frame-tools.js'):root.PageAgentFrameTools).create(chrome,T);
+    // Real-input sessions (chrome.debugger): attached on first use for a task, released by the runtime.
+    const D=(typeof module!=='undefined'?require('./cdp-tools.js'):root.PageAgentCdp).create(chrome);
     // Trusted startup inventory contains IDs only and is never offered to the model.
     async function existingTabIds(){return (await chrome.tabs.query({})).map(t=>t.id).filter(Number.isInteger);}
     // Trusted side-panel member picker only; tab titles and URLs are never offered to the model.
@@ -71,12 +73,84 @@
       try{await chrome.tabs.update(tabId,{url:destination.href});}catch{dispatch='unknown';code='NAVIGATION_UNKNOWN';}
       return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch,scope:'dispatch',code,recovery:'wait',message:'导航已请求；重新观察并核对 URL，不重发结果不确定的导航'}),navigation:true};
     }
+    // Real input (click/hover on a top-document or same-origin frame target), never a resend of a dispatched synthetic event:
+    // 'unreachable' - synthetic events cannot reach the hit point (embedded document), nothing was dispatched, and the
+    // task holds a task-scope real-input approval for this tab and origin;
+    // 'trusted' - the model asked for real input (trusted:true), so no synthetic events are sent at all.
+    // The point comes from the content script for the same snapshot target; uncertain outcomes are never replayed.
+    async function realInput(tabId,pending,policy,live,base,reason){
+      const action=pending.plan?.action,trusted=reason==='trusted';
+      const note=cdp=>({...base,observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none',cdp:{code:cdp.code||'CDP_SKIPPED',message:String(cdp.message||'').slice(0,160)}}});
+      if(!['click','hover'].includes(action)||pending.frameRoute)return note({code:'CDP_UNAVAILABLE',message:'该目标不支持真实输入'});
+      // Settings switch off: one stable not_sent code, nothing measured or attached.
+      if(!await D.enabled())return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'REAL_INPUT_DISABLED',recovery:'replan',observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none'},message:(trusted?'':'合成事件无法到达目标；')+'真实输入未开启（可在设置中开启「真实输入与截图」），未发送'});
+      // Approval (runtime side panel): a trusted action needs its own approval or a task-scope grant; the unreachable
+      // fallback only runs under a task-scope grant and otherwise asks the model to retry with trusted:true.
+      if(!(trusted?['action','task']:['task']).includes(policy?.inputApproval))return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'REAL_INPUT_APPROVAL_REQUIRED',recovery:'replan',observed:{...(base.observed&&typeof base.observed==='object'?base.observed:{}),input:'none'},message:trusted?'真实输入未获用户批准，未发送':'合成事件无法到达目标，未发送；如需真实点击，加 trusted:true 重试（需用户在侧栏批准）'});
+      if(!D.available()||typeof policy?.taskId!=='string')return note({code:'CDP_UNAVAILABLE',message:'真实输入不可用'});
+      if(live&&!await live())return note({code:'CANCELLED',message:'运行已停止'});
+      const message={operationId:pending.operationId,url:pending.url,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})};
+      let point;
+      if(trusted){
+        // agent:aim validates the plan against the current snapshot like agent:execute, consumes it and measures the point.
+        await checkOrigin(tabId,policy);
+        try{point=await call(tabId,{type:'agent:aim',...pending,...message});}catch(error){if(error.code)throw error;return note(error);}
+      }else{
+        try{await checkOrigin(tabId,policy);if((await tab(tabId)).url!==pending.url)throw Object.assign(new Error('页面地址已变化'),{code:'PAGE_CHANGED'});point=await call(tabId,{type:'agent:point',...message});}
+        catch(error){return note(error);}
+      }
+      try{await D.input(tabId,policy.taskId,action,point,live);}
+      catch(error){
+        if(error.dispatch!=='unknown')return note(error);
+        return T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'unknown',scope:'dispatch',code:/^CDP_/.test(error.code)?error.code:'CDP_COMMAND_FAILED',recovery:'observe',observed:{input:'cdp',fallback:reason},message:'真实输入中途失败，结果不确定；重新读取页面核对，不会重发'});
+      }
+      const lead=trusted?'已发送真实输入：':'合成事件无法到达目标，已改用真实输入：';
+      try{
+        const settled=T.normalize(await call(tabId,{type:'agent:settle',...message}),{operationId:pending.operationId,documentId:pending.documentId});
+        return {...settled,observed:{...(settled.observed||{}),input:'cdp',fallback:reason},message:(lead+settled.message).slice(0,500)};
+      }catch{
+        // The real click may have navigated the page: re-read and check, never replay.
+        const current=await tab(tabId).catch(()=>null),moved=!current||current.status==='loading'||current.url!==pending.url;
+        return {...T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unknown',dispatch:'sent',scope:'dispatch',code:moved?'DOCUMENT_CHANGED':'CDP_RESULT_UNKNOWN',recovery:'observe',observed:{input:'cdp',fallback:reason},message:lead+'回执未返回；重新读取页面核对，不重复操作'}),navigation:moved};
+      }
+    }
+    // click_point: one real click at the runtime-converted viewport point of the model's latest viewport screenshot. Sent
+    // only while the document, URL, scroll position and viewport size still match that screenshot; never replayed.
+    async function pointClick(tabId,pending,policy,live){
+      const base={operationId:pending.operationId,documentId:pending.documentId},{x,y}=pending.plan.value,target={input:'cdp',target:'point',x,y};
+      const skip=(code,message)=>T.result({...base,status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',observed:{...target,input:'none'},message});
+      const codeOf=(error,fallback)=>/^[A-Z][A-Z0-9_]{0,60}$/.test(error?.code||'')?error.code:fallback;
+      if(!await D.enabled())return skip('REAL_INPUT_DISABLED','真实输入未开启（可在设置中开启「真实输入与截图」），未点击');
+      if(!['action','task'].includes(policy?.inputApproval))return skip('REAL_INPUT_APPROVAL_REQUIRED','坐标点击未获用户批准，未点击');
+      if(!D.available()||typeof policy?.taskId!=='string'||!pending.view)return skip('CDP_UNAVAILABLE','真实输入不可用，未点击');
+      let view;
+      try{
+        await checkOrigin(tabId,policy);
+        if((await tab(tabId)).url!==pending.url)return skip('POINT_STALE','页面地址已变化，截图坐标作废，未点击');
+        view=await call(tabId,{type:'agent:viewport',...(policy?.origin?{expectedOrigin:policy.origin}:{})});
+      }catch(error){return skip(codeOf(error,'POINT_STALE'),'未点击：'+String(error?.message||'').slice(0,120));}
+      const near=(a,b)=>Math.abs(a-b)<=1,w=pending.view;
+      if(view?.documentId!==pending.documentId||view.url!==pending.url||!near(view.scroll?.x,w.scroll.x)||!near(view.scroll?.y,w.scroll.y)||view.viewport?.width!==w.viewport.width||view.viewport?.height!==w.viewport.height)
+        return skip('POINT_STALE','页面已滚动、缩放或换了文档，截图坐标作废，未点击；请重新 view_image viewport');
+      try{await D.input(tabId,policy.taskId,'click',pending.point,live);}
+      catch(error){
+        if(error.dispatch!=='unknown')return skip(codeOf(error,'CDP_COMMAND_FAILED'),'未点击：'+String(error?.message||'').slice(0,120));
+        return T.result({...base,status:'unknown',dispatch:'unknown',scope:'dispatch',code:codeOf(error,'CDP_COMMAND_FAILED'),recovery:'observe',observed:target,message:'坐标点击中途失败，结果不确定；重新读取页面核对，不会重发'});
+      }
+      const current=await tab(tabId).catch(()=>null),moved=!current||current.status==='loading'||current.url!==pending.url;
+      return {...T.result({...base,status:'unknown',dispatch:'sent',scope:'dispatch',code:moved?'DOCUMENT_CHANGED':'POINT_CLICKED',recovery:'observe',observed:target,message:'已按截图坐标发送真实点击；重新读取页面核对效果，不重复点击'}),navigation:moved};
+    }
     async function execute(tabId,pending,policy=null,live=null){
       if(pending.plan?.action==='navigate')return navigate(tabId,pending,policy,live);
+      if(pending.plan?.action==='click_point')return pointClick(tabId,pending,policy,live);
       // run_script runs through userScripts after the runtime's approval step (auto-approved only in the developer build).
       const S=scripts();if(S?.handles(pending.plan?.action)){if(live&&!await live())throw Object.assign(new Error('脚本请求已取消'),{code:'CANCELLED'});return S.execute(chrome,T,tabId,pending,policy,{checkOrigin,tab,live,documentId});}
+      // trusted:true goes only through real input; a frame-routed target reports not sent.
+      if(pending.plan?.trusted===true)return realInput(tabId,pending,policy,live,T.result({operationId:pending.operationId,documentId:pending.documentId,status:'unsupported',dispatch:'not_sent',scope:'dispatch',code:'REAL_INPUT_NOT_SENT',recovery:'replan',message:'未发送真实输入'}),'trusted');
       if(pending.frameRoute||pending.expected?.some(c=>c.target?.frame?.startsWith('remote:')))return F.execute(tabId,pending,policy,live,{checkOrigin,call,observe});
-      try{return T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
+      let synthetic;
+      try{synthetic=T.normalize(await call(tabId,{type:'agent:execute',...pending,sensitiveFields:policy?.sensitiveFields===true}),{operationId:pending.operationId,documentId:pending.documentId});}catch(error){
+        if(error.code==='SYNTHETIC_UNREACHABLE'&&error.result)return realInput(tabId,pending,policy,live,error.result,'unreachable');
         if(error.code)throw error;
         // A lost response does not tell us whether the click succeeded. Reconnect
         // observation only, NEVER replay the side effect.
@@ -85,6 +159,11 @@
         await observe(tabId,0,policy);
         return T.normalize({navigation:false,connection:'reconnected',message:'操作回执丢失，但页面已重新连接；下一轮根据当前页面核对操作结果，连接问题已恢复，不重复点击'},{operationId:pending.operationId});
       }
+      // No automatic real-input retry: a delayed or invisible effect makes "no effect" unprovable. The model may verify
+      // (screenshot or observe) and ask for trusted:true itself.
+      const {pageChange,...result}=synthetic;
+      if(['click','hover'].includes(pending.plan?.action)&&pageChange==='NO_CHANGE'&&result.code==='NO_CHANGE')result.message=(result.message+'；选中/切换类目标（图块、勾选、开关）可能已变化但文字不变，再点会撤销；'+(await D.enabled()?'先截图或观察核实，确认没反应才加 trusted:true 再试一次':'先观察核实，不要重复点击')).slice(0,500);
+      return result;
     }
     async function verify(tabId,operation,policy=null){
       await checkOrigin(tabId,policy);
@@ -99,6 +178,32 @@
         await observe(tabId,0,policy);
         return T.normalize(await call(tabId,{type:'agent:verify',operationId:operation.operationId,expected:operation.expected,sensitiveFields:policy?.sensitiveFields===true,...(policy?.origin?{expectedOrigin:policy.origin}:{})}));
       }
+    }
+    // view_image page capture: the content script measures the area (viewport, or a current snapshot target scrolled
+    // into view) and covers sensitive fields; the debugger captures that clip as JPEG with the long edge <= 1568 px;
+    // the cover is removed in finally. A failed cover throws MASK_FAILED before anything is captured.
+    const LONG_EDGE=1568;
+    function shotClip(m){
+      const a=m?.area,v=m?.viewport,o=m?.scroll,dpr=Number.isFinite(m?.dpr)&&m.dpr>0?m.dpr:1;
+      const fine=[a?.left,a?.top,a?.width,a?.height,v?.width,v?.height,o?.x,o?.y].every(Number.isFinite);
+      if(!fine||a.width<1||a.height<1||a.left<0||a.top<0||a.left+a.width>v.width+1||a.top+a.height>v.height+1)throw Object.assign(new Error('截图区域无效'),{code:'CAPTURE_FAILED'});
+      const round=n=>Math.round(n*100)/100,scale=Math.min(1,LONG_EDGE/(Math.max(a.width,a.height)*dpr));
+      return {x:round(Math.max(0,o.x+a.left)),y:round(Math.max(0,o.y+a.top)),width:round(a.width),height:round(a.height),scale:Math.floor(scale*1000)/1000||0.001};
+    }
+    async function screenshot(tabId,shot,policy,live=null){
+      if(!await D.enabled())throw Object.assign(new Error('真实输入与截图未开启，可在设置中开启'),{code:'REAL_INPUT_DISABLED'});
+      if(!['action','task'].includes(policy?.inputApproval))throw Object.assign(new Error('截图未获用户批准'),{code:'REAL_INPUT_APPROVAL_REQUIRED'});
+      if(!D.available()||typeof policy?.taskId!=='string')throw Object.assign(new Error('浏览器不支持截图'),{code:'CDP_UNAVAILABLE'});
+      await checkOrigin(tabId,policy);
+      if((await tab(tabId)).url!==shot.url)throw Object.assign(new Error('页面地址已变化，未截图'),{code:'STALE'});
+      const scope=policy?.origin?{expectedOrigin:policy.origin}:{};
+      try{
+        const measured=await call(tabId,{type:'agent:shot',shotId:shot.operationId,snapshotId:shot.snapshotId,url:shot.url,sensitiveFields:policy?.sensitiveFields===true,...(shot.id?{id:shot.id}:{}),...scope});
+        const clip=shotClip(measured),data=await D.capture(tabId,policy.taskId,clip,live);
+        // view: the viewport geometry at capture time, so the runtime can map click_point pixels back to CSS pixels.
+        return {data,masked:measured.masked||0,width:Math.round(clip.width*clip.scale*(measured.dpr||1)),height:Math.round(clip.height*clip.scale*(measured.dpr||1)),
+          view:{area:{...measured.area},viewport:{...measured.viewport},scroll:{x:measured.scroll.x,y:measured.scroll.y}}};
+      }finally{await call(tabId,{type:'agent:unshot',shotId:shot.operationId,...scope}).catch(()=>{});}
     }
     // Task tab lifecycle: open in the opener's window without taking focus; close only by tabId.
     async function openTab(url,{openerTabId}={}){
@@ -115,7 +220,7 @@
       try{await call(tabId,{type:'agent:clear-pointer'});}catch{ /* Page may already be gone. */ }
       try{const frames=await chrome.webNavigation?.getAllFrames({tabId});await Promise.allSettled((frames||[]).filter(f=>f.frameId!==0).map(f=>chrome.tabs.sendMessage(tabId,{type:'agent:clear-pointer'},{frameId:f.frameId})));}catch{ /* No live frame inventory. */ }
     }
-    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab};
+    return {frameOrigins:F.frameOrigins,rememberFrame:F.rememberFrame,forgetFrame:F.forgetFrame,tab,existingTabIds,listTabs,hasOriginAccess,inject,observe,execute,verify,clearPointer,openTab,closeTab,screenshot,releaseInput:tabId=>D.release(tabId),realInputEnabled:()=>D.enabled()};
   }
   root.PageAgentBrowserTools={createBrowserTools};
   if(typeof module!=='undefined')module.exports=root.PageAgentBrowserTools;

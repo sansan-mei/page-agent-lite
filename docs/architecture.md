@@ -26,10 +26,11 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `prompts.js` | 稳定系统指令与每轮上下文组装 | [上下文](context-and-skills.md) |
 | `backend.js` | 配置读写、OpenAI 兼容 / Anthropic Messages 请求与响应解析（`chatRequest`、`anthropicToChat`、`parseChatResponse`）、文章存储（兼容） | [上下文](context-and-skills.md) |
 | `task-store.js` | session 任务根记录、归属索引、对话历史、迁移与中断对账 | [存储](storage.md) |
-| `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS；共用库的打开与升级 | [存储](storage.md) |
+| `site-memory.js` | IndexedDB 网站/全局长期笔记，版本 CAS；任务附图存储；共用库的打开与升级 | [存储](storage.md) |
 | `history-store.js` | IndexedDB 对话历史：快照、脱敏、50 条上限、中断标记 | [存储](storage.md#对话历史) |
 | `frame-tools.js` | 授权跨源直接子框架发现、快照汇总、动作路由与核对 | [网页工具](browser-tools.md#iframe) |
 | `browser-tools.js` | 标签检查、脚本注入、权限/来源门禁、导航派发、网页工具消息适配 | [网页工具](browser-tools.md) |
+| `cdp-tools.js` | `chrome.debugger` 会话：按任务按需 attach、释放即 detach、方法白名单（`Input.dispatchMouseEvent`、`Page.captureScreenshot`）、稳定错误 code | [网页工具](browser-tools.md#真实输入) |
 | `content.js` | 一次性快照、执行白名单动作、动作后短观察、只读核对 | [网页工具](browser-tools.md) |
 | `core.js` | DOM 抽取、动作校验与执行、静态工具注册表 `agentToolRegistry`、敏感字段排除 | [网页工具](browser-tools.md) |
 | `conditions.js` | expected 条件校验、语义目标绑定、唯一匹配核对 | [网页工具](browser-tools.md) |
@@ -37,14 +38,16 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 | `page-pointer.js` | 页面内虚拟指针与高亮，无任务状态、无模型访问 | [网页工具](browser-tools.md) |
 | `sidepanel.*` | 对话、工具卡片、历史、任务范围、接管；没有执行循环 | [使用指南](usage.md) |
 | `options.*`、`management.js`、`global-management.js` | 设置页；网站记忆管理；全局记忆管理 | [使用指南](usage.md) |
+| `attachments.js` | 侧栏附图：类型/大小检查、canvas 压缩为 JPEG（长边 ≤ 1568）、草稿写入 IndexedDB；只在侧栏加载 | [存储](storage.md#任务附图) |
 | `welcome-image.js` | 侧栏主图上传、缩放与同步（设置页和侧栏共用） | [存储](storage.md) |
 | `i18n.js`、`_locales/{zh_CN,en}/messages.json` | 界面文案：`PageAgentI18n.t(key, ...)` 经 `chrome.i18n` 取词（`{1}` 占位，文案不用 `$`），`data-i18n*` 属性翻译静态 HTML；`defaultReplyLanguage()` 按界面语言给出默认回复语言。manifest 名称、说明、工具栏提示用 `__MSG_*__` | [使用指南](usage.md#界面语言) |
-| `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台与设置页加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
+| `script-tools.js` | run_script：参数校验、可用性检查、经 `userScripts.execute` 执行、提示词与 tool schema；后台、设置页与侧栏（只用可用性检查）加载，内容脚本不加载 | [网页工具](browser-tools.md#run_script) |
 | `script-settings.js` | 设置页「脚本执行」：点击申请可选 `userScripts` 权限、显示状态 | [使用指南](usage.md#脚本执行) |
+| `real-input-settings.js` | 设置页「真实输入与截图」：切换 storage.local `debuggerEnabled`，无权限弹窗 | [使用指南](usage.md#设置页) |
 
 ## 消息入口
 
-- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:history-delete`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`。
+- 侧栏 → 后台：`task:submit`、`task:resume`、`task:stop`、`task:finish`、`task:clear`、`task:takeover`、`task:choose`、`task:approve`（旧确认兼容）、`task:get`、`task:connect`、`task:history`、`task:history-get`、`task:history-delete`、`task:diagnostics`、`task:scope-change`、`task:members`、`task:member-change`、`task:sensitive-access`、`task:script-approval`、`task:script-revoke`、`task:input-approval`、`task:input-revoke`。
 - 设置页 → 后台：`task:site-memory`、`task:site-memory-change`、`task:global-memory`、`task:global-memory-change`、`task:skills`、`task:skill-change`（只接受 delete/clear；后两者不带 tabId）。
 - 后台 → 内容脚本：`agent:observe`、`agent:execute`、`agent:verify`、`agent:prepare-navigation`、`agent:document`（只读文档 ID 探测）、`agent:frame-guard`（框架可见与遮挡检查）、`agent:consume`（消费顶层快照）、`agent:clear-pointer`。
 
@@ -52,7 +55,7 @@ background.js ── runtime.js ── prompts.js ── backend.js ── 模�
 
 ## 权限与信任边界
 
-- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页点击时申请（安装不提示）。
+- 安装时权限：`tabs`、`scripting`、`storage`、`sidePanel`、`alarms`、`webNavigation`（识别框架 ID、父框架与导航地址）、`debugger`（只发真实鼠标输入（含 `click_point` 坐标点击）和截取 `view_image` 截图，不能设为可选权限；只在设置开关 `debuggerEnabled` 开启且用户在侧栏批准后按需连接，见[真实输入](browser-tools.md#真实输入)与[截图](browser-tools.md#截图)）。主机权限是可选的 `http://*/*`、`https://*/*`，只由用户手势申请。`userScripts` 是可选权限，只在设置页「脚本执行」点击或侧栏开启目标模式时申请（安装不提示）。
 - 浏览器内部页可承载对话，不注入或读取 DOM；进入普通网页前仍须授权目标来源。
 - 导航要求浏览器主机权限，不再要求逐站加入任务；来源切换自动记录目标并隔离旧站点上下文。读取和操作仍绑定任务当前来源；跨源嵌入框架可沿用用户已记住的顶层来源→框架来源授权，见[网页工具](browser-tools.md#iframe)。
 - `storage.local` 初始化时限定为 `TRUSTED_CONTEXTS`；API 不可用则拒绝初始化。

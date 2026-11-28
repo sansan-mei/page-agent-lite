@@ -25,7 +25,7 @@ git diff --check
 
 | 脚本 | 覆盖 |
 |---|---|
-| `scripts/browser-smoke.cjs` | 完整扩展链路：内部页对话与目标授权、任务、填写/点击、翻页、导航与跨来源、等待阶段 worker 终止、丢回执不重发、记忆与浏览器重启、历史、范围、成员关闭、诊断 |
+| `scripts/browser-smoke.cjs` | 完整扩展链路：内部页对话与目标授权、任务、填写/点击、翻页、导航与跨来源、宫格图块只改 class 时回报 `TARGET_VISUAL_CHANGED` 且不重复点击、等待阶段 worker 终止、丢回执不重发、记忆与浏览器重启、历史、范围、成员关闭、诊断 |
 | `scripts/page-read-smoke.cjs` | 分页/查找、区域读取与核对、敏感字段排除、离屏点击 |
 | `scripts/form-input-smoke.cjs` | 原生 setter、beforeinput 取消、回滚、节点替换、值清洗、敏感字段授权与旧快照拒绝 |
 | `scripts/aria-select-smoke.cjs` | listbox 分组、同名选项、ARIA 状态核对 |
@@ -55,6 +55,7 @@ git diff --check
 - 线上真实模型：规划、记忆选择、摘要质量、子目标质量、缓存命中与费用。
 - 原生工具调用：请求体、tool_call 转换、多调用/坏参数拒绝、auto 回退与记忆只有 Node 假 fetch，浏览器 smoke 的假接口按 tool_calls 应答；真实服务商（OpenAI、DeepSeek、通义、Ollama 等）对 `tools`、`tool_choice:"required"`、`parallel_tool_calls` 的接受情况及 400 正文措辞未验证。
 - Claude 格式：请求头与请求体、回复映射、围栏去除、auto 回退由 Node 假 fetch 覆盖，浏览器 smoke 不覆盖。2026-11-27 在 Anthropic 兼容中转（claude-opus-5-5）上实测：`tool_choice` any/tool 返回 400，auto + `disable_parallel_tool_use` 正常返回单个 tool_use，并用 backend.js 真实请求完成一轮；官方 Anthropic API（OAuth 通道）同样拒绝 any/tool、接受 auto；API key 通道与提示缓存命中未验证。
+- 看图：探测分类、图片请求体（OpenAI `image_url` 数据 URL / Claude base64 块与最后一张图的缓存标记）、图片类 400 回退、识别模型请求、附图存储（IndexedDB 替身）与运行器的认领/识别/清理只有 Node 模拟；真实服务商对小图探测的回复、400 正文措辞、识别质量与图片缓存命中，以及真实 IndexedDB 升级到 v6 均未验证。侧栏选择/粘贴/拖入、缩略图、数量与类型限制、设置页识别模型只有 linkedom + 替身（canvas 压缩用假 Image/canvas）；真实浏览器中的 canvas 压缩质量、剪贴板与拖放事件、缩略图布局未验证。
 - 原生侧栏位置与工具栏手势、原生主机权限弹窗（授权/拒绝/重试）、权限升级后重新启用。
 - 动作派发瞬间强杀 worker/浏览器进程（目前只验证了等待阶段的真实 worker 终止；派发中与跨来源恢复仅模拟）。
 - 真实 React/Vue 等框架、组件库、视频站点、慢加载页面与多种动态网站。
@@ -63,4 +64,10 @@ git diff --check
 - `run_script`：注册与按可用性暴露、参数校验、结果截断/异常/超时、批准/拒绝/过期/作废、本任务内允许（同来源免暂停、跨来源/撤销/结束/权限移除后恢复暂停）、仅可信侧栏可批准、设置页权限申请与状态只有 Node 模拟（真实 runtime + browser-tools，`userScripts`、`permissions` 为替身）。真实 Chrome 中的 `userScripts.execute`、可选权限弹窗、「允许用户脚本」开关（无头 Chromium 无法打开）、MAIN/USER_SCRIPT 差异、侧栏批准卡片的真实布局，以及真实模型是否在合适场景选用并写出可读脚本均未验证。
 - 英文界面只有 Node + linkedom 检查与一次英文侧栏截图；真实 Chrome 中 `__MSG_*__` 名称、`chrome.i18n` 语言切换与设置页英文布局未在浏览器验证。`ui-preview.cjs` 的长对话步骤仍用旧 `task:1` 存储键推送更新，当前会在该步失败。
 - 目标模式与核对后重新规划：次数上限、未确定点击放行、完成条件重规划、侧栏开关与后台命令校验只有 Node 模拟；真实模型在目标模式下是否会重复副作用、真实富文本编辑器的空白改写是否都被宽松比较覆盖均未验证。
+- `debugger` 真实输入：会话按需 attach/复用/释放、提示条取消、占用、中途断开、代次变化不发送，以及输入选择（只有到不了时自动回退、`trusted:true` 只发真实输入、已发出的合成点击不重发，含延迟 3 秒生效的回归）、内容脚本坐标与框架偏移只有 Node 替身（假 `chrome.debugger` + linkedom）；真实点击是否被网站接受、真实 Chrome 的提示条、取消行为、DevTools 同时打开、worker 终止后会话是否保留、坐标在缩放/高 DPI 下的准确性均未验证。
+- 截图/真实输入批准：三类动作 attach 前暂停、拒绝 `REAL_INPUT_DENIED`、允许一次只执行一次、本任务授权同标签同来源免卡片并在撤销/换来源/关开关后恢复暂停、worker 重启不执行待批准请求、停止/接管/导航作废、到不了目标只在本任务授权下回退、缺少批准的 browser-tools 不量不连、侧栏卡片与后台消息校验只有 Node 替身（`tests/real-input-approval.test.js` 等）；`browser-smoke.cjs` 在真实 Chrome 中覆盖 `trusted:true` 暂停、卡片文字、点「允许一次」后一次真实点击；截图与 `click_point` 的批准、本任务授权和拒绝在真实 Chrome 中未验证。
+- 「真实输入与截图」开关：关闭时不 attach、`REAL_INPUT_DISABLED`、提示词与工具里无截图来源/`click_point`/`trusted`、关闭即 detach、设置行与侧栏目标模式提示只有 Node + linkedom（`tests/real-input-setting.test.js`）；`browser-smoke.cjs` 在真实 Chrome 中点设置行开启开关并核对存储；侧栏提示的布局与真实 Chrome 中关闭时提示条消失未验证。
+- 目标外观变化（`TARGET_VISUAL_CHANGED`）：class、style、子元素 class、aria-pressed 变化与无变化点击、真实输入 settle、提示文字、不触发无进展暂停只有 Node + linkedom（linkedom 无计算样式）；`browser-smoke.cjs` 在真实 Chrome 中覆盖合成宫格（class 切换背景/边框 → `TARGET_VISUAL_CHANGED`，无效果图块 → `NO_CHANGE`，合成输入）；`:focus` 排除与真实网站（neal.fun 宫格）未验证。
+- `view_image`：CDP 截图白名单与 clip 计算（视口/元素、滚动偏移、长边 1568）、遮盖的施加/移除/失败不截图（linkedom 内容脚本，遮盖块位置用替身）、下一轮附带与只发一次、最多 3 张、跨来源不发、worker 重启后从附图库读回或报 `SHOT_EXPIRED`、不能看图时的识别文字（含失败重试 2 次、停止打断重试）与 observed 上限、附图再问、看图 400 后改识别只有 Node 替身（假 `chrome.debugger`、假附图服务）。真实 Chrome 中 `Page.captureScreenshot` 对后台标签页是否出图、clip 在缩放/高 DPI/双指缩放下是否准确、遮盖黑块在真实页面（transform、全屏层、深色模式扩展）上是否盖准、真实 IndexedDB 中的截图读写，以及真实模型是否在合适场景调用 view_image 并把要点记进 progress 均未验证。
+- `click_point`：参数校验、只对能看图的模型暴露、截图未看过/换文档/超过 60 秒/越界/非视口截图时不派发、像素到 CSS 像素换算、`executing` 检查点、一张截图只点一次、滚动或窗口变化时 `POINT_STALE`、按下后失败为 unknown 只有 Node 替身（假 `chrome.debugger`、假内容脚本回复）；真实 Chrome 中 `agent:viewport` 的取值、高 DPI/缩放下坐标是否落准、真实模型是否给出准确坐标均未验证。
 - 多成员任务：成员加入/移出/关闭、otherTabs 列表与读取授权、tab_switch、tab_open/tab_close、执行标签关闭改绑、切换中断对账只有 Node 模拟（真实 store + 假浏览器）与侧栏 stub 测试；真实浏览器中的 `tabs.create`/`tabs.remove`、后台标签加载与注入、原生侧栏在成员标签上的表现、侧栏读取授权卡片的真实渲染、真实模型是否合理选用标签工具均未验证。

@@ -34,11 +34,11 @@
       tx.db.deleteObjectStore('skills');
     };
   }
-  // One database serves site notes, global notes, site skills and conversation history; every opener uses this upgrade.
+  // One database serves site notes, global notes, site skills, conversation history and task images; every opener uses this upgrade.
   function openDatabase(factory,name,onClose){
     return new Promise((resolve,reject)=>{
       if(!factory){reject(new Error('浏览器不支持长期记忆数据库'));return;}
-      const request=factory.open(name,5);let blocked=false;
+      const request=factory.open(name,6);let blocked=false;
       request.onupgradeneeded=()=>{
         const db=request.result;
         if(!db.objectStoreNames.contains('sites'))db.createObjectStore('sites',{keyPath:'origin'});
@@ -49,6 +49,8 @@
           db.createObjectStore('skillLibrary',{keyPath:'scope'});
           if(db.objectStoreNames.contains('skills'))migrateSkills(request.transaction);
         }
+        // v6: images attached to tasks (compressed in the side panel); task records keep only their ids.
+        if(!db.objectStoreNames.contains('attachments'))db.createObjectStore('attachments',{keyPath:'id'});
       };
       request.onerror=()=>reject(new Error('无法打开长期记忆数据库'));
       request.onblocked=()=>{blocked=true;reject(new Error('长期记忆数据库被其他扩展页面占用，请关闭后重试'));};
@@ -115,6 +117,59 @@
     async function close(){if(opening){const db=await opening;db.close();opening=null;}}
     return {read,change,close};
   }
-  const api={createSiteMemory,openDatabase,validNote,validSkill,originKey};root.PageAgentSiteMemory=api;
+  // Task images: the side panel stores drafts (taskId null); submit claims them for one task; ending or
+  // clearing the task deletes them; prune drops images of tasks that no longer run and stale drafts.
+  const IMAGE_DATA=/^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+=*$/,IMAGE_ID=/^[A-Za-z0-9_-]{8,64}$/;
+  const imageMeta=r=>({id:r.id,type:r.type,width:r.width,height:r.height,size:r.size});
+  function createAttachmentStore({factory=root.indexedDB,name='page-agent-memory',now=()=>Date.now(),draftAge=86400000}={}){
+    let opening;
+    function open(){
+      if(!opening){const pending=openDatabase(factory,name,()=>{opening=null;});opening=pending;pending.catch(()=>{if(opening===pending)opening=null;});}
+      return opening;
+    }
+    // Every operation reads all records (a handful at most) and decides synchronously inside one transaction.
+    async function run(mode,work){
+      const db=await open();
+      return new Promise((resolve,reject)=>{
+        const tx=db.transaction('attachments',mode),store=tx.objectStore('attachments');let value,error;
+        tx.oncomplete=()=>resolve(value);tx.onabort=()=>reject(error||new Error('图片存储失败，请重试'));tx.onerror=()=>{};
+        const request=store.getAll();
+        request.onsuccess=()=>{try{value=work(request.result||[],store);}catch(e){error=e;try{tx.abort();}catch{}}};
+      });
+    }
+    async function put({id,data,type,width,height,size}){
+      if(typeof id!=='string'||!IMAGE_ID.test(id)||typeof data!=='string'||data.length>4000000||!IMAGE_DATA.test(data)||![width,height,size].every(n=>Number.isSafeInteger(n)&&n>0))throw new Error('图片数据无效');
+      return run('readwrite',(all,store)=>{
+        if(all.filter(r=>!r.taskId).length>=16)throw new Error('待发送图片过多，请先发送或移除');
+        const record={id,taskId:null,createdAt:now(),data,type:data.slice(5,data.indexOf(';')),width,height,size};store.put(record);return imageMeta(record);
+      });
+    }
+    async function get(ids){const wanted=new Set(ids);return run('readonly',all=>all.filter(r=>wanted.has(r.id)).sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id)));}
+    // Binds drafts to a task; an id that is missing or owned by another task fails the whole claim.
+    async function claim(ids,taskId){
+      return run('readwrite',(all,store)=>ids.map(id=>{
+        const record=all.find(r=>r.id===id);
+        if(!record||record.taskId&&record.taskId!==taskId)throw new Error('图片已失效，请重新添加');
+        store.put({...record,taskId,claimedAt:now()});return imageMeta(record);
+      }));
+    }
+    async function discard(id){return run('readwrite',(all,store)=>{const record=all.find(r=>r.id===id&&!r.taskId);if(record)store.delete(id);return !!record;});}
+    async function removeTask(taskId){return run('readwrite',(all,store)=>{const gone=all.filter(r=>r.taskId===taskId);for(const r of gone)store.delete(r.id);return gone.length;});}
+    async function prune(liveTaskIds){
+      const live=new Set(liveTaskIds),time=now();
+      // A claim younger than a minute may belong to a task that is still being saved.
+      return run('readwrite',(all,store)=>{const gone=all.filter(r=>r.taskId?!live.has(r.taskId)&&time-(r.claimedAt||0)>60000:time-(r.createdAt||0)>draftAge);for(const r of gone)store.delete(r.id);return gone.length;});
+    }
+    // view_image screenshots (kind 'shot'): bound to their task at once, so removeTask and prune also clear them;
+    // the runtime keeps them only until the next model request (at most 3).
+    async function putShot({id,taskId,data}){
+      if(typeof id!=='string'||!IMAGE_ID.test(id)||typeof taskId!=='string'||!taskId||typeof data!=='string'||data.length>4000000||!data.startsWith('data:image/jpeg;base64,')||!IMAGE_DATA.test(data))throw new Error('截图数据无效');
+      return run('readwrite',(all,store)=>{const time=now();store.put({id,taskId,kind:'shot',data,type:'image/jpeg',size:data.length,createdAt:time,claimedAt:time});return {id};});
+    }
+    async function removeShots(taskId,keep=[]){return run('readwrite',(all,store)=>{const gone=all.filter(r=>r.kind==='shot'&&r.taskId===taskId&&!keep.includes(r.id));for(const r of gone)store.delete(r.id);return gone.length;});}
+    async function close(){if(opening){const db=await opening;db.close();opening=null;}}
+    return {put,get,claim,discard,removeTask,prune,putShot,removeShots,close};
+  }
+  const api={createSiteMemory,createAttachmentStore,openDatabase,validNote,validSkill,originKey};root.PageAgentSiteMemory=api;
   if(typeof module!=='undefined')module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

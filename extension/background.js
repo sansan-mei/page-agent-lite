@@ -1,10 +1,10 @@
 'use strict';
 let startupFailure=null;
 try {
-  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','frame-tools.js','browser-tools.js','runtime.js');
+  importScripts('tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','frame-tools.js','cdp-tools.js','browser-tools.js','runtime.js');
 } catch(error) {
   const match=String(error?.message||'').match(/\/([a-z-]+\.js)(?:['"\s]|$)/);
-  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','frame-tools.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
+  const file=match&&['tool-protocol.js','conditions.js','script-tools.js','core.js','prompts.js','backend.js','task-store.js','site-memory.js','history-store.js','frame-tools.js','cdp-tools.js','browser-tools.js','runtime.js'].includes(match[1])?match[1]:'后台依赖文件';
   startupFailure=`扩展无法加载 ${file}。请在扩展管理页重新加载，并刷新网页、重新打开侧边栏；仍失败时检查扩展目录文件是否齐全。`;
 }
 if(startupFailure){
@@ -67,7 +67,9 @@ const runtime=PageAgentRuntime.createRuntime({store,tools,siteMemory,globalMemor
   identity:()=>service.identity(),
   protocol:()=>service.agentProtocol(),
   // run_script is offered to the model only on turns where the optional permission and API are usable.
-  scriptAccess:()=>PageAgentScriptTools.status(chrome)
+  scriptAccess:()=>PageAgentScriptTools.status(chrome),
+  // Task images: claim/delete in IndexedDB, vision mode per model, recognition for models without vision.
+  images:service.images
 });
 const ready=(async()=>{
   await service.init();await store.migrate();
@@ -80,6 +82,8 @@ const ready=(async()=>{
 })().catch(()=>false);
 void ready.then(ok=>ok&&syncHistory()).catch(()=>{});
 chrome.storage.onChanged.addListener((changes,area)=>{
+  // Real input switched off in settings: tasks drop their task-scope real-input approval.
+  if(area==='local'&&changes.debuggerEnabled&&changes.debuggerEnabled.newValue!==true)void ready.then(ok=>ok&&runtime.reviewApprovals()).catch(()=>{});
   if(area!=='session')return;
   for(const [name,change] of Object.entries(changes)){const taskId=change.newValue?.taskId;if(typeof taskId==='string'&&/^(taskRoot|task|conversation|conversation-origin):/.test(name))queueHistory(taskId);}
 });
@@ -115,7 +119,7 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       const managementSender=s.id===chrome.runtime.id&&s.url===chrome.runtime.getURL('options.html')&&(s.frameId===undefined||s.frameId===0)&&['task:site-memory','task:site-memory-change'].includes(m.type);
       if((!panelSender(s)&&!managementSender)||!Number.isInteger(m.tabId)||m.tabId<0)throw new Error('拒绝访问任务');
       // Commands on a non-executing member tab act on its task's executing tab; notes stay per tab.
-      const taskTab=['task:get','task:sensitive-access','task:tab-access','task:script-approval','task:script-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
+      const taskTab=['task:get','task:sensitive-access','task:tab-access','task:script-approval','task:script-revoke','task:input-approval','task:input-revoke','task:members','task:member-change','task:scope-change','task:diagnostics','task:finish','task:resume','task:stop','task:takeover','task:choose','task:approve','task:clear','task:goal-mode'].includes(m.type)&&runtime.resolve?await runtime.resolve(m.tabId):m.tabId;
       if(m.type==='task:get'){
         const task=await runtime.get(taskTab);
         if(!task)return task;
@@ -128,15 +132,15 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
         if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean')throw new Error('标签页授权无效');
         return runtime.tabAccess(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow});
       }
-      if(m.type==='task:script-approval'){
+      if(m.type==='task:script-approval'||m.type==='task:input-approval'){
         // Strict shape: allow is boolean; scope is once|task (default once); a task-wide grant must approve.
-        const scope=m.scope===undefined?'once':m.scope;
-        if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean'||!['once','task'].includes(scope)||scope==='task'&&!m.allow)throw new Error('脚本确认无效');
-        return runtime.scriptApproval(taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow,scope});
+        const scope=m.scope===undefined?'once':m.scope,input=m.type==='task:input-approval';
+        if(typeof m.taskId!=='string'||typeof m.requestId!=='string'||typeof m.allow!=='boolean'||!['once','task'].includes(scope)||scope==='task'&&!m.allow)throw new Error(input?'真实输入确认无效':'脚本确认无效');
+        return runtime[input?'inputApproval':'scriptApproval'](taskTab,{taskId:m.taskId,requestId:m.requestId,allow:m.allow,scope});
       }
-      if(m.type==='task:script-revoke'){
-        if(typeof m.taskId!=='string')throw new Error('脚本确认无效');
-        return runtime.revokeScriptApproval(taskTab,{taskId:m.taskId});
+      if(m.type==='task:script-revoke'||m.type==='task:input-revoke'){
+        if(typeof m.taskId!=='string')throw new Error('确认无效');
+        return runtime[m.type==='task:input-revoke'?'revokeInputApproval':'revokeScriptApproval'](taskTab,{taskId:m.taskId});
       }
       if(m.type==='task:members')return runtime.members(taskTab,m.taskId);
       if(m.type==='task:member-change')return runtime.changeMembers(taskTab,{taskId:m.taskId,expectedMembersRevision:m.expectedMembersRevision,action:m.action,memberTabId:m.memberTabId,tabRef:m.tabRef});
@@ -156,7 +160,10 @@ chrome.runtime.onMessage.addListener((m,s,respond)=>{
       if(m.type==='task:site-memory')return runtime.getSiteMemory(m.tabId);
       if(m.type==='task:site-memory-change')return runtime.editSiteMemory(m.tabId,{origin:m.origin,action:m.action,id:m.id,text:m.text,expectedVersion:m.expectedVersion});
       if(m.type==='task:connect'){await tools.inject(m.tabId);return {connected:true};}
-      if(m.type==='task:start'||m.type==='task:submit')return typeof m.goalMode==='boolean'?runtime.submit(m.tabId,m.goal,{goalMode:m.goalMode}):runtime.submit(m.tabId,m.goal);
+      if(m.type==='task:start'||m.type==='task:submit'){
+        const submitOptions={...(typeof m.goalMode==='boolean'?{goalMode:m.goalMode}:{}),...(m.attachments!==undefined?{attachments:m.attachments}:{})};
+        return Object.keys(submitOptions).length?runtime.submit(m.tabId,m.goal,submitOptions):runtime.submit(m.tabId,m.goal);
+      }
       if(m.type==='task:goal-mode'){
         if(typeof m.taskId!=='string'||typeof m.enabled!=='boolean')throw new Error('目标模式参数无效');
         return runtime.setGoalMode(taskTab,m.taskId,m.enabled);

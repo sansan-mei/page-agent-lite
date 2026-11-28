@@ -26,6 +26,8 @@
   }
   function snapshot(task,maxChars=400000){
     const picked=Object.fromEntries(KEEP.filter(name=>task[name]!==undefined).map(name=>[name,structuredClone(task[name])]));
+    // Attached images: only the count and recognition text are kept, never ids or image data.
+    if(task.attachments?.length)picked.images={count:task.attachments.length,texts:task.attachments.map(a=>a.text).filter(text=>typeof text==='string'&&text)};
     const view={...redact(picked),archived:true};
     // Oversized conversations keep their newest records; the goal and summary always survive.
     while(JSON.stringify(view).length>maxChars&&((view.results||[]).length||(view.events||[]).length>1)){

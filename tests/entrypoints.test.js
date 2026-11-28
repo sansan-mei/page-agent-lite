@@ -12,13 +12,13 @@ test('MV3 manifest uses optional hosts and all entrypoint files exist', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json')));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.version, require('../package.json').version);
-  assert.deepEqual(manifest.permissions.sort(), ['alarms', 'scripting', 'sidePanel', 'storage', 'tabs', 'webNavigation']);
+  assert.deepEqual(manifest.permissions.sort(), ['alarms', 'debugger', 'scripting', 'sidePanel', 'storage', 'tabs', 'webNavigation']);
   assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.content_scripts, undefined);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   // run_script needs userScripts; it is optional so installing shows no extra warning.
   assert.deepEqual(manifest.optional_permissions, ['userScripts']);assert.ok(!manifest.permissions.includes('userScripts'));
-  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js']) {
+  for (const file of [manifest.background.service_worker, manifest.options_page, 'core.js', 'backend.js', 'content.js', 'options.js', 'options.css', 'sidepanel.html', 'sidepanel.js', 'runtime.js', 'task-store.js', 'browser-tools.js', 'conditions.js', 'tool-protocol.js', 'script-tools.js', 'script-settings.js', 'real-input-settings.js', 'cdp-tools.js']) {
     assert.ok(fs.statSync(path.join(dir, file)).isFile(), file);
   }
 });
@@ -97,4 +97,8 @@ test('production manifest has no host_permissions and minimal declared permissio
   const ps = new Set(m.permissions);
   assert.equal(ps.has('activeTab'), false, 'Host access comes only from optional host permissions'); assert.ok(ps.has('scripting')); assert.ok(ps.has('storage'));
   assert.ok(ps.has('tabs'), 'Read target metadata to request only its optional origin');
+  // debugger cannot be optional; sessions attach on demand, and every background script it needs must be loaded.
+  assert.ok(ps.has('debugger'));
+  const worker = require('node:fs').readFileSync(path.join(extDir, 'background.js'), 'utf8');
+  assert.ok(worker.indexOf("'cdp-tools.js'") > 0 && worker.indexOf("'cdp-tools.js'") < worker.indexOf("'browser-tools.js'"), 'cdp-tools.js loads before browser-tools.js');
 });

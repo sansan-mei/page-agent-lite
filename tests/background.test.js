@@ -136,3 +136,16 @@ test('history uses the persistent store, rejects deleting live conversations and
  assert.deepEqual(saves,['x']);
  await f.send({type:'task:clear',tabId:1},panel);assert.ok(f.calls.some(c=>c[0]==='history-remove'&&c[1]==='t'));
 });
+
+test('real-input approval messages reach the runtime only from the side panel with a strict shape; switching it off reviews grants',async()=>{
+ const f=await fixture([],{},{async inputApproval(id,p){f.calls.push(['input',id,p]);return {};},async revokeInputApproval(id,p){f.calls.push(['input-revoke',id,p]);return {};},async reviewApprovals(){f.calls.push(['review-approvals']);}});
+ const ok=await f.send({type:'task:input-approval',tabId:3,taskId:'t',requestId:'r',allow:true,scope:'task'},panel);
+ assert.equal(ok.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(f.calls.at(-1))),['input',3,{taskId:'t',requestId:'r',allow:true,scope:'task'}]);
+ for(const bad of [{allow:'yes'},{allow:false,scope:'task'},{scope:'always',allow:true},{requestId:1,allow:true}]){
+  const r=await f.send({type:'task:input-approval',tabId:3,taskId:'t',requestId:'r',...bad},panel);assert.equal(r.ok,false,JSON.stringify(bad));
+ }
+ assert.equal((await f.send({type:'task:input-approval',tabId:3,taskId:'t',requestId:'r',allow:true},{id:'test',url:'https://evil.test/',frameId:0,tab:{id:3}})).ok,false);
+ assert.equal((await f.send({type:'task:input-revoke',tabId:3,taskId:'t'},panel)).ok,true);assert.deepEqual(JSON.parse(JSON.stringify(f.calls.at(-1))),['input-revoke',3,{taskId:'t'}]);
+ f.calls.length=0;f.sessionChanged({debuggerEnabled:{oldValue:false,newValue:true}},'local');await flush();assert.deepEqual(f.calls,[]);
+ f.sessionChanged({debuggerEnabled:{oldValue:true,newValue:false}},'local');await flush();assert.deepEqual(f.calls,[['review-approvals']]);
+});

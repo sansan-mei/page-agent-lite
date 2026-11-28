@@ -125,6 +125,9 @@
   "spHistoryBack": {
     "message": "返回对话"
   },
+  "spHistoryList": {
+    "message": "返回列表"
+  },
   "spHistoryNote": {
     "message": "所有网站的对话，保存在本机（最近 50 条）；敏感字段的值已隐藏"
   },
@@ -181,6 +184,45 @@
   },
   "spGoalModeTitle": {
     "message": "开启后，核对未通过、目标失效或遇到阻碍时自动重新规划，直到完成、停止或用完轮数"
+  },
+  "spAttach": {
+    "message": "添加图片"
+  },
+  "spAttachTitle": {
+    "message": "添加图片（也可粘贴或拖入），每个任务最多 4 张"
+  },
+  "spImageAlt": {
+    "message": "待发送图片 {1}"
+  },
+  "spImageRemove": {
+    "message": "移除图片 {1}"
+  },
+  "spImageType": {
+    "message": "只支持 PNG、JPEG、WebP、GIF 图片"
+  },
+  "spImageSize": {
+    "message": "图片不能超过 5 MB"
+  },
+  "spImageLimit": {
+    "message": "每个任务最多 {1} 张图片"
+  },
+  "spImageDecode": {
+    "message": "图片无法读取"
+  },
+  "spImageSaveFailed": {
+    "message": "图片保存失败，请重试"
+  },
+  "spImageUrl": {
+    "message": "只支持本机图片文件，不支持网络地址"
+  },
+  "spImageBusy": {
+    "message": "图片还在处理，请稍候再发送"
+  },
+  "spImagesCount": {
+    "message": "附图 {1} 张"
+  },
+  "spImageRecognized": {
+    "message": "识别文字（可能有误）：{1}"
   },
   "spComposerHint": {
     "message": "Enter 发送，Shift + Enter 换行"
@@ -265,6 +307,24 @@
   },
   "optCompression": {
     "message": "压缩阈值（%）"
+  },
+  "optRecognition": {
+    "message": "识别模型（可选）"
+  },
+  "optRecognitionModel": {
+    "message": "模型"
+  },
+  "optRecognitionPlaceholder": {
+    "message": "留空用主模型"
+  },
+  "optRecognitionEndpoint": {
+    "message": "API 地址"
+  },
+  "optRecognitionEndpointPlaceholder": {
+    "message": "留空用主模型地址和密钥"
+  },
+  "optRecognitionKey": {
+    "message": "API 密钥"
   },
   "optManagementHint": {
     "message": "修改或清空记忆会暂停相关任务，回侧栏继续即可。"
@@ -767,6 +827,15 @@
   "spScriptReject": {
     "message": "拒绝"
   },
+  "spScriptSetup": {
+    "message": "脚本执行还需打开浏览器的「允许用户脚本」"
+  },
+  "spScriptSetupOpen": {
+    "message": "打开扩展详情"
+  },
+  "spScriptSetupDismiss": {
+    "message": "关闭提示"
+  },
   "spScriptRevoke": {
     "message": "撤销"
   },
@@ -829,6 +898,18 @@
   },
   "optSaved": {
     "message": "设置已保存，新任务或点击「继续任务」后生效；尚未调用模型。"
+  },
+  "optTestConnection": {
+    "message": "测试连接"
+  },
+  "optTesting": {
+    "message": "已保存，正在测试连接…"
+  },
+  "optTestVision": {
+    "message": "连接正常 · 支持看图"
+  },
+  "optTestNoVision": {
+    "message": "连接正常 · 不支持看图，图片将转成文字"
   },
   "optImageChoose": {
     "message": "选择图片"
@@ -898,5 +979,53 @@
   },
   "mgSkillGeneral": {
     "message": "通用（所有网站）"
+  },
+  "optRealInputTitle": {
+    "message": "真实输入与截图"
+  },
+  "optRealInputIntro": {
+    "message": "让助手截图看页面，合成点击点不到时用真实鼠标；使用时浏览器显示调试提示条。"
+  },
+  "optRealInputEnable": {
+    "message": "开启"
+  },
+  "optRealInputDisable": {
+    "message": "关闭"
+  },
+  "optRealInputFailed": {
+    "message": "保存失败，请重试。"
+  },
+  "spRealInputSetup": {
+    "message": "目标模式建议开启「真实输入与截图」"
+  },
+  "spRealInputEnable": {
+    "message": "开启"
+  },
+  "spInputTitle": {
+    "message": "允许截图/真实输入？"
+  },
+  "spInputText": {
+    "message": "将通过浏览器调试通道操作该网页，浏览器会显示调试提示条，用完自动断开。「本任务内允许」仅限本任务的同一标签页和网站，可随时撤销。"
+  },
+  "spInputShotViewport": {
+    "message": "截图可见区域"
+  },
+  "spInputShot": {
+    "message": "截图元素：{1}"
+  },
+  "spInputPoint": {
+    "message": "按截图坐标点击 ({1}, {2})"
+  },
+  "spInputClick": {
+    "message": "真实点击：{1}"
+  },
+  "spInputHover": {
+    "message": "真实悬停：{1}"
+  },
+  "spInputTarget": {
+    "message": "网站：{1}"
+  },
+  "spInputGrant": {
+    "message": "本任务已允许截图与真实输入（{1}）"
   }
 }

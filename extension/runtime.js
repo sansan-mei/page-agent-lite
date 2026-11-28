@@ -8,28 +8,49 @@
   const ACTIVE = new Set(['running', 'waiting_page']);
   const refOf=t=>(t.members||[]).find(member=>member.tabId===t.tabId)?.tabRef||'tab0';
   const S = typeof module !== 'undefined' ? require('./script-tools.js') : root.PageAgentScriptTools;
-  // A run_script that never reached the page: rejected, stale or discarded before dispatch.
-  function scriptEntry(t,pending,code,message,recovery='observe',time=Date.now()){
-    return {request:pending.plan,time,action:'run_script',label:'run_script',origin:t.origin,tabRef:refOf(t),result:message,
+  // Side-panel approvals share one state machine: a paused request the user decides (once / this task / deny) and an
+  // optional task-scope grant bound to the executing tab and origin. script: run_script. input: every chrome.debugger use
+  // (page screenshot, click_point, trusted click/hover); such pending actions carry inputKind.
+  const APPROVALS={
+    script:{request:'scriptRequest',grant:'scriptApproval',reason:'script_approval',stale:'script_stale',noun:'脚本',denied:'SCRIPT_REJECTED',discarded:'SCRIPT_DISCARDED',owns:p=>p?.plan?.action==='run_script',
+      deny:'用户拒绝执行该脚本，脚本未运行；不要重复提交同一脚本，改用其他方法或询问用户',denyEvent:'你拒绝了脚本，未执行；助手将改用其他方法',once:'你已批准脚本，执行一次',
+      task:o=>'你已允许本任务在 '+o+' 自动执行脚本（同一标签页与网站；可随时撤销）；执行这段脚本',auto:'本任务已允许脚本自动执行：执行一次，完整代码见对话记录',wait:'等待你在侧栏批准脚本：批准后执行，拒绝则改用其他方法',revoked:'已撤销本任务的脚本自动批准；之后的脚本需逐次批准'},
+    input:{request:'inputRequest',grant:'inputApproval',reason:'real_input_approval',stale:'input_stale',noun:'真实输入',denied:'REAL_INPUT_DENIED',discarded:'REAL_INPUT_DISCARDED',owns:p=>!!p?.inputKind,
+      deny:'用户拒绝了这次截图/真实输入，未连接调试通道，未执行；不要重复请求，改用快照元素 ID、observe 或询问用户',denyEvent:'你拒绝了截图/真实输入，未执行',once:'你已允许一次截图/真实输入',
+      task:o=>'你已允许本任务在 '+o+' 使用截图与真实输入（同一标签页与网站；可随时撤销）',auto:'本任务已允许截图与真实输入：直接执行',wait:'等待你在侧栏允许截图/真实输入（浏览器会显示调试提示条）',revoked:'已撤销本任务的截图与真实输入自动批准；之后每次需批准'}};
+  // An approval-gated action that never reached the page: rejected, stale or discarded before dispatch.
+  function notRun(t,pending,code,message,recovery='observe',time=Date.now()){
+    const action=pending.plan?.action||'run_script';
+    return {request:pending.plan,time,action,label:action==='run_script'?'run_script':pending.label||action,origin:t.origin,tabRef:refOf(t),result:message,
       outcome:T.result({operationId:pending.operationId,documentId:pending.documentId,status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery,message})};
   }
-  // Drops a pending approval (or an approved run not yet dispatched); it is recorded as not run, never replayed.
-  function discardScript(t,message,time=Date.now()){
-    const pending=t.scriptRequest?.pending||(t.phase==='approved'&&t.pending?.plan?.action==='run_script'?t.pending:null);
-    if(!pending)return false;
-    t.results=(t.results||[]).concat(scriptEntry(t,pending,'SCRIPT_DISCARDED',message,'observe',time));
-    t.scriptRequest=null;if(t.phase==='approved'){t.phase='observe';t.pending=null;}
-    t.events=recent((t.events||[]).concat({time,text:message}),40,16000);return true;
+  // Drops pending approvals (or an approved action not yet dispatched); recorded as not run, never replayed.
+  // Messages name scripts; an input request gets the same text with 真实输入 in place of 脚本.
+  function discardApprovals(t,message,time=Date.now()){
+    let dropped=false;
+    for(const k of Object.values(APPROVALS)){
+      const approved=t.phase==='approved'&&k.owns(t.pending),pending=t[k.request]?.pending||(approved?t.pending:null);
+      if(!pending)continue;
+      const text=message.replace(/脚本/g,k.noun);dropped=true;
+      t.results=(t.results||[]).concat(notRun(t,pending,k.discarded,text,'observe',time));
+      t[k.request]=null;if(approved){t.phase='observe';t.pending=null;}
+      t.events=recent((t.events||[]).concat({time,text}),40,16000);
+    }
+    return dropped;
   }
   function recent(items, count = 12, size = 10000) {
     const next = items.slice(-count);
     while (JSON.stringify(next).length > size) next.shift();
     return next;
   }
-  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now()}) {
+  function createRuntime({store, tools, siteMemory=null, globalMemory=null, model, summarize, review=null, skills=null, identity=async()=>null, protocol=async()=>'json', scriptAccess=async()=>({permission:false,api:false,available:false}), images=null, preferences, schedule, cancelSchedule, uuid = () => crypto.randomUUID(), now = () => Date.now(), recognitionBackoff=1000}) {
     let globalEpoch=0,globalEditing=false,globalEditQueue=Promise.resolve();
     const PLAN_RETRIES=2; // consecutive INVALID_PLAN results returned to the model before pausing
     const locks=new Map(),bindingLocks=new Map(),jobs=new Map(),controllers=new Map(),controllerTasks=new Map(),detachedReviews=new Set();
+    // Detach the task's debugger session (if any) whenever the tab stops being actively driven.
+    const releaseInput=tabId=>Promise.resolve(tools.releaseInput?.(tabId)).catch(()=>false);
+    // The user's real input & screenshots switch (settings page); off hides page screenshots, click_point and trusted:true.
+    const realInputOn=()=>Promise.resolve(tools.realInputEnabled?.()).then(value=>value===true,()=>false);
     const controllerForTab=id=>controllers.get(controllerTasks.get(id));
     function enqueue(map,key,fn){const operation=(map.get(key)||Promise.resolve()).catch(()=>{}).then(fn);map.set(key,operation);operation.finally(()=>{if(map.get(key)===operation)map.delete(key);}).catch(()=>{});return operation;}
     function serial(tabId,fn){
@@ -227,9 +248,10 @@
       controllerForTab(tabId)?.abort();
       const saved=await serial(tabId,async()=>{
         const t=await store.get(tabId);
-        if(t?.scriptRequest&&!ACTIVE.has(t.status)){t.token=uuid();discardScript(t,'页面已变化，待批准的脚本已作废，未执行；点击继续重新观察',now());t.reason='script_stale';t.updatedAt=now();await store.set(tabId,t);return null;}
+        const held=t&&!ACTIVE.has(t.status)?Object.values(APPROVALS).find(k=>t[k.request]):null;
+        if(held){t.token=uuid();discardApprovals(t,'页面已变化，待批准的脚本已作废，未执行；点击继续重新观察',now());t.reason=held.stale;t.updatedAt=now();await store.set(tabId,t);return null;}
         if(!t||!ACTIVE.has(t.status))return null;
-        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;discardScript(t,'页面已变化，已批准的脚本未执行；重新观察',now());
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;discardApprovals(t,'页面已变化，已批准的脚本未执行；重新观察',now());
         // Any same-origin navigation while an action without conditions is in flight, including a same-URL form POST
         // (onUpdated status=loading carries no new URL), ends that action as unknown so the next turn re-reads the page.
         if(!t.check&&t.phase==='executing'&&t.pending&&(!url||new URL(url).origin===t.origin)){
@@ -252,49 +274,59 @@
       });
       if(allow)schedule(tabId);return saved;
     }
-    // Trusted side-panel decision on one pending run_script. scope 'once': the exact stored code runs
-    // once on the same tab and document. scope 'task' additionally grants this task automatic approval
-    // for later scripts on the same tab and origin (task.scriptApproval). Rejection is reported to the model.
-    async function scriptApproval(tabId,{taskId,requestId,allow,scope='once'}){
+    // Trusted side-panel decision on one pending approval (APPROVALS kind). scope 'once': exactly the stored action runs
+    // once on the same tab and URL. scope 'task' also lets later actions of this kind in this task skip the pause on the
+    // same tab and origin (task[grant]). Rejection is reported to the model as not_sent.
+    async function decide(kind,tabId,{taskId,requestId,allow,scope='once'}){
+      const k=APPROVALS[kind];
       const saved=await serial(tabId,async()=>{
-        const t=await store.get(tabId),request=t?.scriptRequest;
-        if(!['once','task'].includes(scope)||scope==='task'&&allow!==true)throw new Error('脚本确认无效');
-        if(!t||t.taskId!==taskId||t.status!=='paused'||t.reason!=='script_approval'||!request?.pending||request.id!==requestId||typeof allow!=='boolean')throw new Error('脚本确认已过期');
+        const t=await store.get(tabId),request=t?.[k.request];
+        if(!['once','task'].includes(scope)||scope==='task'&&allow!==true)throw new Error(k.noun+'确认无效');
+        if(!t||t.taskId!==taskId||t.status!=='paused'||t.reason!==k.reason||!request?.pending||request.id!==requestId||typeof allow!=='boolean')throw new Error(k.noun+'确认已过期');
         controllerForTab(tabId)?.abort();await cancelSchedule(tabId);
-        t.token=uuid();t.scriptRequest=null;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.retries=0;
+        t.token=uuid();t[k.request]=null;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.retries=0;
         if(!allow){
-          t.results=t.results.concat(scriptEntry(t,request.pending,'SCRIPT_REJECTED','用户拒绝执行该脚本，脚本未运行；不要重复提交同一脚本，改用其他方法或询问用户','replan',now()));
-          event(t,'你拒绝了脚本，未执行；助手将改用其他方法');
+          t.results=t.results.concat(notRun(t,request.pending,k.denied,k.deny,'replan',now()));
+          event(t,k.denyEvent);
         }else{
           let current=null;try{current=await tools.tab(tabId);}catch{current=null;}
           if(request.pending.tabId!==tabId||t.tabId!==tabId||current?.url!==request.pending.url||originOf(current)!==t.origin){
-            t.results=t.results.concat(scriptEntry(t,request.pending,'STALE','页面已变化，已批准的脚本未执行；重新观察后再决定','observe',now()));
-            event(t,'页面已变化，已批准的脚本未执行；重新观察');
+            t.results=t.results.concat(notRun(t,request.pending,'STALE','页面已变化，已批准的'+k.noun+'未执行；重新观察后再决定','observe',now()));
+            event(t,'页面已变化，已批准的'+k.noun+'未执行；重新观察');
           }else{
             t.phase='approved';t.pending=request.pending;
-            if(scope==='task'){t.scriptApproval={scope:'task',origin:t.origin,tabId,grantedAt:now()};event(t,'你已允许本任务在 '+t.origin+' 自动执行脚本（同一标签页与网站；可随时撤销）；执行这段脚本');}
-            else event(t,'你已批准脚本，执行一次');
+            if(scope==='task'){t[k.grant]={scope:'task',origin:t.origin,tabId,grantedAt:now()};event(t,k.task(t.origin));}
+            else event(t,k.once);
           }
         }
         t.updatedAt=now();await store.set(tabId,t);return t;
       });
       schedule(tabId);return saved;
     }
-    // Trusted side-panel revoke of the task-scoped script approval; later scripts pause for approval again.
-    async function revokeScriptApproval(tabId,{taskId}){
+    // Trusted side-panel revoke of a task-scoped approval; later actions of that kind pause for approval again.
+    async function revoke(kind,tabId,{taskId}){
+      const k=APPROVALS[kind];
       return serial(tabId,async()=>{
         const t=await store.get(tabId);
         if(!t||t.taskId!==taskId)throw new Error('任务已变化，请刷新后重试');
-        if(!t.scriptApproval)return t;
-        t.scriptApproval=null;event(t,'已撤销本任务的脚本自动批准；之后的脚本需逐次批准');t.updatedAt=now();await store.set(tabId,t);return t;
+        if(!t[k.grant])return t;
+        t[k.grant]=null;event(t,k.revoked);t.updatedAt=now();await store.set(tabId,t);return t;
       });
     }
-    // The userScripts permission was removed: no task keeps an automatic script approval.
-    async function reviewScriptApprovals(){
-      const access=await scriptAccess().catch(()=>null);if(access?.permission===true)return;
+    const scriptApproval=(tabId,m)=>decide('script',tabId,m),inputApproval=(tabId,m)=>decide('input',tabId,m);
+    const revokeScriptApproval=(tabId,m)=>revoke('script',tabId,m),revokeInputApproval=(tabId,m)=>revoke('input',tabId,m);
+    // The userScripts permission was removed or the real input switch turned off: no task keeps that automatic approval.
+    async function reviewApprovals(){
+      const scripts=(await scriptAccess().catch(()=>null))?.permission===true,input=await realInputOn();
+      if(scripts&&input)return;
       for(const task of await store.list()){
-        if(!task.scriptApproval)continue;
-        await serial(task.tabId,async()=>{const t=await store.get(task.tabId);if(!t?.scriptApproval)return;t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');t.updatedAt=now();await store.set(task.tabId,t);});
+        if(!(!scripts&&task.scriptApproval||!input&&task.inputApproval))continue;
+        await serial(task.tabId,async()=>{
+          const t=await store.get(task.tabId);if(!t)return;let changed=false;
+          if(!scripts&&t.scriptApproval){t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');changed=true;}
+          if(!input&&t.inputApproval){t.inputApproval=null;event(t,'「真实输入与截图」已关闭，本任务的自动批准已取消');changed=true;}
+          if(changed){t.updatedAt=now();await store.set(task.tabId,t);}
+        });
       }
     }
     async function changeOrigins(tabId,operation){
@@ -367,7 +399,7 @@
       });
     }
     async function reviewPermissions(){
-      await reviewScriptApprovals();
+      await reviewApprovals();
       if(!tools.hasOriginAccess)return;
       for(const task of await store.list()){
         if(['ended','completed','stopped','failed'].includes(task.status)||task.origin==='browser'||await tools.hasOriginAccess(task.origin))continue;
@@ -388,6 +420,18 @@
     }
     // Side-panel tab that is a non-executing member: route to its task, or release it if that task is finished.
     async function resolve(tabId){const owner=store.owner?await store.owner(tabId):null;return owner?.role==='member'&&Number.isInteger(owner.taskTabId)?owner.taskTabId:tabId;}
+    // Claims side-panel image drafts for this task (ids only; the images stay in IndexedDB), at most 4 per task.
+    async function attach(task,ids){
+      if(ids===undefined)return 0;
+      if(!Array.isArray(ids)||ids.length>4||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{8,64}$/.test(id)))throw new Error('图片参数无效');
+      if(!ids.length)return 0;
+      if(!images)throw new Error('图片功能不可用');
+      if((task.attachments||[]).length+ids.length>4)throw new Error('每个任务最多 4 张图片');
+      const meta=await images.claim(ids,task.taskId);
+      task.attachments=(task.attachments||[]).concat(meta.map(m=>({...m,time:now()})));
+      return ids.length;
+    }
+    const withImages=(text,count)=>count?text+'（附图 '+count+' 张）':text;
     async function submit(tabId,text,options={}){
       const limit=inputLimit(await preferences());
       if(typeof text!=='string'||!text.trim()||text.length>limit)throw new Error(`请输入不超过 ${limit} 字的指令`);
@@ -414,20 +458,25 @@
           if(!wasCompleted&&originOf(page)!==task.origin)throw new Error('当前任务尚未结束，请回到原站点补充指令，或先结束任务');
           const instructions=(task.instructions||[]).concat({text:text.trim(),time:now()});
           if(JSON.stringify(instructions).length>instructionLimit(prefs))throw new Error('补充指令已达上下文上限，请结束当前任务后开始新任务；已有指令未删除');
-          controllerForTab(tabId)?.abort();discardScript(task,'收到补充指令，待批准的脚本已作废，未执行',now());
+          const attached=await attach(task,options.attachments);
+          controllerForTab(tabId)?.abort();discardApprovals(task,'收到补充指令，待批准的脚本已作废，未执行',now());
           task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.recoveryCount=0;task.completionChecks=null;task.completionEvidence=null;task.instructions=instructions;task.memoryReview={pending:true,instructionCount:instructions.length};task.reviewState=null;
-          task.question=null;task.helpAttempts=0;task.tabHops=0;task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
+          task.question=null;task.helpAttempts=0;task.tabHops=0;task.readsFrom=Date.now();task.verificationRecoveries=0;task.status='running';task.phase='observe';task.pending=null;task.reason=null;task.retries=0;task.prefs=prefs;
           if(wasCompleted)task.steps=0;
           if(typeof options.goalMode==='boolean')task.goalMode=options.goalMode;
-          event(task,'你（补充指令）：'+text.trim());
+          event(task,withImages('你（补充指令）：'+text.trim(),attached));
         }else{
+          const fresh={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],goalMode:options.goalMode===true,status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
+          const attached=await attach(fresh,options.attachments);
           controllerForTab(tabId)?.abort();
-          task={version:2,taskId:uuid(),token:uuid(),tabId,origin:originOf(page),allowedOrigins:originOf(page)==='browser'?[]:[originOf(page)],goal:text.trim(),instructions:[],goalMode:options.goalMode===true,status:'running',phase:'observe',steps:0,prefs,results:[],events:[],pending:null,retries:0};
-          event(task,'你：'+text.trim());event(task,task.goalMode?'任务已开始（目标模式）':'任务已开始');
+          task=fresh;
+          event(task,withImages('你：'+text.trim(),attached));event(task,task.goalMode?'任务已开始（目标模式）':'任务已开始');
         }
         task.updatedAt=Date.now();await store.set(tabId,task);return task;
       });
-      schedule(tabId);return saved;
+      schedule(tabId);
+      if(!saved.instructions?.length)void pruneImages();
+      return saved;
     }
     async function choose(tabId,taskId,questionId,indices){
       const tab=await tools.tab(tabId);
@@ -438,42 +487,45 @@
         const text='关于「'+q.text+'」，我的选择：'+indices.map(i=>q.options[i]).join('；');
         const instructions=(t.instructions||[]).concat({text,time:now()});
         if(JSON.stringify(instructions).length>instructionLimit(t.prefs))throw new Error('补充指令已达上下文上限');
-        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.tabHops=0;t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
+        controllerForTab(tabId)?.abort();t.token=uuid();t.nextObservation=null;t.instructions=instructions;t.question=null;t.helpAttempts=0;t.tabHops=0;t.readsFrom=Date.now();t.verificationRecoveries=0;t.status='running';t.reason=null;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.retries=0;event(t,'你（补充指令）：'+text);await store.set(tabId,t);return t;
       });schedule(tabId);return saved;
     }
     async function finish(tabId){
-      await tools.clearPointer?.(tabId);
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);
       const saved=await serial(tabId,async()=>{
         const task=await store.get(tabId);if(!task)return null;
-        controllerForTab(tabId)?.abort();discardScript(task,'任务已结束，待批准的脚本已作废，未执行',now());task.scriptApproval=null;task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
+        controllerForTab(tabId)?.abort();discardApprovals(task,'任务已结束，待批准的脚本已作废，未执行',now());task.scriptApproval=null;task.inputApproval=null;task.token=uuid();task.nextObservation=null;task.check=null;task.waitDeadline=null;task.status='ended';task.phase='idle';task.pending=null;task.updatedAt=now();
         event(task,'用户已结束任务，下次发送将新建任务');await store.set(tabId,task);return task;
       });
+      // Ended tasks keep only image metadata and recognition text; the images themselves are deleted.
+      if(saved?.attachments?.length||saved?.shots?.length)await images?.remove(saved.taskId)?.catch?.(()=>{});
       await cancelSchedule(tabId);return saved;
     }
     async function stop(tabId) {
-      await tools.clearPointer?.(tabId);
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);
       controllerForTab(tabId)?.abort();
       const task = await store.get(tabId); if (!task) return null;
-      const saved = await update(tabId, task.token, t => {discardScript(t,'已停止，待批准的脚本已作废，未执行',now());t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
+      const saved = await update(tabId, task.token, t => {discardApprovals(t,'已停止，待批准的脚本已作废，未执行',now());t.token=uuid();t.nextObservation=null;t.check=null;t.waitDeadline=null;t.status='stopped';t.pending=null;event(t,'已停止；已发出的网页操作不会自动撤销');});
       await cancelSchedule(tabId); return saved;
     }
     async function takeover(tabId){
       controllerForTab(tabId)?.abort();
       const saved=await serial(tabId,async()=>{
         const t=await store.get(tabId);if(!t||['completed','ended'].includes(t.status))throw new Error('没有可接管的进行中任务');
-        discardScript(t,'用户接管网页，待批准的脚本已作废，未执行',now());
+        discardApprovals(t,'用户接管网页，待批准的脚本已作废，未执行',now());
         const uncertain=t.phase==='executing'?t.pending:null;
         const check=t.check?.kind==='action'?t.check:null;
         if(uncertain||check){const source=uncertain||check;t.uncertainClicks=(t.uncertainClicks||[]).concat({url:source.url,documentId:source.documentId,key:source.targetKey||source.key,target:source.targetDescriptor||source.target}).slice(-2);}
         t.token=uuid();t.status='paused';t.reason='user_takeover';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;t.question=null;t.contextUsage=null;
         event(t,'用户接管网页；完成手动操作后点击继续，助手将重新观察，未确定动作不会重放');await store.set(tabId,t);return t;
       });
-      await tools.clearPointer?.(tabId);await cancelSchedule(tabId);return saved;
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);return saved;
     }
     async function resume(tabId) {
       const task = await store.get(tabId); if (!task) throw new Error('没有可继续的任务');
       if(task.sensitiveRequest&&task.reason==='sensitive_access')throw new Error('请先选择是否授权本次对话操作敏感字段');
       if(task.scriptRequest&&task.reason==='script_approval')throw new Error('请先在侧栏批准或拒绝待执行的脚本');
+      if(task.inputRequest&&task.reason==='real_input_approval')throw new Error('请先在侧栏允许或拒绝截图/真实输入');
       if(task.tabRequest&&task.reason==='tab_access')throw new Error('请先选择是否允许读取该标签页');
       if(task.status==='ended')throw new Error('任务已手动结束，请输入新目标开始新任务');
       const page=await tools.tab(tabId,true);
@@ -487,7 +539,7 @@
       const saved = await update(tabId, task.token, t => {
         const wasCompleted=t.status==='completed';
         const recovery=['global_memory_changed','scope_reconciled','scope_changed','permission_denied','origin','origin_verification','origin_storage'].includes(t.reason)&&(t.check||t.phase==='executing')?{phase:t.phase,check:t.check,waitDeadline:t.waitDeadline,pending:t.pending}:null;
-        t.question=null;t.helpAttempts=0;t.tabHops=0;t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
+        t.question=null;t.helpAttempts=0;t.tabHops=0;t.readsFrom=Date.now();t.verificationRecoveries=0;t.token=uuid();t.nextObservation=null;t.status='running';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.recoveryCount=0;t.completionEvidence=null;t.prefs=prefs;t.retries=0;
         if (t.reason==='budget'||wasCompleted) t.steps=0;
         // Explicit continuation grants a new budget when the previous one is exhausted.
         if (prefs.maxSteps && t.steps>=prefs.maxSteps) t.steps=0;
@@ -503,7 +555,23 @@
       schedule(tabId); return saved;
     }
     // Goal mode trades pauses for more autonomous replanning; the step budget still bounds it.
-    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:3,noChange:6,hops:10}:{verify:2,recovery:2,help:3,noChange:3,hops:6};
+    const caps=t=>t?.goalMode===true?{verify:5,recovery:5,help:3,noChange:6,hops:10,reads:8}:{verify:2,recovery:2,help:3,noChange:3,hops:6,reads:6};
+    // Reads (screenshots, scripts, observe, notes) change nothing; repeating one with the same answer and no page
+    // action in between is a loop even when every call succeeds, e.g. view_image ↔ run_script returning [] again.
+    const READS=new Set(['observe','view_image','run_script','history_read','skill_read','read_references','site_memory_read','global_memory_read']);
+    const READ_LOOP_HINT=3;
+    function readRepeats(t){
+      const seen=new Set();let repeats=0,hinted=false;
+      for(const r of (t.results||[]).slice().reverse()){
+        if(t.readsFrom&&r.time<t.readsFrom)break;
+        if(r.outcome?.code==='NO_NEW_INFORMATION'){hinted=true;continue;}
+        if(r.action==='replan')continue;
+        if(!READS.has(r.action)){if(r.outcome?.dispatch==='not_sent')continue;break;}
+        const key=JSON.stringify([r.action,r.request?.id??null,r.action==='run_script'?null:r.request?.value??null,r.outcome?.code??null,r.outcome?.observed??r.result??null]);
+        if(seen.has(key))repeats++;else seen.add(key);
+      }
+      return {repeats,hinted};
+    }
     async function setGoalMode(tabId,taskId,enabled){
       if(typeof enabled!=='boolean')throw new Error('目标模式参数无效');
       return serial(tabId,async()=>{
@@ -561,7 +629,7 @@
         if (task.origin!=='browser'&&tab.status === 'loading'&&!readySnapshot) {
           const deadline=task.check?.deadline||task.waitDeadline||now()+30000;
           if(now()>=deadline){await pause(task,'页面加载超过等待期限，任务暂停；未重复发送操作','timeout');return;}
-          await update(tabId, token, t => {t.status='waiting_page';t.waitDeadline=deadline;if(!t.check&&t.phase!=='executing'){discardScript(t,'页面正在加载，已批准的脚本未执行；加载后重新观察',now());t.phase='observe';t.pending=null;}});return;
+          await update(tabId, token, t => {t.status='waiting_page';t.waitDeadline=deadline;if(!t.check&&t.phase!=='executing'){discardApprovals(t,'页面正在加载，已批准的脚本未执行；加载后重新观察',now());t.phase='observe';t.pending=null;}});return;
         }
         if (task.phase === 'executing') {
           if(task.check?.expected?.length){
@@ -582,10 +650,11 @@
         if(task.check){await verifyCheck(task,live);return;}
         if (task.phase === 'approved') {
           const pending = task.pending;
-          if(pending?.plan?.action==='run_script'){
-            // Exactly the approved code, once, only on the tab and URL it was approved for (document checked before dispatch).
+          if(pending?.plan?.action==='run_script'||pending?.inputKind){
+            // Exactly the approved action, once, only on the tab and URL it was approved for (document checked before dispatch).
             call={request:pending.plan,time:pending.time||now()};
-            if(pending.tabId!==tabId||pending.url!==tab.url)throw Object.assign(new Error('页面已变化，已批准的脚本未执行；重新观察后再决定'),{code:'STALE'});
+            if(pending.tabId!==tabId||pending.url!==tab.url)throw Object.assign(new Error('页面已变化，已批准的'+(pending.inputKind?'真实输入':'脚本')+'未执行；重新观察后再决定'),{code:'STALE'});
+            if(pending.inputKind==='shot'){await viewImage(task,pending.plan,call,null,live,controller.signal,await realInputOn(),pending);return;}
             await execute(task,pending,live);return;
           }
           if (!pending || pending.url!==tab.url) {
@@ -621,8 +690,9 @@
         const skillIndex=skills?P.skillIndex((await skills.read(null).catch(()=>({notes:[]}))).notes,task.origin):[];
         const modelIdentity=await identity(),modelProtocol=await protocol();
         const scriptState=task.origin==='browser'?{permission:false,api:false,available:false}:await scriptAccess().catch(()=>({permission:false,api:false,available:false}));
-        const capabilities={scripts:scriptState?.available===true};
+        const capabilities={scripts:scriptState?.available===true,realInput:await realInputOn()};
         if(task.scriptApproval&&scriptState?.permission!==true){task=await update(tabId,token,t=>{t.scriptApproval=null;event(t,'脚本执行权限已撤销，本任务的脚本自动批准已取消');});if(!task)return;}
+        if(task.inputApproval&&!capabilities.realInput){task=await update(tabId,token,t=>{t.inputApproval=null;event(t,'「真实输入与截图」已关闭，本任务的自动批准已取消');});if(!task)return;}
         if(!await live())return;
         const page={...snap.page,url:snap.url,documentId:snap.documentId};
         const tabsView=await taskTabs(task);
@@ -655,6 +725,48 @@
           planText=JSON.stringify(batchPlan);
         }else{
         if (task.prefs.maxSteps && task.steps>=task.prefs.maxSteps) {await pause(task,'达到执行轮数上限，点击继续可开启新预算。','budget');return;}
+        // Attached images: sent with every request unless this model is known not to see them; then each
+        // image is turned into text once by the recognition model (one round), and the text is sent instead.
+        const vision=images?await images.mode().catch(()=>'unknown'):null;
+        // Screenshots reach models not known to be blind; only those get click_point.
+        capabilities.vision=!!vision&&vision!=='unsupported';
+        const unread=vision==='unsupported'?(task.attachments||[]).filter(a=>a.text===undefined&&!a.failed):[];
+        if(unread.length){
+          task=await update(tabId,token,t=>{t.phase='thinking';t.steps++;event(t,'正在识别图片（'+unread.length+' 张）');});
+          if(!task||!await live())return;
+          const goal=[task.goal,...(task.instructions||[]).map(i=>i.text)].join('\n').slice(0,2000),texts=new Map();
+          for(const a of unread){
+            try{texts.set(a.id,{text:await recognizeRetrying(task,()=>images.recognize(a.id,goal,controller.signal),live,controller.signal)});}
+            catch(error){if(!await live())return;texts.set(a.id,{failed:true,error:String(error?.message||'').slice(0,120)});}
+            if(!await live())return;
+          }
+          await update(tabId,token,t=>{t.phase='observe';t.attachments=(t.attachments||[]).map(a=>texts.has(a.id)?{...a,...texts.get(a.id)}:a);
+            const failed=[...texts.values()].filter(v=>v.failed);event(t,failed.length?'图片识别失败 '+failed.length+' 张：'+failed[0].error:'图片识别完成（'+texts.size+' 张）');});
+          return;
+        }
+        if(vision&&vision!=='unsupported'&&task.attachments?.length)capabilities.images=task.attachments.map(a=>a.id);
+        // view_image screenshots wait for this request only (newest 3, current origin). A model found not to see
+        // images gets them as recognition text instead; a screenshot lost from storage is reported, not resent.
+        if(task.shots?.length){
+          if(vision==='unsupported'){await recognizeShots(task,live,controller.signal);return;}
+          const sameOrigin=task.shots.filter(shot=>shot.origin===task.origin);
+          const present=new Set(sameOrigin.length?await images.present(sameOrigin.map(shot=>shot.id)).catch(()=>[]):[]);
+          if(present.size!==task.shots.length){
+            const lost=task.shots.filter(shot=>!present.has(shot.id)&&shot.origin===task.origin);
+            task=await update(tabId,token,t=>{t.shots=(t.shots||[]).filter(shot=>present.has(shot.id));if(t.lastView&&!present.has(t.lastView.shotId))t.lastView=null;
+              if(lost.length)t.results=t.results.concat({action:'view_image',label:lost.map(shot=>shot.source).join(','),time:now(),outcome:T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'SHOT_EXPIRED',recovery:'replan',message:'截图已失效（后台重启或存储已清理），本轮看不到；如仍需要请重新调用 view_image'})});});
+            if(!task||!await live())return;
+            await images.dropShots(task.taskId,(task.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
+          }
+          if(task.shots?.length)capabilities.shots=task.shots.map(shot=>shot.id);
+        }
+        const loop=readRepeats(task),readCap=caps(task).reads;
+        if(loop.repeats>=readCap){await pause(task,'连续 '+loop.repeats+' 次只读操作（截图、脚本、读取）结果重复，期间没有网页操作，已暂停；请检查页面或补充说明','no_progress');return;}
+        if(loop.repeats>=READ_LOOP_HINT&&!loop.hinted){
+          const message='最近的截图/脚本/读取结果在重复（'+loop.repeats+' 次），期间没有网页操作，再读也不会有新信息；不要重复同类查询。改为操作当前快照中的目标'+(capabilities.vision&&capabilities.realInput?'（无标签、无法与截图对应时可用 click_point）':'')+'；等页面变化用 wait；受阻则 pause 说明原因；继续重复将暂停任务';
+          task=await update(tabId,token,t=>{t.results=t.results.concat({action:'replan',time:Date.now(),result:message,outcome:T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'NO_NEW_INFORMATION',recovery:'replan',documentId:snap.documentId,message})});event(t,'只读操作结果重复，已提示模型换方法');});
+          if(!task||!await live())return;
+        }
         const currentPayload=P.agentInput(task,page,siteMemoryIndex,globalMemoryIndex,...tabsArgs,skillIndex);
         const pressure=P.pressure(task,currentPayload,modelIdentity,modelProtocol,capabilities);
         const history=task.results||[];
@@ -703,9 +815,15 @@
         const sentEstimate=P.pressure(task,payload,null,modelProtocol,capabilities).estimatedTokens;
         const result = await measured(task,'model',()=>model(payload,controller.signal,capabilities),live);
         if (!await live()) return;
+        // The screenshots were in this request: they are not sent again.
+        const sentShots=capabilities.shots||[];
         task=await update(tabId,token,t=>{t.compactionGuard=false;t.contextPressure=pressure;
+          if(sentShots.length)t.shots=(t.shots||[]).filter(shot=>!sentShots.includes(shot.id));
+          // The model has now seen this viewport screenshot: its pixels become valid click_point coordinates.
+          if(t.lastView&&sentShots.includes(t.lastView.shotId))t.lastView={...t.lastView,seen:true};
           t.contextUsage=result.usage&&Number.isSafeInteger(result.usage.promptTokens)?{...result.usage,estimatedTokens:sentEstimate,modelIdentity:result.modelIdentity||modelIdentity}:null;
         });
+        if(sentShots.length)await images.dropShots(runningTaskId,(task?.shots||[]).map(shot=>shot.id))?.catch?.(()=>{});
         if(!task||!await live())return;
         const current = await tools.tab(tabId,true);
         if (!await live()) return;
@@ -719,7 +837,7 @@
         if(!await live())return;
         planText=result.text;
         }
-        let plan;try{plan=C.agentPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});}catch(error){throw invalidPlan(error,planText);}
+        let plan;try{plan=C.agentModelPlan(planText, {nodes:new Map(snap.page.elements.map(e=>[e.id,true]))});}catch(error){throw invalidPlan(error,planText);}
         if(task.origin==='browser'&&!['navigate','tab_switch','done','pause'].includes(plan.action)){await pause(task,'请提供要打开的网站；当前标签页不支持网页操作','access');return;}
         if(plan.subgoals!==undefined){
           const updates=plan.subgoals.map(g=>{
@@ -764,7 +882,7 @@
           }
           const helpCap=caps(task).help;
           if(plan.pauseReason!=='user'&&(task.helpAttempts||0)<helpCap){
-            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索'+(t.goalMode?'；先核对当前页面再决定是否重做':'；禁止重复结果不确定的操作')+'。自主恢复 '+t.helpAttempts+'/'+helpCap});event(t,'正在尝试其他方法（'+t.helpAttempts+'/'+helpCap+'）');});return;
+            await update(tabId,token,t=>{t.helpAttempts=(t.helpAttempts||0)+1;t.phase='observe';t.results=t.results.concat({action:'replan',time:now(),result:'尚未解决：'+plan.reply+'。请改用其他通用方法探索'+(t.goalMode?'；先核对当前页面再决定是否重做':'；禁止重复结果不确定的操作')+'。自主恢复 '+t.helpAttempts+'/'+helpCap});event(t,'正在尝试其他方法（'+t.helpAttempts+'/'+helpCap+'）');});return;
           }
           await pause(task,plan.reply,'model');return;
         }
@@ -800,6 +918,8 @@
           if(reading&&(reading.url!==snap.url||snap.documentId&&reading.documentId!==snap.documentId)){await update(tabId,token,t=>{t.phase='observe';});return;}
           await update(tabId,token,t=>{t.phase='observe';t.results=t.results.concat({...call,action:'observe',result:reading?{text:reading.page.text,textRange:reading.page.textRange,untrusted:true}:undefined,outcome:T.result({status:'success',scope:'page',code:'PAGE_OBSERVED',documentId:snap.documentId,message:'当前页面已读取'})});});return;
         }
+        if(plan.action==='view_image'){await viewImage(task,plan,call,snap,live,controller.signal,capabilities.realInput);return;}
+        if(plan.action==='click_point'){await pointAction(task,plan,call,snap,live,capabilities.vision===true,capabilities.realInput);return;}
         if(plan.action==='wait'&&!plan.expected){
           task=await update(tabId,token,t=>{t.phase='verifying';t.status='waiting_page';t.check={operationId:uuid(),expected:[],deadline:now()+plan.timeoutMs,kind:'delay',request:plan,time:call.time};event(t,plan.reply);});
           return;
@@ -836,23 +956,18 @@
         const pending={frameRoute:snap.frameRoutes?.[plan.id],tabId,origin:task.origin,scopeRevision:task.scopeRevision,targetKey:target?.key,targetDescriptor:target?G.descriptor(target,snap.page):null,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label:target?.label||plan.action,sensitive:target?.sensitive===true?true:undefined,operationId:uuid(),expected,time:call.time};
         if(plan.action==='run_script'){
           // Nothing runs until the user approves this exact code in the side panel, or the user
-          // allowed scripts for this task on this same tab and origin. Decided on the stored record so a revoke wins.
-          const {code,world}=S.source(plan);let granted=false;
-          const decided=await update(tabId,token,t=>{
-            const grant=t.scriptApproval;
-            if(grant?.scope==='task'&&grant.tabId===tabId&&t.tabId===tabId&&grant.origin===t.origin&&originOf(snap)===grant.origin){
-              granted=true;t.pending=pending;t.retries=0;event(t,plan.reply);event(t,'本任务已允许脚本自动执行：执行一次，完整代码见对话记录');return;
-            }
-            if(grant)t.scriptApproval=null;
-            t.status='paused';t.reason='script_approval';t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;
-            t.scriptRequest={id:uuid(),code,world,url:snap.url,origin:t.origin,documentId:snap.documentId||null,snapshotId:snap.snapshotId||null,reply:plan.reply,time:now(),pending};
-            event(t,plan.reply);event(t,'等待你在侧栏批准脚本：批准后执行，拒绝则改用其他方法');});
-          if(!decided||!granted)return;
+          // allowed scripts for this task on this same tab and origin.
+          const {code,world}=S.source(plan);
+          const decided=await gate('script',task,snap,{code,world,snapshotId:snap.snapshotId||null,reply:plan.reply},{pending,prepare:t=>event(t,plan.reply),onGrant:t=>{t.pending=pending;t.retries=0;}});
+          if(!decided)return;
           task=decided;if(!await live())return;
           await execute(task,pending,live);return;
         }
+        // trusted:true attaches the debugger: approved per action or per task like scripts (the switch off sends nothing).
+        if(['click','hover'].includes(plan.action)&&plan.trusted===true&&capabilities.realInput&&!pending.frameRoute)pending.inputKind=plan.action;
         task = await update(tabId,token,t=>{t.pending=pending;t.retries=0;if(batchState)t.batch={...batchState,current:pending.operationId};event(t,plan.reply);const notice=plan.notice||(/提交|删除|支付|购买|发布|发送|确认订单|submit|delete|pay|purchase|publish|send/i.test(pending.label)?'即将执行：'+pending.label:null);if(notice){t.notice=notice;event(t,'重要操作：'+notice);}});
         if (!task || !await live()) return;
+        if(pending.inputKind){task=await gate('input',task,snap,{kind:plan.action,label:pending.label});if(!task||!await live())return;}
         await execute(task,pending,live);
       } catch (error) {
         if (!await live()) return;
@@ -879,6 +994,9 @@
           });
           if(saved&&streak>PLAN_RETRIES)await pause(task,'模型连续 '+streak+' 次给出无效的工具参数，已暂停：'+error.message,'model');
         } else if (['INPUT_CANCELLED','INVALID_FIELD_VALUE','UNSUPPORTED_EDITABLE'].includes(error.code))await pause(task,error.message,'input');
+        else if (error.code==='MODEL_VISION_FALLBACK'&&task.retries<2) {
+          await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'模型不支持看图，改用识别模型把图片转成文字（'+t.retries+'/2）');});
+        }
         else if (error.code==='MODEL_PROTOCOL_FALLBACK'&&task.retries<2) {
           await update(tabId,token,t=>{t.retries++;t.phase='observe';event(t,'接口未使用原生工具调用，改用 JSON 文本协议重试（'+t.retries+'/2）');});
         }
@@ -890,6 +1008,131 @@
       } finally {
         if(controllers.get(runningTaskId)===controller){controllers.delete(runningTaskId);if(controllerTasks.get(tabId)===runningTaskId)controllerTasks.delete(tabId);}
       }
+    }
+    // view_image result text: at most 2000 characters, labelled as recognition output, and trimmed by its
+    // JSON-escaped length so the tool protocol's 4500-character observed cap never replaces it.
+    function imageObserved(source,question,text){
+      const observed={source,...(question?{question}:{}),note:'来自图片识别，可能有误',untrusted:true,text:String(text||'').slice(0,2000)};
+      while(JSON.stringify(observed).length>4400&&observed.text)observed.text=observed.text.slice(0,Math.max(0,observed.text.length-Math.ceil((JSON.stringify(observed).length-4400)/2)-1));
+      return observed;
+    }
+    // Image recognition: up to 2 retries (3 attempts) with a 1 s, then 2 s backoff, inside the round already counted for
+    // it; a stop, takeover or new instruction ends the retries at once and the caller keeps its failure handling.
+    async function recognizeRetrying(task,run,live,signal){
+      for(let attempt=1;;attempt++){
+        try{return await run();}
+        catch(error){
+          if(attempt>=3||signal?.aborted||!await live())throw error;
+          await update(task.tabId,task.token,t=>{event(t,'图片识别失败，稍后重试（'+attempt+'/2）');});
+          await new Promise(resolve=>{
+            const done=()=>{clearTimeout(timer);signal?.removeEventListener?.('abort',done);resolve();};
+            const timer=setTimeout(done,recognitionBackoff*attempt);signal?.addEventListener?.('abort',done,{once:true});
+          });
+          if(signal?.aborted||!await live())throw error;
+        }
+      }
+    }
+    const imageGoal=task=>[task.goal,...(task.instructions||[]).map(i=>i.text)].join('\n').slice(0,2000);
+    // view_image: a page screenshot (viewport or a current element/region) with sensitive fields masked, or a new
+    // question about an attached image. Vision models see the screenshot in the next request only; models without
+    // vision get recognition text now. Failures are tool results for the model, never pauses.
+    // approved: a stored, user-approved screenshot request (worker-restart safe); it skips validation and the gate.
+    async function viewImage(task,plan,call,snap,live,signal,realInput,approved=null){
+      const {tabId,token}=task,source=plan.id,question=plan.value||null;
+      snap=snap||{url:approved.url,documentId:approved.documentId,snapshotId:approved.snapshotId};
+      const record=data=>update(tabId,token,t=>{
+        const outcome=T.result({dispatch:'not_sent',scope:'dispatch',documentId:snap.documentId,...data});
+        t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'view_image',label:source,outcome,result:outcome.message});event(t,outcome.message);
+      });
+      const fail=(code,message,recovery='replan')=>record({status:'error',code,recovery,message});
+      if(!images)return fail('VIEW_IMAGE_UNAVAILABLE','看图功能不可用');
+      const mode=await images.mode().catch(()=>'unknown');
+      const recognized=async(run,suffix='')=>{
+        task=await update(tabId,token,t=>{t.steps++;event(t,'正在识别图片：'+source);});
+        if(!task||!await live())return;
+        let text;try{text=await recognizeRetrying(task,run,live,signal);}catch(error){if(!await live())return;return fail('RECOGNITION_FAILED','图片识别失败：'+String(error?.message||'').slice(0,120));}
+        if(!await live())return;
+        return record({status:'success',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(source,question,text),message:'识别结果见 observed.text'+suffix+'；可能有误，金额、编号等以页面文字为准'});
+      };
+      const attachment=/^image([1-9])$/.exec(source);
+      if(attachment){
+        const image=(task.attachments||[])[Number(attachment[1])-1];
+        if(!image)return fail('IMAGE_NOT_FOUND','没有附图 '+source);
+        if(mode!=='unsupported')return record({status:'success',code:'IMAGE_IN_REQUEST',recovery:'none',message:'附图 '+source+' 每轮都在请求开头，直接查看即可'});
+        return recognized(()=>images.recognize(image.id,imageGoal(task),signal,question));
+      }
+      if(!realInput)return fail('REAL_INPUT_DISABLED','页面截图未开启（可在设置中开启「真实输入与截图」），未截图；附图仍可用 imageN');
+      let id=approved?approved.id:null;
+      if(!approved){
+        let label=null;
+        if(source!=='viewport'){
+          const target=snap.page.elements.find(e=>e.id===source)||(snap.page.regions||[]).find(r=>r.id===source);
+          if(!target)return fail('TARGET_MISSING','截图目标不在当前快照中，请用当前快照的 ID','observe');
+          if(snap.frameRoutes?.[source]||String(target.key||'').startsWith('remote:'))return fail('VIEW_IMAGE_UNSUPPORTED','跨源框架内的目标不能单独截图；可改用 viewport');
+          id=source;label=target.label||target.name||source;
+        }
+        const pending={inputKind:'shot',tabId,origin:task.origin,plan,label:source,id,url:snap.url,documentId:snap.documentId||null,snapshotId:snap.snapshotId,operationId:uuid(),time:call.time};
+        if(!await gate('input',task,snap,{kind:'shot',label},{pending})||!await live())return;
+      }
+      let shot;
+      try{shot=await measured(task,'tool',()=>tools.screenshot(tabId,{operationId:uuid(),id,snapshotId:snap.snapshotId,url:snap.url},{...policyFor(task),taskId:task.taskId,inputApproval:'action'},live),live);}
+      catch(error){
+        if(!await live())return;
+        const code=/^[A-Z][A-Z0-9_]{0,60}$/.test(error?.code||'')?error.code:'CAPTURE_FAILED';
+        return fail(code,(code==='MASK_FAILED'?'无法遮盖敏感字段，未截图：':'未截图：')+String(error?.message||'').slice(0,160),['STALE','TARGET_HIDDEN'].includes(code)?'observe':'replan');
+      }
+      if(!await live())return;
+      const masked=shot.masked?'（已遮盖 '+shot.masked+' 处敏感区域）':'';
+      if(mode==='unsupported')return recognized(()=>images.recognize({data:shot.data},imageGoal(task),signal,question),masked);
+      let shotId;
+      try{shotId=await images.saveShot(task.taskId,shot.data);}catch(error){return fail('CAPTURE_FAILED','截图保存失败：'+String(error?.message||'').slice(0,120));}
+      const saved=await update(tabId,token,t=>{
+        t.shots=(t.shots||[]).concat({id:shotId,source,...(question?{question}:{}),url:snap.url,origin:t.origin,time:now()}).slice(-3);
+        // click_point coordinate space: only the latest screenshot, and only if it shows the whole viewport.
+        t.lastView=source==='viewport'&&shot.view?{shotId,tabId,documentId:snap.documentId||null,url:snap.url,time:now(),image:{width:shot.width,height:shot.height},...shot.view,seen:false}:null;
+        const outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_NEXT_TURN',recovery:'none',documentId:snap.documentId,observed:{source,width:shot.width,height:shot.height,masked:shot.masked||0},
+          message:'截图'+masked+'只在下一轮请求中可见，之后不再发送；把看到的要点写进 progress'});
+        t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'view_image',label:source,outcome,result:outcome.message});event(t,'已截图：'+source+masked);
+      });
+      // Older screenshots beyond the newest 3, or this one if the task moved on meanwhile, are deleted.
+      await images.dropShots(task.taskId,(saved||task).shots?.map(s=>s.id)||[])?.catch?.(()=>{});
+    }
+    // click_point: one real click at {x,y} of the latest viewport screenshot the model has seen. The runtime converts
+    // screenshot pixels to viewport CSS pixels; valid on the same tab, document and URL for 60 s, used up by the click.
+    async function pointAction(task,plan,call,snap,live,vision,realInput){
+      const {tabId,token}=task,v=task.lastView,{x,y}=plan.value,label='坐标 ('+x+','+y+')';
+      const reject=(code,message)=>update(tabId,token,t=>{
+        const outcome=T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code,recovery:'replan',documentId:snap.documentId,observed:{input:'none',target:'point',x,y},message});
+        t.phase='observe';t.lastOutcome=outcome;t.results=t.results.concat({...call,action:'click_point',label,outcome,result:message});event(t,message);
+      });
+      if(!realInput)return reject('REAL_INPUT_DISABLED','真实输入未开启（可在设置中开启「真实输入与截图」），未点击；请用快照元素 ID');
+      if(!vision)return reject('POINT_UNAVAILABLE','当前模型不能看图，坐标点击不可用；请用快照元素 ID');
+      if(!v?.seen||v.tabId!==tabId||v.documentId!==(snap.documentId||null)||v.url!==snap.url||!(now()-v.time<=60000))return reject('POINT_NO_SCREENSHOT','坐标点击需要本页面 60 秒内、已看过的最新 viewport 截图；请先 view_image viewport');
+      if(!(x<v.image.width&&y<v.image.height))return reject('POINT_OUTSIDE','坐标超出截图范围（'+v.image.width+'×'+v.image.height+'）');
+      const point={x:v.area.left+x*v.area.width/v.image.width,y:v.area.top+y*v.area.height/v.image.height};
+      if(!(point.x>=0&&point.y>=0&&point.x<v.viewport.width&&point.y<v.viewport.height))return reject('POINT_OUTSIDE','坐标不在可见区域内');
+      const pending={inputKind:'point',tabId,origin:task.origin,scopeRevision:task.scopeRevision,plan,snapshotId:snap.snapshotId,documentId:snap.documentId,url:snap.url,label,operationId:uuid(),expected:bindPlan(plan.expected||[],snap),time:call.time,point,view:{viewport:v.viewport,scroll:v.scroll}};
+      // The screenshot is used up here whether the click runs now, waits for approval or is refused.
+      task=await gate('input',task,snap,{kind:'point',x,y},{pending,prepare:t=>{t.lastView=null;event(t,plan.reply);if(plan.notice){t.notice=plan.notice;event(t,'重要操作：'+plan.notice);}},onGrant:t=>{t.pending=pending;t.retries=0;}});
+      if(!task||!await live())return;
+      await execute(task,pending,live);
+    }
+    // A model that turned out not to see images (image-type 400 after view_image) gets the pending screenshots
+    // as recognition text, one round for the batch; the images are then deleted.
+    async function recognizeShots(task,live,signal){
+      const {tabId,token}=task,shots=task.shots.filter(shot=>shot.origin===task.origin);
+      task=await update(tabId,token,t=>{t.steps++;t.phase='thinking';event(t,'正在识别截图（'+shots.length+' 张）');});
+      if(!task||!await live())return;
+      const results=[];
+      for(const shot of shots){
+        let outcome;
+        try{outcome=T.result({status:'success',dispatch:'not_sent',scope:'page',code:'IMAGE_RECOGNIZED',recovery:'none',observed:imageObserved(shot.source,shot.question,await recognizeRetrying(task,()=>images.recognize(shot.id,imageGoal(task),signal,shot.question||null),live,signal)),message:'模型不能看图，截图已转成识别文字（可能有误）'});}
+        catch(error){if(!await live())return;outcome=T.result({status:'error',dispatch:'not_sent',scope:'dispatch',code:'RECOGNITION_FAILED',recovery:'replan',message:'截图识别失败：'+String(error?.message||'').slice(0,120)});}
+        if(!await live())return;
+        results.push({action:'view_image',label:shot.source,time:now(),outcome,result:outcome.message});
+      }
+      const saved=await update(tabId,token,t=>{t.shots=[];t.lastView=null;t.phase='observe';t.results=t.results.concat(results);});
+      if(saved)await images.dropShots(task.taskId,[])?.catch?.(()=>{});
     }
     // Model-visible directory: this task's open members, plus other open web tabs owned by no task
     // (origin and a bounded untrusted title only). Reading another tab needs a side-panel grant.
@@ -967,7 +1210,7 @@
       const outcome=T.result({status:'success',dispatch:'not_sent',scope:'dispatch',code:'TAB_SWITCHED',recovery:'observe',message:'用户已允许，'+request.tabRef+' 加入任务为 '+ref+'，执行目标已切换（未切换浏览器前台）；重新观察'});
       const moved=await switchTo(joined,request.tabId,{...call,action:'tab_switch',outcome,result:outcome.message});
       if(!moved)throw new Error('任务已变化，请刷新后重试');
-      await tools.clearPointer?.(tabId);schedule(request.tabId);return moved;
+      await tools.clearPointer?.(tabId);await releaseInput(tabId);schedule(request.tabId);return moved;
     }
     // Bouncing between tabs without page work is a loop, even when every switch succeeds.
     async function hopLimit(task){
@@ -1014,7 +1257,7 @@
     async function closeTabAction(task,plan,call,live){
       const member=(task.members||[]).find(item=>item.tabRef===plan.id);
       if(!member||member.kind!=='task_created')return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','只能关闭本任务打开的标签页');
-      if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ACTIVE','不能关闭执行标签页；请先用 tab_switch 切到其他成员');
+      if(member.tabId===task.tabId)return tabReject(task,call,plan,'TAB_ACTIVE','不能关闭执行标签页；请先用 tab（op=switch）切到其他成员');
       if((await store.owner(member.tabId))?.taskId!==task.taskId)return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已不属于本任务');
       let tab=null;try{tab=await tools.tab(member.tabId,true);}catch(error){if(error.code==='NAVIGATION')throw error; /* Already gone: only the directory changes. */ }
       if(tab&&!(task.allowedOrigins||[]).includes(originOf(tab)))return tabReject(task,call,plan,'TAB_NOT_CLOSABLE','该标签页已离开任务站点，可能正被你使用，不会关闭');
@@ -1102,6 +1345,24 @@
       for(const entry of task.results||[])tally(entry);
       return {schema:'page-agent-diagnostics',version:1,generatedAt:now(),scope:'current_task_statistics',status:pick(task.status,['running','waiting_page','waiting_confirmation','paused','stopped','failed','completed','ended']),phase:pick(task.phase,['observe','thinking','executing','verifying','compacting','idle','confirm','approved']),steps:count(task.steps),maxSteps:count(task.prefs?.maxSteps),counts:{observations:count(task.metrics?.observations),actions:count(task.metrics?.actions),verifications:count(task.metrics?.verifications)},timings,outcomes};
     }
+    // Approval gate: proceeds at once under a task-scope grant for this tab and origin (decided on the stored record, so
+    // a revoke wins) and returns the task; otherwise pauses with task[request] for the side panel and returns null.
+    async function gate(kind,task,snap,request,{pending=null,prepare=()=>{},onGrant=()=>{}}={}){
+      const k=APPROVALS[kind];let granted=false;
+      const decided=await update(task.tabId,task.token,t=>{
+        prepare(t);
+        const grant=t[k.grant],held=pending||t.pending;
+        if(grant?.scope==='task'&&grant.tabId===task.tabId&&t.tabId===task.tabId&&grant.origin===t.origin&&originOf(snap)===grant.origin){granted=true;onGrant(t);event(t,k.auto);return;}
+        if(grant)t[k.grant]=null;
+        t.status='paused';t.reason=k.reason;t.phase='observe';t.pending=null;t.check=null;t.waitDeadline=null;t.nextObservation=null;
+        t[k.request]={id:uuid(),...request,url:snap.url,origin:t.origin,documentId:snap.documentId||null,time:now(),pending:held};
+        event(t,k.wait);
+      });
+      return granted?decided:null;
+    }
+    // inputApproval for browser-tools: 'action' = this gated action was approved; 'task' = a task-scope grant on this tab
+    // and origin, which also lets an unreachable target fall back to real input.
+    const inputApprovalOf=(task,pending)=>pending.inputKind?'action':task.inputApproval?.scope==='task'&&task.inputApproval.tabId===task.tabId&&task.inputApproval.origin===task.origin?'task':null;
     async function execute(task, pending, live) {
       // Checkpoint BEFORE emitting a side effect. On worker restart this phase
       // pauses for inspection rather than silently duplicating a click.
@@ -1109,12 +1370,13 @@
         t.check=pending.expected?.length?{tabId:task.tabId,origin:task.origin,scopeRevision:task.scopeRevision,operationId:pending.operationId,expected:pending.expected,deadline:now()+(pending.plan.timeoutMs||10000),kind:'action',dispatch:'unknown',action:pending.plan.action,request:pending.plan,time:pending.time,url:pending.url,documentId:pending.documentId,key:pending.targetKey,target:pending.targetDescriptor}:null;
       });
       if (!await live()) return;
-      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,policyFor(task),live),live),{operationId:pending.operationId,documentId:pending.documentId});
+      const result = T.normalize(await measured(task,'tool',()=>tools.execute(task.tabId,pending,{...policyFor(task),taskId:task.taskId,inputApproval:inputApprovalOf(task,pending)},live),live),{operationId:pending.operationId,documentId:pending.documentId});
       if (!await live()) return;
       await update(task.tabId,task.token,t=>{
         t.pending=null;t.phase='observe';t.status=result.navigation?'waiting_page':'running';t.lastOutcome=result;t.tabHops=0;
         if(t.check)t.check.dispatch=result.dispatch;
         if(result.status==='success'){t.check=null;t.waitDeadline=null;t.recoveryCount=0;}
+        else if(t.check&&result.dispatch==='not_sent')t.check=null; // e.g. unreachable target, real input unavailable: nothing to wait for
         else if(t.check){t.phase='verifying';t.status='waiting_page';}
         const entry={request:pending.plan,time:pending.time||Date.now(),action:pending.plan.action,label:pending.label,sensitive:pending.sensitive,result:result.message||'操作已发出，下一轮检查页面',outcome:result,verification:result.verification,connection:result.connection};
         t.results=t.results.concat(entry);event(t,entry.result);
@@ -1178,7 +1440,7 @@
         const task=await store.get(tabId);
         if(task&&ACTIVE.has(task.status))schedule(tabId,task.retries?2000:task.status==='waiting_page'?1000:100);
         else {
-          await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
+          await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);
           // tab_switch / tab_open moved the binding: continue on the new executing tab.
           const moved=!task&&store.getByTaskId?await store.getByTaskId(taskId).catch(()=>null):null;
           if(moved&&moved.tabId!==tabId&&ACTIVE.has(moved.status))schedule(moved.tabId);
@@ -1190,8 +1452,10 @@
     function closedPatch(t,next){
       const results=[...(t.results||[])],uncertainClicks=[...(t.uncertainClicks||[])];
       const source=t.check?.kind==='action'?t.check:t.phase==='executing'?t.pending:null;
-      const script=t.scriptRequest?.pending||(t.phase==='approved'&&t.pending?.plan?.action==='run_script'?t.pending:null);
-      if(script)results.push(scriptEntry(t,script,'SCRIPT_DISCARDED','执行标签页已关闭，待执行的脚本已作废，未执行','observe',now()));
+      for(const k of Object.values(APPROVALS)){
+        const held=t[k.request]?.pending||(t.phase==='approved'&&k.owns(t.pending)?t.pending:null);
+        if(held)results.push(notRun(t,held,k.discarded,'执行标签页已关闭，待执行的'+k.noun+'已作废，未执行','observe',now()));
+      }
       if(source){
         const request=source.request||source.plan;
         results.push({action:request?.action||source.action,request,time:now(),origin:t.origin,tabRef:refOf(t),outcome:T.result({status:'unknown',dispatch:t.check?.dispatch||'unknown',scope:'dispatch',code:'TAB_CLOSED',recovery:'observe',operationId:source.operationId,message:'执行标签页已关闭，原操作结果未知，不会重放'})});
@@ -1199,7 +1463,7 @@
       }
       const terminal=['completed','stopped','failed'].includes(t.status);
       const events=recent((t.events||[]).concat({time:now(),text:'执行标签页 '+refOf(t)+' 已关闭；任务暂停在 '+next.tabRef+'，点击继续将重新观察'}),40,16000);
-      return {results,uncertainClicks:uncertainClicks.slice(-2),events,scriptRequest:null,pending:null,check:null,waitDeadline:null,phase:'observe',nextObservation:null,contextUsage:null,status:terminal?t.status:'paused',reason:terminal?t.reason:'active_tab_closed'};
+      return {results,uncertainClicks:uncertainClicks.slice(-2),events,scriptRequest:null,inputRequest:null,pending:null,check:null,waitDeadline:null,phase:'observe',nextObservation:null,contextUsage:null,status:terminal?t.status:'paused',reason:terminal?t.reason:'active_tab_closed'};
     }
     async function memberClosed(tabId){
       // Abort synchronously before waiting for storage or a running update.
@@ -1228,9 +1492,10 @@
       const current=await store.get(tabId);
       if(current?.status==='completed'&&current.reviewState==='running'&&controllers.has(current.taskId)){
         detachedReviews.add(current.taskId);if(controllerTasks.get(tabId)===current.taskId)controllerTasks.delete(tabId);
-        await tools.clearPointer?.(tabId);await cancelSchedule(tabId);
+        await tools.clearPointer?.(tabId);await releaseInput(tabId);await cancelSchedule(tabId);
       }else{controllerForTab(tabId)?.abort();await stop(tabId);}
       await serial(tabId,()=>store.remove(tabId));
+      if(current?.attachments?.length||current?.shots?.length)await images?.remove(current.taskId)?.catch?.(()=>{});
     }
     async function recover() {
       // Missing tabs can have closed while the worker was unavailable. Query failure
@@ -1239,10 +1504,16 @@
       for(const task of await store.list()){
         if(existing&&!existing.has(task.tabId)){await memberClosed(task.tabId);continue;}
         if(existing)for(const member of task.members||[])if(member.tabId!==task.tabId&&!existing.has(member.tabId))await memberClosed(member.tabId);
-        if(ACTIVE.has(task.status))schedule(task.tabId);
+        if(ACTIVE.has(task.status))schedule(task.tabId);else await releaseInput(task.tabId);
       }
+      await pruneImages();
     }
-    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,reviewScriptApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSkills,editSkills,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:async tabId=>{const task=await store.get(tabId);return task&&tools.frameOrigins?{...task,rememberedFrameOrigins:await tools.frameOrigins(task.origin)}:task;}};
+    // Images of tasks that ended without finish/clear (closed tab, replaced, browser restart) and stale drafts.
+    async function pruneImages(){
+      if(!images)return;
+      try{await images.prune((await store.list()).filter(t=>t.status!=='ended').map(t=>t.taskId));}catch{ /* retried on the next start */ }
+    }
+    return {start,submit,setGoalMode,resolve,choose,finish,stop,takeover,resume,approve,tick,recover,remove,memberClosed,sensitiveAccess,tabAccess,scriptApproval,revokeScriptApproval,inputApproval,revokeInputApproval,reviewApprovals,reviewScriptApprovals:reviewApprovals,changeOrigins,members,changeMembers,reviewPermissions,navigationChanged,diagnostics,getSkills,editSkills,getSiteMemory,editSiteMemory,getGlobalMemory,editGlobalMemory,get:async tabId=>{const task=await store.get(tabId);return task&&tools.frameOrigins?{...task,rememberedFrameOrigins:await tools.frameOrigins(task.origin)}:task;}};
   }
   const api={createRuntime,recent};root.PageAgentRuntime=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

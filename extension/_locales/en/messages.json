@@ -125,6 +125,9 @@
   "spHistoryBack": {
     "message": "Back to chat"
   },
+  "spHistoryList": {
+    "message": "Back to list"
+  },
   "spHistoryNote": {
     "message": "Conversations from all sites, saved on this device (latest 50); sensitive field values are hidden"
   },
@@ -181,6 +184,45 @@
   },
   "spGoalModeTitle": {
     "message": "When on, unverified results, stale targets and obstacles are replanned automatically until the task is done, stopped or out of steps"
+  },
+  "spAttach": {
+    "message": "Add image"
+  },
+  "spAttachTitle": {
+    "message": "Add images (or paste / drop them), up to 4 per task"
+  },
+  "spImageAlt": {
+    "message": "Image {1} to send"
+  },
+  "spImageRemove": {
+    "message": "Remove image {1}"
+  },
+  "spImageType": {
+    "message": "Only PNG, JPEG, WebP and GIF images are supported"
+  },
+  "spImageSize": {
+    "message": "Images must be 5 MB or smaller"
+  },
+  "spImageLimit": {
+    "message": "Up to {1} images per task"
+  },
+  "spImageDecode": {
+    "message": "This image cannot be read"
+  },
+  "spImageSaveFailed": {
+    "message": "Could not save the image; try again"
+  },
+  "spImageUrl": {
+    "message": "Only local image files are supported, not web addresses"
+  },
+  "spImageBusy": {
+    "message": "Images are still being processed; send again in a moment"
+  },
+  "spImagesCount": {
+    "message": "{1} image(s) attached"
+  },
+  "spImageRecognized": {
+    "message": "Recognized text (may be wrong): {1}"
   },
   "spComposerHint": {
     "message": "Enter to send, Shift + Enter for a new line"
@@ -265,6 +307,24 @@
   },
   "optCompression": {
     "message": "Compaction threshold (%)"
+  },
+  "optRecognition": {
+    "message": "Image recognition model (optional)"
+  },
+  "optRecognitionModel": {
+    "message": "Model"
+  },
+  "optRecognitionPlaceholder": {
+    "message": "Empty = main model"
+  },
+  "optRecognitionEndpoint": {
+    "message": "API address"
+  },
+  "optRecognitionEndpointPlaceholder": {
+    "message": "Empty = main address and key"
+  },
+  "optRecognitionKey": {
+    "message": "API key"
   },
   "optManagementHint": {
     "message": "Editing or clearing memory pauses related tasks; continue them from the side panel."
@@ -767,6 +827,15 @@
   "spScriptReject": {
     "message": "Reject"
   },
+  "spScriptSetup": {
+    "message": "Scripts also need Chrome’s “Allow User Scripts” toggle"
+  },
+  "spScriptSetupOpen": {
+    "message": "Open extension details"
+  },
+  "spScriptSetupDismiss": {
+    "message": "Dismiss"
+  },
   "spScriptRevoke": {
     "message": "Revoke"
   },
@@ -829,6 +898,18 @@
   },
   "optSaved": {
     "message": "Settings saved; they apply to new tasks or after Continue task. No model call has been made yet."
+  },
+  "optTestConnection": {
+    "message": "Test connection"
+  },
+  "optTesting": {
+    "message": "Saved. Testing the connection…"
+  },
+  "optTestVision": {
+    "message": "Connected · can see images"
+  },
+  "optTestNoVision": {
+    "message": "Connected · cannot see images; images will be turned into text"
   },
   "optImageChoose": {
     "message": "Choose image"
@@ -898,5 +979,53 @@
   },
   "mgSkillGeneral": {
     "message": "General (any site)"
+  },
+  "optRealInputTitle": {
+    "message": "Real input & screenshots"
+  },
+  "optRealInputIntro": {
+    "message": "Lets the assistant take screenshots and use a real mouse click when a simulated one can’t reach; Chrome shows a debugging bar while in use."
+  },
+  "optRealInputEnable": {
+    "message": "Turn on"
+  },
+  "optRealInputDisable": {
+    "message": "Turn off"
+  },
+  "optRealInputFailed": {
+    "message": "Couldn’t save, try again."
+  },
+  "spRealInputSetup": {
+    "message": "Goal mode works best with real input & screenshots"
+  },
+  "spRealInputEnable": {
+    "message": "Turn on"
+  },
+  "spInputTitle": {
+    "message": "Allow screenshot / real input?"
+  },
+  "spInputText": {
+    "message": "This uses the browser debugging channel on this page; the browser shows a debugging bar and it detaches when done. \"Allow for this task\" covers only this task on the same tab and site; you can revoke it anytime."
+  },
+  "spInputShotViewport": {
+    "message": "Screenshot of the visible area"
+  },
+  "spInputShot": {
+    "message": "Screenshot of element: {1}"
+  },
+  "spInputPoint": {
+    "message": "Click at screenshot point ({1}, {2})"
+  },
+  "spInputClick": {
+    "message": "Real click: {1}"
+  },
+  "spInputHover": {
+    "message": "Real hover: {1}"
+  },
+  "spInputTarget": {
+    "message": "Site: {1}"
+  },
+  "spInputGrant": {
+    "message": "Screenshots and real input allowed for this task ({1})"
   }
 }

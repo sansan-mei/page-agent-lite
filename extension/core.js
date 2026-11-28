@@ -12,6 +12,11 @@ const agentToolRegistry=(()=>{
  const add=(names,policy)=>{for(const name of names)records[name]=Object.freeze({route:'runtime',effect:'read',target:'none',timeout:false,guard:false,...policy});};
  add(['done','pause','request_sensitive_access'],{effect:'control'});
  add(['observe','verify','history_read','skill_read','read_references'],{});add(['wait'],{timeout:true});
+ // view_image: runtime-handled read; the area comes from a snapshot target or the viewport, never from coordinates.
+ add(['view_image'],{});
+ // click_point: one real click at {x,y} of the latest viewport screenshot; the runtime checks and converts the point,
+ // and only offers the tool to models that see screenshots. The page executor refuses it (browser route).
+ add(['click_point'],{route:'browser',effect:'page',timeout:true});
  add(['click','fill','check','select','wheel','press_key','double_click','right_click'],{route:'content',effect:'page',target:'required',timeout:true,guard:true});
  add(['hover'],{route:'content',effect:'page',target:'required',timeout:true});
  add(['scroll'],{route:'content',effect:'page',target:'optional',timeout:true});
@@ -30,6 +35,34 @@ const agentToolRegistry=(()=>{
 })();
 function agentTool(name){return typeof name==='string'&&Object.prototype.hasOwnProperty.call(agentToolRegistry,name)?agentToolRegistry[name]:null;}
 function agentToolNames(){return Object.keys(agentToolRegistry);}
+// Model-facing tools group related registry actions under one name plus op (click double/right, tab
+// switch/open/close, site/global memory read/write/delete/clear). agentModelPlan maps them back before
+// validation, so execution, stored results and the side panel keep registry names. Registry names stay
+// accepted from the model as aliases.
+const agentToolGroups=Object.freeze({
+ click:Object.freeze({fallback:'click',ops:Object.freeze({double:'double_click',right:'right_click'})}),
+ tab:Object.freeze({ops:Object.freeze({switch:'tab_switch',open:'tab_open',close:'tab_close'})}),
+ site_memory:Object.freeze({ops:Object.freeze({read:'site_memory_read',write:'site_memory_write',delete:'site_memory_delete',clear:'site_memory_clear'})}),
+ global_memory:Object.freeze({ops:Object.freeze({read:'global_memory_read',write:'global_memory_write',delete:'global_memory_delete',clear:'global_memory_clear'})})
+});
+const agentPublicOf=(()=>{const map=Object.create(null);for(const [tool,g] of Object.entries(agentToolGroups)){if(g.fallback)map[g.fallback]={action:tool};for(const [op,name] of Object.entries(g.ops))map[name]={action:tool,op};}return Object.freeze(map);})();
+const own=(o,k)=>typeof k==='string'&&Object.prototype.hasOwnProperty.call(o,k);
+function agentPublicAction(action){return own(agentPublicOf,action)?{...agentPublicOf[action]}:{action};}
+function agentPublicTools(names){const out=[];for(const name of names){const tool=agentPublicAction(name).action;if(!out.includes(tool))out.push(tool);}return out;}
+function agentToolMembers(tool){const g=own(agentToolGroups,tool)?agentToolGroups[tool]:null;return g?(g.fallback?[g.fallback]:[]).concat(Object.values(g.ops)):[tool];}
+function agentModelPlan(raw,snap){
+ let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
+ if(p&&typeof p==='object'&&!Array.isArray(p)){
+  const g=own(agentToolGroups,p.action)?agentToolGroups[p.action]:null;
+  if(p.op!==undefined||g&&!g.fallback){
+   const name=g&&own(g.ops,p.op)?g.ops[p.op]:null;
+   if(!name)throw new Error('op 无效：'+(g?p.action+' 只接受 '+Object.keys(g.ops).join('/'):'只有 '+Object.keys(agentToolGroups).join('/')+' 使用 op'));
+   const {op,...rest}=p;p={...rest,action:name};
+  }
+  if(p.action==='read_references'&&Array.isArray(p.value))p={...p,value:p.value.map(r=>r&&typeof r==='object'&&!Array.isArray(r)&&['site_memory','global_memory'].includes(r.action)?{...r,action:r.action+'_read'}:r)};
+ }
+ return agentPlan(JSON.stringify(p),snap);
+}
 const agentSensitiveSelector=['current-password','new-password','one-time-code','cc-number','cc-csc'].map(token=>'[autocomplete~="'+token+'" i]').concat(['input[type="password"]','input[type="file"]','input[type="hidden"]']).join(',');
 function agentText(n){
  if(!n||n.closest(agentSensitiveSelector+',script,style,noscript,[hidden],[aria-hidden="true"],[data-page-agent]'))return '';
@@ -250,7 +283,7 @@ function agentVerify(plan,snap){
 function agentSignature(n){return JSON.stringify([n.localName,agentString(n.type),n.getAttribute('aria-label'),n.textContent,n.getAttribute('href'),agentString(n.name),agentString(n.value),n.checked,n.disabled,n.getAttribute('aria-expanded'),n.getAttribute('aria-selected'),n.getAttribute('aria-controls'),n.getAttribute('aria-owns'),agentPopup(n)?.signature,n.getAttribute('contenteditable'),n.getAttribute('autocomplete'),agentEditable(n)]);}
 function agentPlan(raw,snap){
  let p;try{p=JSON.parse(raw);}catch{throw new Error('模型未返回有效操作 JSON，请重试');}
- if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals','handoff','progress'].includes(k)))throw new Error('模型操作格式无效');
+ if(!p||typeof p.reply!=='string'||p.reply.length>4000||!agentTool(p.action)||Object.keys(p).some(k=>!['reply','action','id','value','expected','timeoutMs','choices','pauseReason','notice','subgoals','handoff','progress','trusted'].includes(k)))throw new Error('模型操作格式无效');
  if(p.subgoals!==undefined){
   if(!Array.isArray(p.subgoals)||p.subgoals.length>8||new Set(p.subgoals.map(g=>g?.id)).size!==p.subgoals.length)throw new Error('子目标列表无效');
   for(const g of p.subgoals){
@@ -275,6 +308,8 @@ function agentPlan(raw,snap){
    ids.add(s.id);agentPlan(JSON.stringify({reply:p.reply,action:s.action,id:s.id,value:s.value}),snap);
   }
  }
+ // trusted:true asks for real mouse input instead of synthetic events (click/hover only).
+ if(p.trusted!==undefined&&(typeof p.trusted!=='boolean'||!['click','hover'].includes(p.action)))throw new Error('trusted 只用于 click/hover，取值为布尔');
  if(p.notice!==undefined&&(typeof p.notice!=='string'||!p.notice.trim()||p.notice.length>300))throw new Error('操作提示无效');
  if(p.pauseReason!==undefined&&(p.action!=='pause'||!['blocked','user'].includes(p.pauseReason)))throw new Error('暂停原因无效');
  if(p.choices!==undefined&&(p.action!=='pause'||!Array.isArray(p.choices)||p.choices.length<2||p.choices.length>8||p.choices.some(v=>typeof v!=='string'||!v.trim()||v.length>120)||new Set(p.choices).size!==p.choices.length))throw new Error('用户选项无效');
@@ -302,6 +337,8 @@ function agentPlan(raw,snap){
   if(p.id!==undefined&&!snap.nodes.has(p.id))throw new Error('滚动目标无效');
  }
  if(p.action==='press_key')agentKey(p.value);
+ if(p.action==='view_image'&&(typeof p.id!=='string'||!/^(viewport|image[1-9]|[tr][0-9]{1,4})$/.test(p.id)||p.id[0]==='t'&&!snap.nodes.has(p.id)||p.expected!==undefined||p.value!==undefined&&(typeof p.value!=='string'||!p.value.trim()||p.value.length>300)))throw new Error('看图参数无效：id 为 viewport、当前快照的元素/区域 ID 或附图 imageN，value 为可选问题（≤ 300 字符）');
+ if(p.action==='click_point'&&(p.id!==undefined||!p.value||typeof p.value!=='object'||Array.isArray(p.value)||Object.keys(p.value).sort().join()!=='x,y'||![p.value.x,p.value.y].every(v=>Number.isFinite(v)&&v>=0&&v<=10000)))throw new Error('坐标点击参数无效：value 为最新 viewport 截图中的 {x,y} 像素，不带 id');
  if(agentToolRegistry.run_script&&p.action==='run_script')(typeof module!=='undefined'?require('./script-tools.js'):root.PageAgentScriptTools).validate(p);
  return p;
 }
@@ -320,7 +357,7 @@ function agentExecute(p,snap,doc){
  if(['press_key','double_click','right_click'].includes(p.action))return agentInput(p,n,doc,ref.signature,snap);
  // Visual feedback never gates or changes the actual operation.
  try{n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});root.PageAgentPointer?.show(n,top,agentVisibleRect(n));}catch{}
- if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover',snap);return;}
+ if(p.action==='click'||p.action==='hover'){agentClick(n,doc,p.action==='hover',snap,true);return {input:'synthetic'};}
  if(p.action==='check'){
   if(n.localName!=='input'||!['checkbox','radio'].includes(n.type))throw new Error('目标不是可勾选选项');
   if(n.type==='radio'&&!p.value)throw new Error('不能直接取消单选项');
@@ -456,12 +493,14 @@ function agentWheel(p,n,doc,snap){
  // Synthetic wheel invokes page listeners, never claims native default scrolling.
  return {input:'wheel',deltaX,deltaY,defaultPrevented:!accepted};
 }
-function agentClick(n,doc,hover=false,snap){
+function agentClick(n,doc,hover=false,snap,reach=false){
  const win=doc.defaultView;
  const r=n.getBoundingClientRect?.();
  let target=n,x=0,y=0;
  if(r&&doc.elementFromPoint)({x,y,hit:target}=agentHitPoint(n,doc,snap,'目标被遮挡或不在可点击区域，请重新观察'));
  else n.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
+ // Synthetic events never enter an embedded document: report it before dispatching so real input can be used instead.
+ if(reach&&['iframe','frame','embed','object'].includes(target?.localName))throw Object.assign(new Error('点击位置是嵌入的其他文档，合成事件无法到达'),{code:'SYNTHETIC_UNREACHABLE',beforeDispatch:true});
  const send=(type,pointer=false,bubbles=true)=>{
   const EventClass=pointer?win.PointerEvent:win.MouseEvent;
   if(!EventClass)return true;
@@ -479,6 +518,16 @@ function agentClick(n,doc,hover=false,snap){
  else target.dispatchEvent(new win.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,button:0,buttons:0}));
  try{root.PageAgentPointer?.click();}catch{}
 }
+// Real-input point in top-level viewport CSS px for the same snapshot target: liveness, signature, visibility and the
+// synthetic hit test (scroll into view, occlusion, iframe box) all apply; frame targets add the iframe offset.
+function agentInputPoint(n,snap,signature){
+ const frame=n&&agentFrame(n.ownerDocument);
+ const excluded=snap?.sensitiveFields===true?'input[type="file"],input[type="hidden"]':agentSensitiveSelector;
+ if(!agentLive(n)||agentSignature(n)!==signature||n.closest(excluded)||frame?.closest(excluded)||n.disabled||n.closest('[hidden],[aria-hidden="true"],[aria-disabled="true"],fieldset[disabled],[data-page-agent]')||agentHidden(n,n.ownerDocument.defaultView)||frame&&agentHidden(frame,frame.ownerDocument.defaultView))throw Object.assign(new Error('页面目标已变化，未发送真实输入'),{code:'STALE'});
+ if(!n.ownerDocument.elementFromPoint)throw Object.assign(new Error('无法计算目标位置'),{code:'STALE'});
+ const {x,y}=agentHitPoint(n,n.ownerDocument,snap,'目标被遮挡，未发送真实输入'),o=frame?agentFrameOffset(frame):{x:0,y:0};
+ return {x:x+o.x,y:y+o.y};
+}
 function agentFrameGuard(key,url,sensitiveFields=false,showPointer=false){
  const f=[...document.querySelectorAll('iframe,frame')].find(n=>agentNodeKey(n)===key);
  if(!f||!agentLive(f)||f.src!==url)throw Object.assign(new Error('框架已变化'),{code:'STALE',beforeDispatch:true});
@@ -490,7 +539,50 @@ function agentFrameGuard(key,url,sensitiveFields=false,showPointer=false){
  if(showPointer)try{root.PageAgentPointer?.show(f,document);}catch{}
  return {visible:true};
 }
-const api={agentFrameGuard,endpoint,agentTool,agentToolNames,agentSnapshot,agentPlan,agentExecute,agentVerify};
+// view_image target: the live snapshot node, visible, scrolled fully into view when it is not; the caller waits a
+// frame after a scroll. The area is its visible box in top-viewport CSS pixels (frame offsets and overflow clipping
+// included); the trusted background turns it into the screenshot clip, never the model.
+function agentShotScroll(ref){
+ const n=ref?.node,frame=n&&agentFrame(n.ownerDocument);
+ if(!agentLive(n)||agentHidden(n,n.ownerDocument.defaultView)||frame&&agentHidden(frame,frame.ownerDocument.defaultView)||n.closest('[hidden],[aria-hidden="true"],[data-page-agent]'))throw Object.assign(new Error('页面目标已变化，未截图'),{code:'STALE'});
+ const r=n.getBoundingClientRect(),win=n.ownerDocument.defaultView;
+ if(r.top>=0&&r.left>=0&&r.top+r.height<=win.innerHeight&&r.left+r.width<=win.innerWidth)return false;
+ n.scrollIntoView?.({block:r.height>win.innerHeight?'start':'center',inline:'nearest',behavior:'instant'});return true;
+}
+function agentShotArea(ref){
+ const n=ref?.node;if(!agentLive(n))throw Object.assign(new Error('页面目标已变化，未截图'),{code:'STALE'});
+ const b=agentVisibleRect(n);
+ if(!b||b.right-b.left<1||b.bottom-b.top<1)throw Object.assign(new Error('目标不在可见区域，未截图'),{code:'TARGET_HIDDEN'});
+ return {left:b.left,top:b.top,width:b.right-b.left,height:b.bottom-b.top};
+}
+// Boxes (top-viewport CSS pixels) to cover before a view_image screenshot. Without the sensitive grant: sensitive
+// fields of the top document, readable same-origin frames and open shadow roots, plus every frame whose document
+// cannot be read (its fields are unknown). With the grant: file inputs only. A box that cannot be measured throws
+// MASK_FAILED, so no screenshot is taken.
+function agentMaskBoxes(doc,sensitiveFields=false){
+ const selector=sensitiveFields?'input[type="file"]':agentSensitiveSelector,boxes=[],win=doc.defaultView;
+ const failed=()=>Object.assign(new Error('无法遮盖敏感字段，未截图'),{code:'MASK_FAILED'});
+ const width=win?.innerWidth,height=win?.innerHeight;if(!Number.isFinite(width)||!Number.isFinite(height))throw failed();
+ const add=(n,o)=>{
+  let r=null;try{r=n.getBoundingClientRect();}catch{}
+  if(!r||![r.left,r.top,r.width,r.height].every(Number.isFinite))throw failed();
+  if(r.width<=0||r.height<=0)return;
+  const left=Math.max(0,r.left+o.x-2),top=Math.max(0,r.top+o.y-2),right=Math.min(width,r.left+o.x+r.width+2),bottom=Math.min(height,r.top+o.y+r.height+2);
+  if(right>left&&bottom>top)boxes.push({left,top,width:right-left,height:bottom-top});
+ };
+ const visit=(root,o,depth)=>{
+  for(const n of root.querySelectorAll(selector))add(n,o);
+  for(const f of root.querySelectorAll('iframe,frame')){
+   let inner=null;try{inner=f.contentDocument;}catch{}
+   if(inner&&depth<4){const fo=agentFrameOffset(f);visit(inner,{x:o.x+fo.x,y:o.y+fo.y},depth+1);}
+   else if(!sensitiveFields)add(f,o);
+  }
+  for(const host of root.querySelectorAll('*'))if(host.shadowRoot)visit(host.shadowRoot,o,depth);
+ };
+ visit(doc,{x:0,y:0},0);
+ return boxes;
+}
+const api={agentShotScroll,agentShotArea,agentMaskBoxes,agentFrameGuard,agentInputPoint,endpoint,agentTool,agentToolNames,agentPublicAction,agentPublicTools,agentToolMembers,agentModelPlan,agentSnapshot,agentPlan,agentExecute,agentVerify};
 root.PageAgentCore=api;
 if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

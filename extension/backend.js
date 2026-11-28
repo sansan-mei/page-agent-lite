@@ -68,22 +68,41 @@ function anthropicToChat(raw){
  }
  return JSON.stringify({choices:[{finish_reason:finish,message:{content:text,...(calls.length?{tool_calls:calls}:{})}}],usage});
 }
-function chatRequest(config,protocol,system,text,tools){
+// images: [{mediaType,data}] (base64). They open the single user message in a fixed order, each after the
+// same data-not-instructions line, so the prefix stays identical across turns and prompt caching can hit.
+// cached: index of the last stable image (task attachments); one-turn screenshots follow it uncached.
+function userContent(format,text,images=[],cached=images.length-1){
+ if(!images.length)return text;
+ const parts=[];
+ images.forEach((image,i)=>{
+  parts.push({type:'text',text:P.IMAGE_NOTE});
+  if(format==='anthropic')parts.push({type:'image',source:{type:'base64',media_type:image.mediaType,data:image.data},...(i===cached?{cache_control:{type:'ephemeral'}}:{})});
+  else parts.push({type:'image_url',image_url:{url:'data:'+image.mediaType+';base64,'+image.data}});
+ });
+ parts.push({type:'text',text});
+ return parts;
+}
+function chatRequest(config,protocol,system,text,tools,images=[],cached=images.length-1){
  const effort=config.reasoningEffort??'medium';
  if(config.apiFormat==='anthropic'){
   // tool_choice stays "auto": some Claude models reject "any"/"tool", which would wrongly trigger the
   // JSON fallback. The system prompt still demands exactly one tool; a text-only reply is handled by
   // parseChatResponse. Thinking is not sent, keeping output bounded by max_tokens.
   return {url:'/messages',headers:{'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true',...(config.key?{'x-api-key':config.key}:{})},
-   body:{model:config.model,system:[{type:'text',text:system,cache_control:{type:'ephemeral'}}],messages:[{role:'user',content:text}],max_tokens:4096,
+   body:{model:config.model,system:[{type:'text',text:system,cache_control:{type:'ephemeral'}}],messages:[{role:'user',content:userContent('anthropic',text,images,cached)}],max_tokens:4096,
     ...(protocol==='native'?{tools:tools.map(t=>({name:t.function.name,description:t.function.description,input_schema:t.function.parameters})),tool_choice:{type:'auto',disable_parallel_tool_use:true}}:{}),stream:false}};
  }
  return {url:'/chat/completions',headers:config.key?{Authorization:'Bearer '+config.key}:{},
-  body:{model:config.model,messages:[{role:'system',content:system},{role:'user',content:text}],...(protocol==='native'?{tools,tool_choice:'required',parallel_tool_calls:false}:{}),...(effort==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:effort}),stream:false}};
+  body:{model:config.model,messages:[{role:'system',content:system},{role:'user',content:userContent('openai',text,images,cached)}],...(protocol==='native'?{tools,tool_choice:'required',parallel_tool_calls:false}:{}),...(effort==='default'?{temperature:0.2,max_tokens:2000}:{reasoning_effort:effort}),stream:false}};
 }
 // HTTP 400/422 bodies that name the tool parameters mean the API rejects function calling.
 function rejectsTools(status,body){return [400,422].includes(status)&&/\btools?\b|tool_choice|tool_calls|parallel_tool_calls|function/i.test(body);}
-function createService(chrome,fetcher=fetch){
+// HTTP 400 bodies that name images mean the model cannot take image input.
+function rejectsImages(status,body){return status===400&&/image|vision|multimodal/i.test(body);}
+// 16x16 crimson PNG for the connection test's vision probe.
+const PROBE_PNG='iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mO4I2JDEmIY1TCqYfhqAAAeBCwQ81sZJgAAAABJRU5ErkJggg==';
+// attachments: image store used to load task images by id (defaults to the shared IndexedDB store).
+function createService(chrome,fetcher=fetch,{attachments=null}={}){
  const store=chrome.storage.local;
  const get=async k=>{try{return (await store.get(k))[k];}catch{throw new Error('读取本机存储失败，请重启扩展后重试');}};
  async function init(){await store.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});}
@@ -111,12 +130,33 @@ function createService(chrome,fetcher=fetch){
    await write({agentPreferences:{...previous,...p}});return {ok:true};
   }
   if(m.type==='settings'){if(!opts)throw new Error('拒绝访问设置');return {apiFormat:'openai',reasoningEffort:'medium',toolMode:'auto',...await get('config')};}
+  if(m.type==='testConnection'){
+   if(!opts||Object.keys(m).join()!=='type')throw new Error('拒绝访问设置');
+   const config=await get('config');if(!config)throw new Error('请先保存 API 设置');
+   const base=C.endpoint(config.endpoint);if(!await chrome.permissions.contains({origins:[new URL(base).origin+'/*']}))throw new Error('请先授权 API 地址');
+   // Vision probe: one tiny image and a one-word question. Success means images work; an image-type 400
+   // means they do not; any other failure leaves vision unknown (images are still sent later).
+   const request=chatRequest(config,'json','Answer with one word.','What colour is this image? Answer with one word.',[],[{mediaType:'image/png',data:PROBE_PNG}]);
+   const response=await post(base,request);
+   if(!response.ok){
+    let body='';if(response.status===400){try{body=(await bounded(response,8192)).slice(0,8192);}catch{}}else response.body?.cancel().catch(()=>{});
+    if(rejectsImages(response.status,body)){await rememberVision(config,'unsupported');return {vision:'unsupported'};}
+    throw new Error('API '+response.status+'：'+({401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常'));
+   }
+   let raw=await bounded(response,65536);if(config.apiFormat==='anthropic')raw=anthropicToChat(raw);
+   parseChatResponse(raw,'json');
+   await rememberVision(config,'supported');return {vision:'supported'};
+  }
   if(m.type==='configure'){
    if(!opts)throw new Error('拒绝修改设置');const c=m.config;
-   if(!c||Object.keys(c).some(k=>!['apiFormat','endpoint','key','language','model','reasoningEffort','toolMode'].includes(k))||!['openai','anthropic'].includes(c.apiFormat??'openai')||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||!['auto','native','json'].includes(c.toolMode??'auto')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
+   if(!c||Object.keys(c).some(k=>!['apiFormat','endpoint','key','language','model','reasoningEffort','toolMode','recognition'].includes(k))||!['openai','anthropic'].includes(c.apiFormat??'openai')||!['default','low','medium','high'].includes(c.reasoningEffort??'medium')||!['auto','native','json'].includes(c.toolMode??'auto')||typeof c.key!=='string'||c.key.length>4096||/[\r\n]/.test(c.key)||typeof c.model!=='string'||!c.model.trim()||c.model.length>120||typeof c.language!=='string'||!c.language.trim()||c.language.length>60)throw new Error('设置格式无效');
    const endpoint=C.endpoint(c.endpoint);if(!await chrome.permissions.contains({origins:[new URL(endpoint).origin+'/*']}))throw new Error('请先授权 API 地址');
-   // Saving settings again re-probes native tools for every model.
-   await write({config:{...c,endpoint,apiFormat:c.apiFormat??'openai',reasoningEffort:c.reasoningEffort??'medium',toolMode:c.toolMode??'auto'},nativeToolsUnsupported:[]});return {ok:true};
+   const recognition=recognitionSetting(c.recognition);
+   if(recognition?.endpoint&&!await chrome.permissions.contains({origins:[new URL(recognition.endpoint).origin+'/*']}))throw new Error('请先授权识别模型地址');
+   const saved={...c,endpoint,apiFormat:c.apiFormat??'openai',reasoningEffort:c.reasoningEffort??'medium',toolMode:c.toolMode??'auto'};
+   if(recognition)saved.recognition=recognition;else delete saved.recognition;
+   // Saving settings again re-probes native tools and vision for every model.
+   await write({config:saved,nativeToolsUnsupported:[],visionSupport:{}});return {ok:true};
   }
   if(m.type==='model'){
    // Only the service worker's own agent turns reach the model; pages and extension pages cannot.
@@ -131,7 +171,12 @@ function createService(chrome,fetcher=fetch){
    if(options.signal?.aborted)controller.abort();
    options.signal?.addEventListener('abort',cancel,{once:true});
    const task=(async()=>{
-    const request=chatRequest(config,protocol,system,m.text,protocol==='native'?P.agentTools(options.capabilities||{}):[]);
+    // Images go along unless this model identity is known not to see them (then recognition text is used).
+    // view_image screenshots (one turn only) follow the attachments so the cached image prefix stays the same.
+    const vision=(options.images?.length||options.shots?.length)&&await visionMode(config)!=='unsupported';
+    const attached=vision&&options.images?.length?await loadImages(options.images):[];
+    const images=attached.concat(vision&&options.shots?.length?await loadImages(options.shots):[]);
+    const request=chatRequest(config,protocol,system,m.text,protocol==='native'?P.agentTools(options.capabilities||{}):[],images,attached.length-1);
     let response;try{response=await fetcher(base+request.url,{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...request.headers},body:JSON.stringify(request.body),signal:controller.signal});}catch{throw new Error('API 网络连接失败，请检查地址、权限与网络');}
     // Auto mode: a tools rejection or a content-only reply executed nothing; remember it for this
     // model identity and let the runtime retry the turn with the strict-JSON protocol.
@@ -142,9 +187,11 @@ function createService(chrome,fetcher=fetch){
      await write({nativeToolsUnsupported:list.concat(id).slice(-8)});
      fail('MODEL_PROTOCOL_FALLBACK','API 未使用原生工具调用，未执行操作；已改用 JSON 文本协议');
     };
-    if(!response.ok&&protocol==='native'&&[400,422].includes(response.status)){
+    if(!response.ok&&(protocol==='native'&&[400,422].includes(response.status)||images.length&&response.status===400)){
      let body='';try{body=(await bounded(response,8192)).slice(0,8192);}catch{}
-     if(rejectsTools(response.status,body))await unsupported();
+     // An image rejection is remembered per model identity; the runtime then switches to recognition text.
+     if(images.length&&rejectsImages(response.status,body)){await rememberVision(config,'unsupported');fail('MODEL_VISION_FALLBACK','模型不支持图片输入，未执行操作；改用识别模型转文字');}
+     if(protocol==='native'&&rejectsTools(response.status,body))await unsupported();
      throw new Error('API '+response.status+'：服务异常');
     }
     if(!response.ok){response.body?.cancel().catch(()=>{});const reason={401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常';throw new Error('API '+response.status+'：'+reason);}
@@ -170,6 +217,57 @@ function createService(chrome,fetcher=fetch){
   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>limit){await reader.cancel();throw new Error('API 响应过大');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}catch{throw new Error(bytes>limit?'API 响应过大':'API 响应读取失败，请重试');}finally{try{reader.releaseLock();}catch{}}
   return raw;
  }
+ // One-off request with its own 60-second timeout (connection test); the agent path keeps its own cancellation.
+ async function post(base,request,signal=null){
+  const controller=new AbortController(),cancel=()=>controller.abort();const timer=setTimeout(cancel,60000);
+  if(signal?.aborted)controller.abort();signal?.addEventListener('abort',cancel,{once:true});
+  try{return await fetcher(base+request.url,{method:'POST',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json',...request.headers},body:JSON.stringify(request.body),signal:controller.signal});}
+  catch{throw new Error(controller.signal.aborted&&!signal?.aborted?'API 请求超时（60 秒），请重试':'API 网络连接失败，请检查地址、权限与网络');}
+  finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+ }
+ // Vision support per model identity (same hash as nativeToolsUnsupported): supported / unsupported, 8 each.
+ async function visionMode(config=undefined){
+  const id=await identity(config),v=await get('visionSupport')||{};
+  return (v.unsupported||[]).includes(id)?'unsupported':(v.supported||[]).includes(id)?'supported':'unknown';
+ }
+ async function rememberVision(config,state){
+  const id=await identity(config),v=await get('visionSupport')||{};
+  const next={supported:(v.supported||[]).filter(x=>x!==id),unsupported:(v.unsupported||[]).filter(x=>x!==id)};
+  next[state]=next[state].concat(id).slice(-8);await write({visionSupport:next});
+ }
+ let imageStore=attachments;
+ const imageStoreOf=()=>imageStore||(imageStore=root.PageAgentSiteMemory?.createAttachmentStore?.()||null);
+ // Stored images are JPEG/PNG/WebP/GIF data URLs; anything else (or a deleted id) is skipped.
+ async function loadImages(ids){
+  const store=imageStoreOf();if(!store)return [];
+  return (await store.get(ids)).map(record=>/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+=*)$/.exec(record?.data||'')).filter(Boolean).map(match=>({mediaType:match[1],data:match[2]}));
+ }
+ // Turns one image (stored id, or {data} base64 JPEG from view_image) into text for a model that cannot see
+ // images, optionally answering the model's question; the text is untrusted data.
+ async function recognize(id,goal,signal,question=null){
+  const main=await get('config');if(!main)throw new Error('请先打开设置，配置 API 地址及模型');
+  const config=recognitionConfig(main),base=C.endpoint(config.endpoint);
+  if(!await chrome.permissions.contains({origins:[new URL(base).origin+'/*']}))throw new Error('识别模型地址未授权');
+  const [image]=typeof id==='string'?await loadImages([id]):[id&&typeof id.data==='string'&&/^[A-Za-z0-9+/]+=*$/.test(id.data)?{mediaType:'image/jpeg',data:id.data}:null];if(!image)throw new Error('图片已删除');
+  const ask=typeof question==='string'&&question.trim()?'\nQuestion: '+question.trim().slice(0,300):'';
+  const request=chatRequest(config,'json',P.recognitionSystem(config.language),'Task: '+String(goal||'').slice(0,2000)+ask,[],[image]);
+  const response=await post(base,request,signal);
+  if(!response.ok){response.body?.cancel().catch(()=>{});throw new Error('API '+response.status+'：'+({401:'密钥无效',403:'无权访问',429:'请求过多或额度不足'}[response.status]||'服务异常'));}
+  let raw=await bounded(response,65536);if(config.apiFormat==='anthropic')raw=anthropicToChat(raw);
+  return parseChatResponse(raw,'json').text.trim().slice(0,2000);
+ }
+ // Image operations the runtime needs; the store itself never leaves the trusted background.
+ const imageService={
+  mode:()=>visionMode(),recognize,
+  // view_image screenshots: stored bound to the task until the next model request, then dropped.
+  saveShot:async(taskId,data)=>{const id='shot_'+crypto.randomUUID().replace(/-/g,'').slice(0,24);await requireStore().putShot({id,taskId,data:'data:image/jpeg;base64,'+data});return id;},
+  dropShots:(taskId,keep=[])=>imageStoreOf()?.removeShots(taskId,keep),
+  present:async ids=>(await requireStore().get(ids)).map(r=>r.id),
+  claim:(ids,taskId)=>requireStore().claim(ids,taskId),
+  remove:taskId=>imageStoreOf()?.removeTask(taskId),
+  prune:liveTaskIds=>imageStoreOf()?.prune(liveTaskIds)
+ };
+ function requireStore(){const store=imageStoreOf();if(!store)throw new Error('图片存储不可用');return store;}
  // Agent protocol for the saved config: auto uses native tools unless this model identity fell back.
  async function agentProtocol(config=undefined){
   config=config||await get('config')||{};const mode=config.toolMode??'auto';
@@ -181,7 +279,22 @@ function createService(chrome,fetcher=fetch){
   const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([config.endpoint,config.model,config.language,config.key,config.reasoningEffort??'medium',...(config.apiFormat==='anthropic'?['anthropic']:[])])));
   return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
  }
- return {init,handle,identity,agentProtocol,preferences,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true}}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
+ return {init,handle,identity,agentProtocol,preferences,visionMode,images:imageService,generateAgent:(text,signal,capabilities={})=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,capabilities:{scripts:capabilities?.scripts===true,vision:capabilities?.vision===true,realInput:capabilities?.realInput===true},images:imageIds(capabilities?.images),shots:imageIds(capabilities?.shots).slice(0,3)}),summarizeAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,summarize:true}),reviewAgent:(text,signal)=>handle({type:'model',task:'agent',text},null,{internalAgent:true,signal,review:true})};
 }
-const api={createService,parseChatResponse,anthropicToChat};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
+// Optional recognition model: an empty model means "use the main model"; without its own address it
+// reuses the main address, format and key, so a key is never sent to a different host.
+function recognitionSetting(r){
+ if(r===undefined||r===null)return null;
+ if(typeof r!=='object'||Array.isArray(r)||Object.keys(r).some(k=>!['apiFormat','endpoint','key','model'].includes(k))||!['openai','anthropic'].includes(r.apiFormat??'openai')||typeof (r.model??'')!=='string'||(r.model??'').length>120||typeof (r.key??'')!=='string'||(r.key??'').length>4096||/[\r\n]/.test(r.key??'')||typeof (r.endpoint??'')!=='string')throw new Error('设置格式无效');
+ const model=(r.model||'').trim();if(!model)return null;
+ return r.endpoint?{apiFormat:r.apiFormat??'openai',endpoint:C.endpoint(r.endpoint),key:r.key||'',model}:{model};
+}
+function recognitionConfig(main){
+ const r=main.recognition;
+ const own=r?.model?(r.endpoint?{apiFormat:r.apiFormat,endpoint:r.endpoint,key:r.key,model:r.model}:{apiFormat:main.apiFormat,endpoint:main.endpoint,key:main.key,model:r.model}):{apiFormat:main.apiFormat,endpoint:main.endpoint,key:main.key,model:main.model};
+ return {...own,language:main.language,reasoningEffort:'default'};
+}
+// Per-turn image refs from the runtime: attachment ids only, at most 4.
+function imageIds(value){return Array.isArray(value)?value.filter(id=>typeof id==='string'&&/^[A-Za-z0-9_-]{8,64}$/.test(id)).slice(0,4):[];}
+const api={createService,parseChatResponse,anthropicToChat,chatRequest};root.PageAgentBackend=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
